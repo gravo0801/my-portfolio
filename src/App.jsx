@@ -21,15 +21,19 @@ const today  = () => new Date().toISOString().slice(0, 10);
 const fmtKRW = (v) => Math.round(v).toLocaleString("ko-KR") + "₩";
 
 async function fetchYahoo(ticker) {
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+  const q1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
+  const q2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
   const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(yahooUrl)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(q1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(q2)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(q1)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(q2)}`,
+    `https://thingproxy.freeboard.io/fetch/${q1}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(q1)}`,
   ];
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!r.ok) continue;
       const d = await r.json();
       const m = d?.chart?.result?.[0]?.meta;
@@ -39,6 +43,18 @@ async function fetchYahoo(ticker) {
       return { price, changePercent: ((price - prev) / prev) * 100, currency: m.currency };
     } catch { continue; }
   }
+  // 마지막 수단: stooq (CORS 프록시 불필요)
+  try {
+    const tk = ticker.endsWith(".KS") || ticker.endsWith(".KQ") ? ticker.replace(".KS","").replace(".KQ","") + ".KR" : ticker + ".US";
+    const r = await fetch(`https://stooq.com/q/l/?s=${tk}&f=sd2ohlcv&h&e=json`, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    const row = d?.symbols?.[0];
+    if (row?.close) {
+      const price = parseFloat(row.close);
+      const open  = parseFloat(row.open) || price;
+      return { price, changePercent: ((price - open) / open) * 100, currency: ticker.endsWith(".KS")||ticker.endsWith(".KQ") ? "KRW" : "USD" };
+    }
+  } catch {}
   return null;
 }
 async function fetchCrypto(ticker) {
@@ -450,7 +466,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             ))}
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:pieData.length>0?"1fr 300px":"1fr", gap:"16px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:pieData.length>0?"1fr 220px":"1fr", gap:"16px" }}>
             <div style={S.card}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"16px", gap:"10px" }}>
                 <div>
@@ -501,7 +517,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         <tr key={h.id}>
                           <td style={S.TD}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><div style={{width:"10px",height:"10px",borderRadius:"3px",background:MARKET_COLOR[h.market],flexShrink:0}}/><div>
                                 <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em"}}>{h.ticker}</div>
-                                <div style={{fontSize:"12px",color:"#475569"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                                <div style={{fontSize:"12px",color:"#cbd5e1",fontWeight:500}}>{h.name||MARKET_LABEL[h.market]}</div>
                                 {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",marginTop:"2px",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700}}>{h.broker}</div>}
                               </div></div></td>
                           <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
@@ -621,9 +637,9 @@ function PortfolioApp({ syncKey, onLogout }) {
               )}
             </div>
             {pieData.length>0&&(
-              <div style={{...S.card,display:"flex",flexDirection:"column"}}>
+              <div style={{...S.card,display:"flex",flexDirection:"column",padding:"16px"}}>
                 <div style={{fontSize:"17px",fontWeight:800,marginBottom:"16px",letterSpacing:"-0.03em"}}>자산 배분</div>
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={40}>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie><Tooltip formatter={v=>fmtKRW(v)} {...TT}/></PieChart>
                 </ResponsiveContainer>
                 <div style={{display:"flex",flexDirection:"column",gap:"10px",marginTop:"12px"}}>
