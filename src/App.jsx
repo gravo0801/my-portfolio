@@ -246,9 +246,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [lastUpdated, setLastUpdated] = useState(null);
   const saving = useRef({});
 
-  const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" });
+  const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" });
+  const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
   const [tForm, setTForm] = useState({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"" });
   const [aForm, setAForm] = useState({ ticker:"", direction:"down", threshold:"" });
 
@@ -375,7 +375,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
   const startEdit = (h) => {
     setEditingId(h.id);
-    setEditForm({ ticker:h.ticker, name:h.name||"", market:h.market, quantity:String(h.quantity), avgPrice:String(h.avgPrice) });
+    setEditForm({ ticker:h.ticker, name:h.name||"", market:h.market, quantity:String(h.quantity), avgPrice:String(h.avgPrice), broker:h.broker||"" });
   };
   const saveEdit = () => {
     if (!editForm.quantity || !editForm.avgPrice) return;
@@ -459,6 +459,16 @@ function PortfolioApp({ syncKey, onLogout }) {
                     </select>
                     <input placeholder="수량" type="number" value={hForm.quantity} onChange={e=>setHForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                     <input placeholder="평균 매수가" type="number" value={hForm.avgPrice} onChange={e=>setHForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
+                    <select value={hForm.broker} onChange={e=>setHForm(p=>({...p,broker:e.target.value}))} style={{...S.inp,appearance:"none",gridColumn:"1/-1"}}>
+                      <option value="">증권사 선택 (선택사항)</option>
+                      <option value="미래에셋증권">미래에셋증권</option>
+                      <option value="신한금융투자">신한금융투자</option>
+                      <option value="토스증권">토스증권</option>
+                      <option value="카카오페이증권">카카오페이증권</option>
+                      <option value="메리츠증권">메리츠증권</option>
+                      <option value="키움증권">키움증권</option>
+                      <option value="업비트">업비트</option>
+                    </select>
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"12px"}}>
                     <button onClick={addH} style={S.btn("#10b981")}>✓ 추가</button>
@@ -479,7 +489,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                       {portfolio.map(h=>(
                         <>
                         <tr key={h.id}>
-                          <td style={S.TD}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><div style={{width:"10px",height:"10px",borderRadius:"3px",background:MARKET_COLOR[h.market],flexShrink:0}}/><div><div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em"}}>{h.ticker}</div><div style={{fontSize:"12px",color:"#475569"}}>{h.name||MARKET_LABEL[h.market]}</div></div></div></td>
+                          <td style={S.TD}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><div style={{width:"10px",height:"10px",borderRadius:"3px",background:MARKET_COLOR[h.market],flexShrink:0}}/><div>
+                                <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em"}}>{h.ticker}</div>
+                                <div style={{fontSize:"12px",color:"#475569"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                                {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",marginTop:"2px",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700}}>{h.broker}</div>}
+                              </div></div></td>
                           <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
                           <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.chgPct)}</td>
                           <td style={S.TD}>{h.quantity.toLocaleString()}</td>
@@ -504,6 +518,19 @@ function PortfolioApp({ syncKey, onLogout }) {
                                   <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>시장</div><select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"13px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option></select></div>
                                   <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>현재 수량</div><input type="number" value={editForm.quantity} onChange={e=>setEditForm(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
                                   <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>현재 평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
+                                  <div style={{gridColumn:"1/-1"}}>
+                                    <div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>증권사</div>
+                                    <select value={editForm.broker||""} onChange={e=>setEditForm(p=>({...p,broker:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"13px",padding:"8px 10px"}}>
+                                      <option value="">증권사 선택 (선택사항)</option>
+                                      <option value="미래에셋증권">미래에셋증권</option>
+                                      <option value="신한금융투자">신한금융투자</option>
+                                      <option value="토스증권">토스증권</option>
+                                      <option value="카카오페이증권">카카오페이증권</option>
+                                      <option value="메리츠증권">메리츠증권</option>
+                                      <option value="키움증권">키움증권</option>
+                                      <option value="업비트">업비트</option>
+                                    </select>
+                                  </div>
                                 </div>
 
                                 {/* 추가매수 계산기 */}
