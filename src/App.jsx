@@ -906,7 +906,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalRet>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>{fmtPct(totalRet)}</div>
             </div>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&pieData.length>0)?"1fr 230px":"1fr", gap:"12px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&portfolio.length>0)?"1fr 250px":"1fr", gap:"12px" }}>
             <div style={{...S.card, padding:"14px"}}>
               {/* 헤더 + 컨트롤 */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"12px", gap:"8px", flexWrap:"wrap" }}>
@@ -1033,17 +1033,81 @@ function PortfolioApp({ syncKey, onLogout }) {
                 </div>
               )}
             </div>
-            {pieData.length>0&&!isMobile&&(
-              <div style={{...S.card,display:"flex",flexDirection:"column",padding:"16px 14px"}}>
-                <div style={{fontSize:"17px",fontWeight:800,marginBottom:"16px",letterSpacing:"-0.03em"}}>자산 배분</div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} innerRadius={42}>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie><Tooltip formatter={v=>fmtKRW(v)} {...TT}/></PieChart>
-                </ResponsiveContainer>
-                <div style={{display:"flex",flexDirection:"column",gap:"10px",marginTop:"12px"}}>
-                  {pieData.map(d=>{
-                    const total=pieData.reduce((s,x)=>s+x.value,0);
-                    return(<div key={d.name} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{display:"flex",alignItems:"center",gap:"8px"}}><div style={{width:"10px",height:"10px",borderRadius:"3px",background:d.color}}/><span style={{color:"#94a3b8",fontWeight:600,fontSize:"14px"}}>{d.name}</span></div><span style={{fontWeight:800,fontSize:"16px"}}>{((d.value/total)*100).toFixed(0)}%</span></div>);
-                  })}
+            {portfolio.length>0&&!isMobile&&(
+              <div style={{...S.card, display:"flex", flexDirection:"column", padding:"16px", minWidth:0}}>
+                <div style={{fontSize:"15px", fontWeight:800, marginBottom:"14px", letterSpacing:"-0.03em"}}>자산 배분</div>
+
+                {/* 전체 비중 스택 바 */}
+                <div style={{marginBottom:"14px"}}>
+                  <div style={{fontSize:"11px", color:"#64748b", marginBottom:"6px", fontWeight:700}}>포트폴리오 비중</div>
+                  <div style={{display:"flex", height:"14px", borderRadius:"7px", overflow:"hidden", gap:"2px"}}>
+                    {pieData.map(d=>(
+                      <div key={d.name} title={`${d.name}: ${((d.value/pieData.reduce((s,x)=>s+x.value,0))*100).toFixed(0)}%`}
+                        style={{flex:d.value, background:d.color, cursor:"default", transition:"opacity 0.15s"}}/>
+                    ))}
+                  </div>
+                  <div style={{display:"flex", flexWrap:"wrap", gap:"6px", marginTop:"8px"}}>
+                    {pieData.map(d=>{
+                      const total=pieData.reduce((s,x)=>s+x.value,0);
+                      return(
+                        <span key={d.name} style={{display:"flex",alignItems:"center",gap:"4px",fontSize:"11px",color:"#94a3b8"}}>
+                          <span style={{width:"8px",height:"8px",borderRadius:"2px",background:d.color,flexShrink:0}}/>
+                          {d.name} <span style={{fontWeight:700,color:"#e2e8f0"}}>{((d.value/total)*100).toFixed(0)}%</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 구분선 */}
+                <div style={{borderTop:"1px solid rgba(255,255,255,0.07)", marginBottom:"12px"}}/>
+
+                {/* 시장별 수익률 바 */}
+                <div style={{fontSize:"11px", color:"#64748b", marginBottom:"8px", fontWeight:700}}>시장별 수익률</div>
+                <div style={{display:"flex", flexDirection:"column", gap:"9px"}}>
+                  {(()=>{
+                    const maxAbs = Math.max(...Object.keys(MARKET_LABEL).map(k=>{
+                      const items = portfolio.filter(h=>h.market===k);
+                      if(!items.length) return 0;
+                      const val  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
+                      const cost = items.reduce((s,h)=>s+toKRW(h.cost,h.cur),0);
+                      return Math.abs(cost>0?((val-cost)/cost)*100:0);
+                    }), 0.1);
+                    return Object.entries(MARKET_LABEL).map(([k,label])=>{
+                      const items = portfolio.filter(h=>h.market===k);
+                      if(!items.length) return null;
+                      const val  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
+                      const cost = items.reduce((s,h)=>s+toKRW(h.cost,h.cur),0);
+                      const ret  = cost>0?((val-cost)/cost)*100:0;
+                      const barW = (Math.abs(ret)/Math.max(maxAbs,1))*100;
+                      const isUp = ret>=0;
+                      return(
+                        <div key={k} style={{display:"grid",gridTemplateColumns:"58px 1fr 46px",alignItems:"center",gap:"8px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
+                            <div style={{width:"7px",height:"7px",borderRadius:"2px",background:MARKET_COLOR[k],flexShrink:0}}/>
+                            <span style={{fontSize:"11px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                          </div>
+                          <div style={{background:"rgba(255,255,255,0.05)",borderRadius:"4px",height:"8px",overflow:"hidden"}}>
+                            <div style={{
+                              width:barW+"%", height:"100%",
+                              background:isUp?"#34d399":"#f87171",
+                              borderRadius:"4px",
+                              marginLeft:isUp?"0":`${100-barW}%`
+                            }}/>
+                          </div>
+                          <span style={{fontSize:"12px",fontWeight:800,color:isUp?"#34d399":"#f87171",textAlign:"right",letterSpacing:"-0.02em"}}>
+                            {isUp?"+":""}{ret.toFixed(1)}%
+                          </span>
+                        </div>
+                      );
+                    }).filter(Boolean);
+                  })()}
+                </div>
+
+                {/* 총 자산 요약 */}
+                <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",marginTop:"14px",paddingTop:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>총 평가금액</span>
+                  <span style={{fontSize:"14px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.03em"}}>{fmtKRW(totalVal)}</span>
                 </div>
               </div>
             )}
