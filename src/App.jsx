@@ -662,12 +662,12 @@ function PortfolioApp({ syncKey, onLogout }) {
     const tv = holdings.reduce((s, h) => {
       const p = next[h.ticker];
       const cur = p?.currency || (h.market === "KR" ? "KRW" : "USD");
-      return s + toKRW((p?.price ?? h.avgPrice) * h.quantity, cur);
+      return s + toKRWLive((p?.price ?? h.avgPrice) * h.quantity, cur);
     }, 0);
     const tc = holdings.reduce((s, h) => {
       const p = next[h.ticker];
       const cur = p?.currency || (h.market === "KR" ? "KRW" : "USD");
-      return s + toKRW(h.avgPrice * h.quantity, cur);
+      return s + toKRWLive(h.avgPrice * h.quantity, cur);
     }, 0);
     if (tv > 0) {
       const sid = now.getTime().toString();
@@ -696,9 +696,15 @@ function PortfolioApp({ syncKey, onLogout }) {
     return () => clearInterval(id);
   }, [loaded, fetchPrices]);
 
+  const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   const portfolio = holdings.map(h => {
     const p   = prices[h.ticker];
-    const cur = p?.currency || (h.market === "KR" ? "KRW" : "USD");
+    const cur = h.market === "KR" ? "KRW"
+      : h.market === "GOLD" ? "KRW"
+      : h.market === "CRYPTO" ? (p?.currency || "USD")
+      : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
+      : h.market === "US" ? "USD"
+      : (p?.currency || "KRW");
     const price = p?.price ?? h.avgPrice;
     const value = price * h.quantity;
     const cost  = h.avgPrice * h.quantity;
@@ -707,14 +713,15 @@ function PortfolioApp({ syncKey, onLogout }) {
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p };
   });
 
-  const totalCost = portfolio.reduce((s, h) => s + toKRW(h.cost,  h.cur), 0);
-  const totalVal  = portfolio.reduce((s, h) => s + toKRW(h.value, h.cur), 0);
+  const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
+  const totalCost = portfolio.reduce((s, h) => s + toKRWLive(h.cost,  h.cur), 0);
+  const totalVal  = portfolio.reduce((s, h) => s + toKRWLive(h.value, h.cur), 0);
   const totalPnL  = totalVal - totalCost;
   const totalRet  = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
   const pieData = Object.entries(MARKET_LABEL).map(([k, label]) => ({
     name: label, color: MARKET_COLOR[k],
-    value: Math.round(portfolio.filter(h => h.market === k).reduce((s, h) => s + toKRW(h.value, h.cur), 0)),
+    value: Math.round(portfolio.filter(h => h.market === k).reduce((s, h) => s + toKRWLive(h.value, h.cur), 0)),
   })).filter(d => d.value > 0);
 
   const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0)).slice(-30);
@@ -770,7 +777,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
       <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.chgPct)}</td>
       <td style={S.TD}>{h.quantity.toLocaleString()}</td>
-      <td style={{...S.TD,fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRW(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
+      <td style={{...S.TD,fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
       <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.pnlPct)}</td>
       <td style={S.TD}>
         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
@@ -844,7 +851,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{fontSize:"13px",fontWeight:700,color:h.chgPct>=0?"#34d399":"#f87171"}}>{fmtPct(h.chgPct)}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>손익률</div><div style={{fontSize:"13px",fontWeight:700,color:h.pnlPct>=0?"#34d399":"#f87171"}}>{fmtPct(h.pnlPct)}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>수량</div><div style={{fontSize:"13px",fontWeight:700}}>{h.quantity.toLocaleString()}</div></div>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px",gridColumn:"2/-1"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>평가금액</div><div style={{fontSize:"13px",fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRW(h.value,h.cur)):fmtPrice(h.value,h.cur)}</div></div>
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px",gridColumn:"2/-1"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>평가금액</div><div style={{fontSize:"13px",fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</div></div>
       </div>
       {editingId===h.id&&(
         <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:"10px",padding:"12px",marginTop:"10px"}}>
@@ -879,7 +886,10 @@ function PortfolioApp({ syncKey, onLogout }) {
   // 포트폴리오2 계산
   const portfolio2 = holdings2.map(h => {
     const p   = prices[h.ticker] || (h.market==="GOLD" ? prices["GOLD"] : null);
-    const cur = p?.currency || "KRW";
+    const cur = h.market === "US" ? "USD"
+      : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
+      : h.market === "CRYPTO" ? (p?.currency || "USD")
+      : "KRW";
     const price = p?.price ?? h.avgPrice;
     const value = price * h.quantity;
     const cost  = h.avgPrice * h.quantity;
@@ -887,8 +897,8 @@ function PortfolioApp({ syncKey, onLogout }) {
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p };
   });
-  const total2Cost = portfolio2.reduce((s,h) => s + toKRW(h.cost,  h.cur), 0);
-  const total2Val  = portfolio2.reduce((s,h) => s + toKRW(h.value, h.cur), 0);
+  const total2Cost = portfolio2.reduce((s,h) => s + toKRWLive(h.cost,  h.cur), 0);
+  const total2Val  = portfolio2.reduce((s,h) => s + toKRWLive(h.value, h.cur), 0);
   const total2PnL  = total2Val - total2Cost;
   const total2Ret  = total2Cost > 0 ? (total2PnL / total2Cost) * 100 : 0;
 
@@ -1050,7 +1060,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     let sorted = [...portfolio];
                     if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
                     else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
-                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRW(b.value,b.cur)-toKRW(a.value,a.cur));
+                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
                     if(groupBy==="broker"){
                       const groups = {};
                       sorted.forEach(h=>{ const k=h.broker||"증권사 미지정"; if(!groups[k]) groups[k]=[]; groups[k].push(h); });
@@ -1063,7 +1073,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     }
                     return sorted.map(h=>renderMobileCard(h));
                   })()}
-                  <div style={{fontSize:"11px",color:"#334155",textAlign:"right",marginTop:"4px"}}>* USD 환산: 1달러 = {USD_KRW.toLocaleString()}원 기준</div>
+                  <div style={{fontSize:"11px",color:"#334155",textAlign:"right",marginTop:"4px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
                 </div>
               ) : (
                 <div style={{overflowY:"auto", maxHeight:"480px"}}>
@@ -1071,7 +1081,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     let sorted = [...portfolio];
                     if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
                     else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
-                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRW(b.value,b.cur)-toKRW(a.value,a.cur));
+                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
 
                     if(groupBy==="broker"){
                       const groups = {};
@@ -1080,7 +1090,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         <div key={broker} style={{marginBottom:"12px"}}>
                           <div style={{fontSize:"12px",fontWeight:700,color:"#6366f1",padding:"6px 12px",background:"rgba(99,102,241,0.08)",borderRadius:"6px",marginBottom:"4px",display:"flex",justifyContent:"space-between"}}>
                             <span>🏦 {broker}</span>
-                            <span style={{color:"#64748b"}}>{items.length}종목 · {fmtKRW(items.reduce((s,h)=>s+toKRW(h.value,h.cur),0))}</span>
+                            <span style={{color:"#64748b"}}>{items.length}종목 · {fmtKRW(items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0))}</span>
                           </div>
                           <table style={{width:"100%",borderCollapse:"collapse"}}>
                             <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
@@ -1096,7 +1106,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                       </table>
                     );
                   })()}
-                  <div style={{fontSize:"12px",color:"#334155",textAlign:"right",marginTop:"10px"}}>* USD 환산: 1달러 = {USD_KRW.toLocaleString()}원 기준</div>
+                  <div style={{fontSize:"12px",color:"#334155",textAlign:"right",marginTop:"10px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
                 </div>
               )}
             </div>
@@ -1136,15 +1146,15 @@ function PortfolioApp({ syncKey, onLogout }) {
                     const maxAbs = Math.max(...Object.keys(MARKET_LABEL).map(k=>{
                       const items = portfolio.filter(h=>h.market===k);
                       if(!items.length) return 0;
-                      const val  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
-                      const cost = items.reduce((s,h)=>s+toKRW(h.cost,h.cur),0);
+                      const val  = items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+                      const cost = items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
                       return Math.abs(cost>0?((val-cost)/cost)*100:0);
                     }), 0.1);
                     return Object.entries(MARKET_LABEL).map(([k,label])=>{
                       const items = portfolio.filter(h=>h.market===k);
                       if(!items.length) return null;
-                      const val  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
-                      const cost = items.reduce((s,h)=>s+toKRW(h.cost,h.cur),0);
+                      const val  = items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+                      const cost = items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
                       const ret  = cost>0?((val-cost)/cost)*100:0;
                       const barW = (Math.abs(ret)/Math.max(maxAbs,1))*100;
                       const isUp = ret>=0;
@@ -1197,8 +1207,8 @@ function PortfolioApp({ syncKey, onLogout }) {
             {/* 계좌별 그룹 */}
             {TAX_ACCOUNTS.map(account => {
               const items = portfolio2.filter(h=>h.taxAccount===account);
-              const accVal  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
-              const accCost = items.reduce((s,h)=>s+toKRW(h.cost, h.cur),0);
+              const accVal  = items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+              const accCost = items.reduce((s,h)=>s+toKRWLive(h.cost, h.cur),0);
               const accRet  = accCost>0?((accVal-accCost)/accCost)*100:0;
               return (
                 <div key={account} style={S.card}>
@@ -1258,7 +1268,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                             </div>
                           </div>
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
-                            {[["현재가",h.market==="GOLD"?Math.round(h.price).toLocaleString("ko-KR")+"₩/g":fmtPrice(h.price,h.cur)],["수량",h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"],["평가금액",fmtKRW(toKRW(h.value,h.cur))]].map(([l,v])=>(
+                            {[["현재가",h.market==="GOLD"?Math.round(h.price).toLocaleString("ko-KR")+"₩/g":fmtPrice(h.price,h.cur)],["수량",h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"],["평가금액",fmtKRW(toKRWLive(h.value,h.cur))]].map(([l,v])=>(
                               <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
                                 <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{l}</div>
                                 <div style={{fontSize:"12px",fontWeight:700}}>{v}</div>
@@ -1287,7 +1297,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <td style={S.TD}>{h.market==="GOLD"?Math.round(h.price).toLocaleString("ko-KR")+"₩/g":fmtPrice(h.price,h.cur)}{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</td>
                               <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.chgPct>=0?"+":"")+h.chgPct.toFixed(2)}%</td>
                               <td style={S.TD}>{h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"}</td>
-                              <td style={{...S.TD,fontWeight:700}}>{fmtKRW(toKRW(h.value,h.cur))}</td>
+                              <td style={{...S.TD,fontWeight:700}}>{fmtKRW(toKRWLive(h.value,h.cur))}</td>
                               <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)}%</td>
                               <td style={S.TD}><button onClick={()=>setHoldings2(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button></td>
                             </tr>
