@@ -11,9 +11,10 @@ const CRYPTO_IDS = {
   LINK:"chainlink",DOT:"polkadot",MATIC:"matic-network",UNI:"uniswap",
   ATOM:"cosmos",NEAR:"near",APT:"aptos",SUI:"sui",
 };
-const MARKET_LABEL = { KR:"한국주식", US:"미국주식", ETF:"ETF", CRYPTO:"암호화폐" };
-const MARKET_COLOR = { KR:"#6366f1", US:"#10b981", ETF:"#f59e0b", CRYPTO:"#a855f7" };
+const MARKET_LABEL = { KR:"한국주식", US:"미국주식", ETF:"ETF", CRYPTO:"암호화폐", GOLD:"금현물" };
+const MARKET_COLOR = { KR:"#6366f1", US:"#10b981", ETF:"#f59e0b", CRYPTO:"#a855f7", GOLD:"#eab308" };
 const USD_KRW = 1380;
+const TAX_ACCOUNTS = ["연금저축1(신한금융투자)", "연금저축2(미래에셋증권)", "IRP(미래에셋증권)"];
 const fmtPrice = (n, cur) => cur === "KRW" ? Math.round(n).toLocaleString("ko-KR") + "₩" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 });
 const fmtPct = (n) => (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
 const toKRW  = (v, cur) => cur === "KRW" ? v : v * USD_KRW;
@@ -77,6 +78,36 @@ async function fetchCrypto(ticker) {
     const info = d[id];
     return info ? { price: info.usd, changePercent: info.usd_24h_change, currency: "USD" } : null;
   } catch { return null; }
+}
+
+async function fetchGold(liveUsdKrw) {
+  // 금 현물: 국제 금 시세(troy oz) → 원화/g 환산
+  try {
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d")}`,
+      `https://corsproxy.io/?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d")}`,
+    ];
+    for (const url of proxies) {
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) continue;
+        const d = await r.json();
+        const m = d?.chart?.result?.[0]?.meta;
+        if (!m?.regularMarketPrice) continue;
+        const priceUsdOz = m.regularMarketPrice;
+        const prev = m.previousClose || m.chartPreviousClose || priceUsdOz;
+        const krwPerG = (priceUsdOz * liveUsdKrw) / 31.1035;
+        const prevKrwPerG = (prev * liveUsdKrw) / 31.1035;
+        return {
+          price: Math.round(krwPerG),
+          changePercent: ((krwPerG - prevKrwPerG) / prevKrwPerG) * 100,
+          currency: "KRW",
+          priceUsdOz,
+        };
+      } catch { continue; }
+    }
+  } catch {}
+  return null;
 }
 
 async function fetchHistory(ticker, market) {
@@ -542,11 +573,14 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [loaded, setLoaded]       = useState(false);
   const [showForm, setShowForm]   = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [currMode, setCurrMode] = useState("KRW"); // "KRW" | "USD"
+  const [mainTab, setMainTab]   = useState("p1"); // "p1" | "p2"
+  const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
   const [selectedStock, setSelectedStock] = useState(null);
-  const [sortBy, setSortBy] = useState("default");
+  const [sortBy, setSortBy]   = useState("default");
   const [groupBy, setGroupBy] = useState("none");
+  const [holdings2, setHoldings2] = useState([]);
+  const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
   const isMobile = useIsMobile();
   const saving = useRef({});
 
@@ -570,6 +604,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     attach("trades",    setTrades,    "t");
     attach("alerts",    setAlerts,    "a");
     attach("snapshots", setSnapshots, "s");
+    attach("holdings2", setHoldings2, "h2");
     setTimeout(() => setLoaded(true), 2000);
     return () => unsubs.forEach(u => typeof u === "function" && u());
   }, [syncKey]);
@@ -594,7 +629,8 @@ function PortfolioApp({ syncKey, onLogout }) {
     dbSet(`users/${syncKey}/${path}`, data).finally(() => setTimeout(() => { saving.current[key] = false; }, 500));
   }, [syncKey, loaded]);
 
-  useEffect(() => { if (loaded) saveData("holdings", holdings.length ? holdings : [], "h"); }, [holdings, loaded]);
+  useEffect(() => { if (loaded) saveData("holdings",  holdings.length  ? holdings  : [], "h");  }, [holdings,  loaded]);
+  useEffect(() => { if (loaded) saveData("holdings2", holdings2.length ? holdings2 : [], "h2"); }, [holdings2, loaded]);
   useEffect(() => { if (loaded) saveData("trades",   trades.length   ? trades   : [], "t"); }, [trades,   loaded]);
   useEffect(() => { if (loaded) saveData("alerts",   alerts.length   ? alerts   : [], "a"); }, [alerts,   loaded]);
 
@@ -608,9 +644,10 @@ function PortfolioApp({ syncKey, onLogout }) {
     if (!holdings.length) return;
     setLoading(true);
     const next = {};
-    await Promise.all(holdings.map(async h => {
+    await Promise.all([...holdings, ...holdings2].map(async h => {
       let result;
       if (h.market === "CRYPTO") result = await fetchCrypto(h.ticker);
+      else if (h.market === "GOLD") result = await fetchGold(liveUsdKrw);
       else {
         let tk = h.ticker;
         if (h.market === "KR" && !tk.includes(".")) tk += ".KS";
@@ -705,6 +742,11 @@ function PortfolioApp({ syncKey, onLogout }) {
     setTrades(p => [...p, { id: Date.now(), ...tForm, quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
     setTForm({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"" }); setShowForm(null);
   };
+  const addH2 = () => {
+    if (!hForm2.ticker || !hForm2.quantity || !hForm2.avgPrice) return;
+    setHoldings2(p => [...p, { id: Date.now(), ...hForm2, quantity: +hForm2.quantity, avgPrice: +hForm2.avgPrice }]);
+    setHForm2({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
+  };
   const addA = () => {
     if (!aForm.ticker || !aForm.threshold) return;
     setAlerts(p => [...p, { id: Date.now(), ...aForm, threshold: +aForm.threshold, enabled: true }]);
@@ -744,7 +786,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={{fontSize:"13px",color:"#a5b4fc",fontWeight:700,marginBottom:"12px"}}>✏️ {h.ticker} 수정</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
               <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>종목명</div><input value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
-              <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>시장</div><select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"13px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option></select></div>
+              <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>시장</div><select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"13px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option></select></div>
               <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>수량</div><input type="number" value={editForm.quantity} onChange={e=>setEditForm(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
               <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>현재 평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
               <div style={{gridColumn:"1/-1"}}><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>증권사</div>
@@ -809,7 +851,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div style={{fontSize:"13px",color:"#a5b4fc",fontWeight:700,marginBottom:"10px"}}>✏️ {h.ticker} 수정</div>
           <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
             <input placeholder="종목명" value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))} style={{...S.inp,fontSize:"14px",padding:"8px 10px"}}/>
-            <select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"14px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option></select>
+            <select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"14px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option></select>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
               <input placeholder="수량" type="number" value={editForm.quantity} onChange={e=>setEditForm(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"14px",padding:"8px 10px"}}/>
               <input placeholder="평단가" type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"14px",padding:"8px 10px"}}/>
@@ -834,6 +876,22 @@ function PortfolioApp({ syncKey, onLogout }) {
   const tabs = [["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["alerts","🔔 알람"]];
   const TT = { contentStyle:{ background:"#1e293b", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"10px", fontSize:"13px", fontFamily:FONT } };
 
+  // 포트폴리오2 계산
+  const portfolio2 = holdings2.map(h => {
+    const p   = prices[h.ticker] || (h.market==="GOLD" ? prices["GOLD"] : null);
+    const cur = p?.currency || "KRW";
+    const price = p?.price ?? h.avgPrice;
+    const value = price * h.quantity;
+    const cost  = h.avgPrice * h.quantity;
+    const pnl   = value - cost;
+    const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p };
+  });
+  const total2Cost = portfolio2.reduce((s,h) => s + toKRW(h.cost,  h.cur), 0);
+  const total2Val  = portfolio2.reduce((s,h) => s + toKRW(h.value, h.cur), 0);
+  const total2PnL  = total2Val - total2Cost;
+  const total2Ret  = total2Cost > 0 ? (total2PnL / total2Cost) * 100 : 0;
+
   return (
     <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)", color:"#e2e8f0", minHeight:"100vh", fontFamily:FONT, fontSize:"15px", lineHeight:"1.6", letterSpacing:"-0.01em" }}>
       <div style={{ background:"rgba(15,23,42,0.88)", backdropFilter:"blur(14px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:isMobile?"10px 14px":"14px 22px", position:"sticky", top:0, zIndex:50 }}>
@@ -857,9 +915,18 @@ function PortfolioApp({ syncKey, onLogout }) {
           </div>
         </div>
         {isMobile && <div style={{ marginTop:"8px" }}><InfoWidget /></div>}
-        <div style={{ display:"flex", gap:"4px", marginTop:"10px", flexWrap:"wrap" }}>
-          {tabs.map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.25)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.45)":"1px solid transparent", color:tab===id?"#c7d2fe":"#64748b", padding:isMobile?"6px 10px":"7px 16px", borderRadius:"10px", cursor:"pointer", fontSize:isMobile?"12px":"14px", fontWeight:tab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+        {/* 포트폴리오 선택 탭 */}
+        <div style={{ display:"flex", gap:"4px", marginTop:"10px", marginBottom:"6px" }}>
+          {[["p1","📊 포트폴리오1 (주식·코인)"],["p2","🏦 포트폴리오2 (절세계좌)"]].map(([id,label])=>(
+            <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+              {isMobile?(id==="p1"?"P1 주식":"P2 절세"):label}
+            </button>
+          ))}
+        </div>
+        {/* 서브 탭 */}
+        <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
+          {(mainTab==="p1"?tabs:[["portfolio","📊 보유종목"],["trades","📝 매매일지"]]).map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
               {isMobile ? label.split(" ")[1]||label : label}
             </button>
           ))}
@@ -869,7 +936,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       <div style={{ padding:isMobile?"12px":"22px", maxWidth:"1200px", margin:"0 auto" }}>
 
         {/* ── PORTFOLIO ── */}
-        {tab === "portfolio" && (<>
+        {tab === "portfolio" && mainTab === "p1" && (<>
           {/* 통화 전환 버튼 */}
           <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
             <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
@@ -953,7 +1020,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     <input placeholder="티커 (예: 005930, AAPL, BTC)" value={hForm.ticker} onChange={e=>setHForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
                     <input placeholder="종목명" value={hForm.name} onChange={e=>setHForm(p=>({...p,name:e.target.value}))} style={S.inp}/>
                     <select value={hForm.market} onChange={e=>setHForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
-                      <option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option>
+                      <option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option>
                     </select>
                     <input placeholder="수량" type="number" value={hForm.quantity} onChange={e=>setHForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                     <input placeholder="평균 매수가" type="number" value={hForm.avgPrice} onChange={e=>setHForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
@@ -1113,6 +1180,127 @@ function PortfolioApp({ syncKey, onLogout }) {
             )}
           </div>
         </>)}
+
+        {/* ── PORTFOLIO 2 (절세계좌) ── */}
+        {tab === "portfolio" && mainTab === "p2" && (
+          <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
+            {/* P2 요약 카드 */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px"}}>
+              {[["총 평가금액",fmtKRW(total2Val),"#f8fafc"],["평가 손익",(total2PnL>=0?"+":"")+fmtKRW(total2PnL),total2PnL>=0?"#34d399":"#f87171"],["총 수익률",(total2Ret>=0?"+":"")+total2Ret.toFixed(2)+"%",total2Ret>=0?"#34d399":"#f87171"]].map(([title,val,color])=>(
+                <div key={title} style={{...S.card,background:"rgba(234,179,8,0.08)",borderColor:"rgba(234,179,8,0.2)"}}>
+                  <div style={{fontSize:"12px",color:"#64748b",marginBottom:"6px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em"}}>{title}</div>
+                  <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color,letterSpacing:"-0.04em"}}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 계좌별 그룹 */}
+            {TAX_ACCOUNTS.map(account => {
+              const items = portfolio2.filter(h=>h.taxAccount===account);
+              const accVal  = items.reduce((s,h)=>s+toKRW(h.value,h.cur),0);
+              const accCost = items.reduce((s,h)=>s+toKRW(h.cost, h.cur),0);
+              const accRet  = accCost>0?((accVal-accCost)/accCost)*100:0;
+              return (
+                <div key={account} style={S.card}>
+                  {/* 계좌 헤더 */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",flexWrap:"wrap",gap:"8px"}}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                        <span style={{fontSize:"16px",fontWeight:800,letterSpacing:"-0.03em"}}>{account}</span>
+                        <span style={{fontSize:"11px",background:"rgba(234,179,8,0.15)",color:"#eab308",padding:"2px 8px",borderRadius:"20px",fontWeight:700}}>절세계좌</span>
+                      </div>
+                      <div style={{fontSize:"13px",color:"#64748b",marginTop:"4px"}}>
+                        {fmtKRW(accVal)} · {accRet>=0?"+":""}{accRet.toFixed(2)}% · {items.length}종목
+                      </div>
+                    </div>
+                    <button onClick={()=>setShowForm(showForm===account?null:account)} style={S.btn("#6366f1",{fontSize:"13px"})}>+ 종목 추가</button>
+                  </div>
+
+                  {/* 종목 추가 폼 */}
+                  {showForm===account && (
+                    <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"12px",padding:"16px",marginBottom:"14px",border:"1px solid rgba(99,102,241,0.35)"}}>
+                      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"8px"}}>
+                        <input placeholder="티커 (예: 005930, AAPL, BTC)" value={hForm2.ticker} onChange={e=>setHForm2(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
+                        <input placeholder="종목명" value={hForm2.name} onChange={e=>setHForm2(p=>({...p,name:e.target.value}))} style={S.inp}/>
+                        <select value={hForm2.market} onChange={e=>setHForm2(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
+                          <option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option>
+                        </select>
+                        <input placeholder="수량 (금현물: 그램)" type="number" value={hForm2.quantity} onChange={e=>setHForm2(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
+                        <input placeholder="평균 매수가 (금현물: 원/g)" type="number" value={hForm2.avgPrice} onChange={e=>setHForm2(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
+                      </div>
+                      <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
+                        <button onClick={()=>{
+                          if(!hForm2.ticker||!hForm2.quantity||!hForm2.avgPrice) return;
+                          setHoldings2(p=>[...p,{id:Date.now(),...hForm2,taxAccount:account,quantity:+hForm2.quantity,avgPrice:+hForm2.avgPrice}]);
+                          setHForm2({ticker:"",name:"",market:"KR",quantity:"",avgPrice:"",taxAccount:account,broker:""});
+                          setShowForm(null);
+                        }} style={S.btn("#10b981")}>✓ 추가</button>
+                        <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 종목 목록 */}
+                  {items.length===0 ? (
+                    <div style={{textAlign:"center",padding:"24px",color:"#475569",fontSize:"14px"}}>종목을 추가해주세요</div>
+                  ) : isMobile ? (
+                    <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+                      {items.map(h=>(
+                        <div key={h.id} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"10px",padding:"12px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}}>
+                            <div>
+                              <div style={{fontWeight:800,fontSize:"15px",color:"#a5b4fc"}}>{h.ticker}</div>
+                              <div style={{fontSize:"12px",color:"#cbd5e1"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                            </div>
+                            <div style={{display:"flex",gap:"6px"}}>
+                              <span style={{fontSize:"15px",fontWeight:800,color:h.pnlPct>=0?"#34d399":"#f87171"}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)}%</span>
+                              <button onClick={()=>setHoldings2(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
+                            </div>
+                          </div>
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
+                            {[["현재가",h.market==="GOLD"?Math.round(h.price).toLocaleString("ko-KR")+"₩/g":fmtPrice(h.price,h.cur)],["수량",h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"],["평가금액",fmtKRW(toKRW(h.value,h.cur))]].map(([l,v])=>(
+                              <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
+                                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{l}</div>
+                                <div style={{fontSize:"12px",fontWeight:700}}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse"}}>
+                        <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {items.map(h=>(
+                            <tr key={h.id}>
+                              <td style={S.TD}>
+                                <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                  <div style={{width:"8px",height:"8px",borderRadius:"2px",background:MARKET_COLOR[h.market]||"#eab308",flexShrink:0}}/>
+                                  <div>
+                                    <div style={{fontWeight:800,fontSize:"14px",letterSpacing:"-0.02em"}}>{h.ticker}</div>
+                                    <div style={{fontSize:"11px",color:"#cbd5e1"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={S.TD}>{h.market==="GOLD"?Math.round(h.price).toLocaleString("ko-KR")+"₩/g":fmtPrice(h.price,h.cur)}{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</td>
+                              <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.chgPct>=0?"+":"")+h.chgPct.toFixed(2)}%</td>
+                              <td style={S.TD}>{h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"}</td>
+                              <td style={{...S.TD,fontWeight:700}}>{fmtKRW(toKRW(h.value,h.cur))}</td>
+                              <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)}%</td>
+                              <td style={S.TD}><button onClick={()=>setHoldings2(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* ── CHARTS ── */}
         {tab === "charts" && (
