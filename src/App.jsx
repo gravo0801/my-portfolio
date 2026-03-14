@@ -77,8 +77,7 @@ const S = {
 let _db = null;
 function getDB() {
   if (_db) return _db;
-  const cfg = JSON.parse(document.getElementById("fb-config").textContent);
-  const app = window.firebaseApp.initializeApp(cfg);
+  const app = window.firebaseApp.initializeApp();
   _db = window.firebaseDB.getDatabase(app);
   return _db;
 }
