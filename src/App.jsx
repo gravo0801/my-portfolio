@@ -21,15 +21,25 @@ const today  = () => new Date().toISOString().slice(0, 10);
 const fmtKRW = (v) => Math.round(v).toLocaleString("ko-KR") + "₩";
 
 async function fetchYahoo(ticker) {
-  try {
-    const url = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
-    const r = await fetch(`https://corsproxy.io/?url=${url}`);
-    const d = await r.json();
-    const m = d.chart.result[0].meta;
-    const price = m.regularMarketPrice;
-    const prev  = m.previousClose || m.chartPreviousClose || price;
-    return { price, changePercent: ((price - prev) / prev) * 100, currency: m.currency };
-  } catch { return null; }
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(yahooUrl)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
+  ];
+  for (const url of proxies) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!r.ok) continue;
+      const d = await r.json();
+      const m = d?.chart?.result?.[0]?.meta;
+      if (!m?.regularMarketPrice) continue;
+      const price = m.regularMarketPrice;
+      const prev  = m.previousClose || m.chartPreviousClose || price;
+      return { price, changePercent: ((price - prev) / prev) * 100, currency: m.currency };
+    } catch { continue; }
+  }
+  return null;
 }
 async function fetchCrypto(ticker) {
   try {
