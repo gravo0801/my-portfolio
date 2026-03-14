@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>내 투자 포트폴리오</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet" />
+
+    <!-- ★ Firebase 설정 ★
+         아래 YOUR_XXX 를 Firebase 콘솔에서 복사한 실제 값으로 교체하세요 -->
+    <script id="fb-config" type="application/json">
+    {
+      "apiKey":            "AIzaSyBxxxxxxxx...",
+      "authDomain":        "my-portfolio-abc12.firebaseapp.com"
+      "databaseURL":       "https://my-portfolio-abc12-default-rtdb..."
+      "projectId":         "my-portfolio-abc12"
+      "storageBucket":     "YOUR_PROJECT_ID.appspot.com",
+      "messagingSenderId": "123456789012"
+      "appId":             "1:123456789012:web:abcdef..."
+    }
+    </script>
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+    <script>
+      const fbConfig = JSON.parse(document.getElementById('fb-config').textContent);
+      const _app = firebase.initializeApp(fbConfig);
+      const _db  = firebase.database();
+      window.firebaseApp = { initializeApp: () => _app };
+      window.firebaseDB  = {
+        getDatabase: () => _db,
+        ref:    (db, path) => _db.ref(path),
+        onValue:(r, cb, err) => { r.on('value', snap => cb(snap), err); return () => r.off('value'); },
+        set:    (r, val)    => r.set(val),
+        get:    (r)         => r.once('value'),
+      };
+    </script>
+
+    <style>* { box-sizing: border-box; } body { margin: 0; padding: 0; background: #0f172a; }</style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
