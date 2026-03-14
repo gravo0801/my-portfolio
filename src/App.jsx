@@ -906,7 +906,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalRet>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>{fmtPct(totalRet)}</div>
             </div>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&pieData.length>0)?"1fr 160px":"1fr", gap:"10px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&pieData.length>0)?"1fr 230px":"1fr", gap:"12px" }}>
             <div style={{...S.card, padding:"14px"}}>
               {/* 헤더 + 컨트롤 */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"12px", gap:"8px", flexWrap:"wrap" }}>
@@ -1034,10 +1034,10 @@ function PortfolioApp({ syncKey, onLogout }) {
               )}
             </div>
             {pieData.length>0&&!isMobile&&(
-              <div style={{...S.card,display:"flex",flexDirection:"column",padding:"16px"}}>
+              <div style={{...S.card,display:"flex",flexDirection:"column",padding:"16px 14px"}}>
                 <div style={{fontSize:"17px",fontWeight:800,marginBottom:"16px",letterSpacing:"-0.03em"}}>자산 배분</div>
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={40}>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie><Tooltip formatter={v=>fmtKRW(v)} {...TT}/></PieChart>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart><Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} innerRadius={42}>{pieData.map((e,i)=><Cell key={i} fill={e.color}/>)}</Pie><Tooltip formatter={v=>fmtKRW(v)} {...TT}/></PieChart>
                 </ResponsiveContainer>
                 <div style={{display:"flex",flexDirection:"column",gap:"10px",marginTop:"12px"}}>
                   {pieData.map(d=>{
