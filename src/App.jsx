@@ -119,6 +119,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const saving = useRef({});
 
   const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" });
   const [tForm, setTForm] = useState({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"" });
   const [aForm, setAForm] = useState({ ticker:"", direction:"down", threshold:"" });
 
@@ -243,6 +245,15 @@ function PortfolioApp({ syncKey, onLogout }) {
     setHoldings(p => [...p, { id: Date.now(), ...hForm, quantity: +hForm.quantity, avgPrice: +hForm.avgPrice }]);
     setHForm({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" }); setShowForm(null);
   };
+  const startEdit = (h) => {
+    setEditingId(h.id);
+    setEditForm({ ticker:h.ticker, name:h.name||"", market:h.market, quantity:String(h.quantity), avgPrice:String(h.avgPrice) });
+  };
+  const saveEdit = () => {
+    if (!editForm.quantity || !editForm.avgPrice) return;
+    setHoldings(p => p.map(x => x.id === editingId ? { ...x, ...editForm, quantity:+editForm.quantity, avgPrice:+editForm.avgPrice } : x));
+    setEditingId(null);
+  };
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -335,6 +346,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
                     <tbody>
                       {portfolio.map(h=>(
+                        <>
                         <tr key={h.id}>
                           <td style={S.TD}><div style={{display:"flex",alignItems:"center",gap:"10px"}}><div style={{width:"10px",height:"10px",borderRadius:"3px",background:MARKET_COLOR[h.market],flexShrink:0}}/><div><div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em"}}>{h.ticker}</div><div style={{fontSize:"12px",color:"#475569"}}>{h.name||MARKET_LABEL[h.market]}</div></div></div></td>
                           <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
@@ -342,8 +354,97 @@ function PortfolioApp({ syncKey, onLogout }) {
                           <td style={S.TD}>{h.quantity.toLocaleString()}</td>
                           <td style={{...S.TD,fontWeight:700}}>{fmtPrice(h.value,h.cur)}</td>
                           <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.pnlPct)}</td>
-                          <td style={S.TD}><button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"18px"}}>✕</button></td>
+                          <td style={S.TD}>
+                            <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                              <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
+                              <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"18px"}}>✕</button>
+                            </div>
+                          </td>
                         </tr>
+                        {editingId===h.id&&(
+                          <tr key={h.id+"_edit"}>
+                            <td colSpan={7} style={{padding:"0 0 12px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                              <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:"10px",padding:"16px",margin:"8px 14px"}}>
+                                <div style={{fontSize:"13px",color:"#a5b4fc",fontWeight:700,marginBottom:"12px"}}>✏️ {h.ticker} 수정</div>
+
+                                {/* 기본 정보 */}
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"14px"}}>
+                                  <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>종목명</div><input value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
+                                  <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>시장</div><select value={editForm.market} onChange={e=>setEditForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none",fontSize:"13px",padding:"8px 10px"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option></select></div>
+                                  <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>현재 수량</div><input type="number" value={editForm.quantity} onChange={e=>setEditForm(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
+                                  <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>현재 평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}/></div>
+                                </div>
+
+                                {/* 추가매수 계산기 */}
+                                <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.25)",borderRadius:"8px",padding:"14px",marginBottom:"12px"}}>
+                                  <div style={{fontSize:"13px",color:"#34d399",fontWeight:700,marginBottom:"10px"}}>➕ 추가매수 계산기</div>
+                                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"10px"}}>
+                                    <div>
+                                      <div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>추가 수량</div>
+                                      <input
+                                        type="number"
+                                        placeholder="0"
+                                        value={editForm.addQty||""}
+                                        onChange={e => {
+                                          const addQty = e.target.value;
+                                          const addPrice = editForm.addPrice||0;
+                                          const curQty = +editForm.quantity||0;
+                                          const curAvg = +editForm.avgPrice||0;
+                                          const newQty = curQty + (+addQty||0);
+                                          const newAvg = newQty > 0 ? ((curQty * curAvg) + ((+addQty||0) * (+addPrice||0))) / newQty : curAvg;
+                                          setEditForm(p=>({...p, addQty, calcQty: newQty, calcAvg: Math.round(newAvg*100)/100}));
+                                        }}
+                                        style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}
+                                      />
+                                    </div>
+                                    <div>
+                                      <div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>추가매수 단가</div>
+                                      <input
+                                        type="number"
+                                        placeholder="0"
+                                        value={editForm.addPrice||""}
+                                        onChange={e => {
+                                          const addPrice = e.target.value;
+                                          const addQty = editForm.addQty||0;
+                                          const curQty = +editForm.quantity||0;
+                                          const curAvg = +editForm.avgPrice||0;
+                                          const newQty = curQty + (+addQty||0);
+                                          const newAvg = newQty > 0 ? ((curQty * curAvg) + ((+addQty||0) * (+addPrice||0))) / newQty : curAvg;
+                                          setEditForm(p=>({...p, addPrice, calcQty: newQty, calcAvg: Math.round(newAvg*100)/100}));
+                                        }}
+                                        style={{...S.inp,fontSize:"13px",padding:"8px 10px"}}
+                                      />
+                                    </div>
+                                  </div>
+                                  {editForm.addQty && editForm.addPrice && (
+                                    <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"8px",padding:"12px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                                      <div>
+                                        <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계산된 총 수량</div>
+                                        <div style={{fontSize:"16px",fontWeight:800,color:"#34d399"}}>{editForm.calcQty?.toLocaleString()}주</div>
+                                      </div>
+                                      <div>
+                                        <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계산된 새 평단가</div>
+                                        <div style={{fontSize:"16px",fontWeight:800,color:"#34d399"}}>{editForm.calcAvg?.toLocaleString()}</div>
+                                      </div>
+                                      <div style={{gridColumn:"1/-1"}}>
+                                        <button
+                                          onClick={()=>setEditForm(p=>({...p, quantity:String(p.calcQty), avgPrice:String(p.calcAvg), addQty:"", addPrice:"", calcQty:undefined, calcAvg:undefined}))}
+                                          style={S.btn("#10b981",{fontSize:"13px",padding:"6px 14px",width:"100%"})}
+                                        >↑ 위 값으로 적용하기</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div style={{display:"flex",gap:"8px"}}>
+                                  <button onClick={saveEdit} style={S.btn("#6366f1",{fontSize:"13px",padding:"7px 16px"})}>✓ 저장</button>
+                                  <button onClick={()=>setEditingId(null)} style={S.btn("#475569",{fontSize:"13px",padding:"7px 16px"})}>취소</button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </>
                       ))}
                     </tbody>
                   </table>
