@@ -60,6 +60,134 @@ function dbRef(path) { return window.firebaseDB.ref(getDB(), path); }
 function dbSet(path, val) { return window.firebaseDB.set(dbRef(path), val); }
 function dbOn(path, cb) { return window.firebaseDB.onValue(dbRef(path), snap => cb(snap.val())); }
 
+
+// ── 날씨 & 환율 위젯 ─────────────────────────────────────────────────────────
+function InfoWidget() {
+  const [mode, setMode] = useState("weather"); // "weather" | "rate"
+  const [weather, setWeather] = useState({ seoul:null, nyc:null });
+  const [rates, setRates] = useState({ usd:null, jpy:null });
+  const [wLoading, setWLoading] = useState(false);
+  const [rLoading, setRLoading] = useState(false);
+
+  const WX_CODE = {
+    0:"맑음",1:"대체로맑음",2:"구름조금",3:"흐림",
+    45:"안개",48:"안개",51:"이슬비",53:"이슬비",55:"이슬비",
+    61:"비",63:"비",65:"비",71:"눈",73:"눈",75:"눈",
+    80:"소나기",81:"소나기",82:"소나기",95:"천둥번개",96:"천둥번개",99:"천둥번개"
+  };
+  const WX_ICON = {
+    0:"☀️",1:"🌤️",2:"⛅",3:"☁️",45:"🌫️",48:"🌫️",
+    51:"🌦️",53:"🌦️",55:"🌦️",61:"🌧️",63:"🌧️",65:"🌧️",
+    71:"❄️",73:"❄️",75:"❄️",80:"🌦️",81:"🌦️",82:"🌦️",
+    95:"⛈️",96:"⛈️",99:"⛈️"
+  };
+
+  const fetchWeather = async () => {
+    setWLoading(true);
+    try {
+      const [sRes, nRes] = await Promise.all([
+        fetch("https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul"),
+        fetch("https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,weathercode&timezone=America/New_York"),
+      ]);
+      const [s, n] = await Promise.all([sRes.json(), nRes.json()]);
+      setWeather({
+        seoul: { temp: Math.round(s.current.temperature_2m), code: s.current.weathercode },
+        nyc:   { temp: Math.round(n.current.temperature_2m), code: n.current.weathercode },
+      });
+    } catch {}
+    setWLoading(false);
+  };
+
+  const fetchRates = async () => {
+    setRLoading(true);
+    try {
+      const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW,JPY");
+      const d = await r.json();
+      const usdKrw = d.rates.KRW;
+      // JPY to KRW: 1 USD = X JPY, 1 USD = Y KRW → 1 JPY = Y/X KRW
+      const jpyKrw = usdKrw / d.rates.JPY;
+      setRates({ usd: Math.round(usdKrw), jpy: Math.round(jpyKrw * 100) / 100 });
+    } catch {}
+    setRLoading(false);
+  };
+
+  useEffect(() => { fetchWeather(); fetchRates(); }, []);
+  // 날씨 10분, 환율 10분마다 갱신
+  useEffect(() => {
+    const w = setInterval(fetchWeather, 600000);
+    const r = setInterval(fetchRates,   600000);
+    return () => { clearInterval(w); clearInterval(r); };
+  }, []);
+
+  const btnStyle = (active) => ({
+    background: active ? "rgba(99,102,241,0.35)" : "transparent",
+    border: active ? "1px solid rgba(99,102,241,0.5)" : "1px solid rgba(255,255,255,0.1)",
+    color: active ? "#c7d2fe" : "#64748b",
+    padding: "3px 10px", borderRadius: "6px", cursor: "pointer",
+    fontSize: "11px", fontWeight: 700, letterSpacing: "-0.01em",
+  });
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"6px" }}>
+      {/* 토글 버튼 */}
+      <div style={{ display:"flex", gap:"4px" }}>
+        <button style={btnStyle(mode==="weather")} onClick={()=>setMode("weather")}>🌤️ 날씨</button>
+        <button style={btnStyle(mode==="rate")}    onClick={()=>setMode("rate")}>💱 환율</button>
+      </div>
+
+      {/* 날씨 */}
+      {mode === "weather" && (
+        <div style={{ display:"flex", gap:"8px" }}>
+          {wLoading ? (
+            <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span>
+          ) : (<>
+            {weather.seoul && (
+              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 10px", textAlign:"center", minWidth:"70px" }}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>🇰🇷 서울</div>
+                <div style={{ fontSize:"16px", lineHeight:1 }}>{WX_ICON[weather.seoul.code]??'🌡️'}</div>
+                <div style={{ fontSize:"13px", fontWeight:800, color:"#f1f5f9", marginTop:"2px" }}>{weather.seoul.temp}°C</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>{WX_CODE[weather.seoul.code]??""}</div>
+              </div>
+            )}
+            {weather.nyc && (
+              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 10px", textAlign:"center", minWidth:"70px" }}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>🇺🇸 뉴욕</div>
+                <div style={{ fontSize:"16px", lineHeight:1 }}>{WX_ICON[weather.nyc.code]??'🌡️'}</div>
+                <div style={{ fontSize:"13px", fontWeight:800, color:"#f1f5f9", marginTop:"2px" }}>{weather.nyc.temp}°C</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>{WX_CODE[weather.nyc.code]??""}</div>
+              </div>
+            )}
+          </>)}
+        </div>
+      )}
+
+      {/* 환율 */}
+      {mode === "rate" && (
+        <div style={{ display:"flex", gap:"8px" }}>
+          {rLoading ? (
+            <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span>
+          ) : (<>
+            {rates.usd && (
+              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 12px", textAlign:"center", minWidth:"80px" }}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇺🇸 USD → KRW</div>
+                <div style={{ fontSize:"15px", fontWeight:800, color:"#34d399" }}>{rates.usd.toLocaleString()}₩</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>1달러</div>
+              </div>
+            )}
+            {rates.jpy && (
+              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 12px", textAlign:"center", minWidth:"80px" }}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇯🇵 JPY → KRW</div>
+                <div style={{ fontSize:"15px", fontWeight:800, color:"#f59e0b" }}>{rates.jpy.toFixed(2)}₩</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>1엔</div>
+              </div>
+            )}
+          </>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [key, setKey] = useState("");
   const [err, setErr] = useState("");
@@ -280,12 +408,15 @@ function PortfolioApp({ syncKey, onLogout }) {
               <span style={{ background:"rgba(99,102,241,0.2)", color:"#a5b4fc", padding:"2px 10px", borderRadius:"20px", fontSize:"12px", fontWeight:700 }}>🔑 {syncKey}</span>
             </div>
           </div>
-          <div style={{ display:"flex", gap:"8px" }}>
-            <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", gap:"6px", opacity:loading?0.7:1, fontSize:"13px", padding:"8px 14px" })}>
-              <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
-              {loading?"조회 중...":"새로고침"}
-            </button>
-            <button onClick={onLogout} style={S.btn("#334155", { fontSize:"13px", padding:"8px 14px" })}>로그아웃</button>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"8px" }}>
+            <div style={{ display:"flex", gap:"8px" }}>
+              <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", gap:"6px", opacity:loading?0.7:1, fontSize:"13px", padding:"8px 14px" })}>
+                <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
+                {loading?"조회 중...":"새로고침"}
+              </button>
+              <button onClick={onLogout} style={S.btn("#334155", { fontSize:"13px", padding:"8px 14px" })}>로그아웃</button>
+            </div>
+            <InfoWidget />
           </div>
         </div>
         <div style={{ display:"flex", gap:"4px", marginTop:"12px", flexWrap:"wrap" }}>
