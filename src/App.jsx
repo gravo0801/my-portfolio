@@ -646,7 +646,16 @@ function PortfolioApp({ syncKey, onLogout }) {
     const next = {};
     await Promise.all([...holdings, ...holdings2].map(async h => {
       let result;
-      if (h.market === "CRYPTO") result = await fetchCrypto(h.ticker);
+      if (h.market === "CRYPTO") {
+        const raw = await fetchCrypto(h.ticker);
+        if (raw) {
+          result = {
+            price: Math.round(raw.price * liveUsdKrw),
+            changePercent: raw.changePercent,
+            currency: "KRW",
+          };
+        }
+      }
       else if (h.market === "GOLD") result = await fetchGold(liveUsdKrw);
       else {
         let tk = h.ticker;
@@ -699,12 +708,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   const portfolio = holdings.map(h => {
     const p   = prices[h.ticker];
-    const cur = h.market === "KR" ? "KRW"
-      : h.market === "GOLD" ? "KRW"
-      : h.market === "CRYPTO" ? (p?.currency || "USD")
+    const cur = h.market === "US" ? "USD"
       : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
-      : h.market === "US" ? "USD"
-      : (p?.currency || "KRW");
+      : "KRW";
     const price = p?.price ?? h.avgPrice;
     const value = price * h.quantity;
     const cost  = h.avgPrice * h.quantity;
@@ -888,7 +894,6 @@ function PortfolioApp({ syncKey, onLogout }) {
     const p   = prices[h.ticker] || (h.market==="GOLD" ? prices["GOLD"] : null);
     const cur = h.market === "US" ? "USD"
       : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
-      : h.market === "CRYPTO" ? (p?.currency || "USD")
       : "KRW";
     const price = p?.price ?? h.avgPrice;
     const value = price * h.quantity;
