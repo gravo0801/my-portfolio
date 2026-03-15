@@ -2075,7 +2075,6 @@ function PortfolioApp({ syncKey, onLogout }) {
               );
             })}
           </div>
-          </>}
         )}
 
         {/* ── CHARTS ── */}
