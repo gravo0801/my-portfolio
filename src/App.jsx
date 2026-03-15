@@ -1636,7 +1636,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
         {/* ── PORTFOLIO ── */}
         {tab === "portfolio" && mainTab === "p1" && (
-          <div>
+          <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
           {/* ── 뷰 선택 탭 ── */}
           <div style={{display:"flex",gap:"4px",marginBottom:"14px",flexWrap:"wrap"}}>
@@ -1654,9 +1654,9 @@ function PortfolioApp({ syncKey, onLogout }) {
           {/* ── 계좌별 뷰 ── */}
           {overviewTab==="account" && (
             <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
-              <OverviewCard title="포트폴리오1" subtitle="국내·미국주식·코인" items={holdings} prices={prices} liveUsdKrw={liveUsdKrw} color="99,102,241" onClick={()=>setSelectedAccount({title:"포트폴리오1",items:holdings})} isMobile={isMobile}/>
+              <OverviewCard title="포트폴리오1" subtitle="국내·미국주식·코인" items={holdings} prices={prices} liveUsdKrw={liveUsdKrw} color="#6366f1" onClick={()=>setSelectedAccount({title:"포트폴리오1",items:holdings})} isMobile={isMobile}/>
               {TAX_ACCOUNTS.map(acc=>(
-                <OverviewCard key={acc} title={acc.replace("(신한금융투자)","").replace("(미래에셋증권)","")} subtitle={acc.includes("(")?acc.split("(")[1]?.replace(")",""):""} items={holdings2.filter(h=>h.taxAccount===acc)} prices={prices} liveUsdKrw={liveUsdKrw} color="234,179,8" onClick={()=>setSelectedAccount({title:acc,items:holdings2.filter(h=>h.taxAccount===acc)})} isMobile={isMobile}/>
+                <OverviewCard key={acc} title={acc.replace("(신한금융투자)","").replace("(미래에셋증권)","")} subtitle={acc.includes("(")?acc.split("(")[1]?.replace(")",""):""} items={holdings2.filter(h=>h.taxAccount===acc)} prices={prices} liveUsdKrw={liveUsdKrw} color="#eab308" onClick={()=>setSelectedAccount({title:acc,items:holdings2.filter(h=>h.taxAccount===acc)})} isMobile={isMobile}/>
               ))}
             </div>
           )}
@@ -1669,9 +1669,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
                 {brokers.map(broker=>{
                   const items = allHoldings.filter(h=>(h.broker||"미지정")===broker);
-                  const colors = {"미래에셋증권":"59,130,246","신한금융투자":"239,68,68","토스증권":"99,102,241","카카오페이증권":"234,179,8","메리츠증권":"168,85,247","키움증권":"16,185,129","업비트":"234,88,12","미지정":"100,116,139"};
-                  const c = colors[broker]||"99,102,241";
-                  return <OverviewCard key={broker} title={broker} subtitle={items.length+"종목"} items={items} prices={prices} liveUsdKrw={liveUsdKrw} color={c} onClick={()=>setSelectedAccount({title:broker,items})} isMobile={isMobile}/>;
+                  return <OverviewCard key={broker} title={broker} items={items} prices={prices} liveUsdKrw={liveUsdKrw} color="#818cf8" onClick={()=>setSelectedAccount({title:broker,items})} isMobile={isMobile}/>;
                 })}
               </div>
             );
@@ -1681,265 +1679,238 @@ function PortfolioApp({ syncKey, onLogout }) {
           {overviewTab==="market" && (()=>{
             const allHoldings = [...holdings, ...holdings2];
             const groups = [
-              { title:"국내주식", subtitle:"KR·ISA", items:allHoldings.filter(h=>h.market==="KR"||h.market==="ISA"), color:"99,102,241" },
-              { title:"미국주식", subtitle:"US·ETF(해외)", items:allHoldings.filter(h=>h.market==="US"||(h.market==="ETF"&&!h.ticker.includes(".KS"))), color:"16,185,129" },
-              { title:"암호화폐", subtitle:"CRYPTO", items:allHoldings.filter(h=>h.market==="CRYPTO"), color:"168,85,247" },
-              { title:"ETF (국내)", subtitle:"KOSPI·KOSDAQ ETF", items:allHoldings.filter(h=>h.market==="ETF"&&(h.ticker.includes(".KS")||h.ticker.includes(".KQ"))), color:"245,158,11" },
-              { title:"금현물", subtitle:"GOLD", items:allHoldings.filter(h=>h.market==="GOLD"), color:"234,179,8" },
-            ];
+              {key:"domestic", title:"국내 주식", subtitle:"KR · ISA · 금현물", color:"#6366f1", items: allHoldings.filter(h=>h.market==="KR"||h.market==="ISA"||h.market==="GOLD")},
+              {key:"overseas", title:"해외 주식", subtitle:"미국 · ETF", color:"#10b981", items: allHoldings.filter(h=>h.market==="US"||h.market==="ETF")},
+              {key:"crypto",   title:"암호화폐",  subtitle:"BTC · ETH 등", color:"#a855f7", items: allHoldings.filter(h=>h.market==="CRYPTO")},
+            ].filter(g=>g.items.length>0);
             return (
               <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
-                {groups.filter(g=>g.items.length>0).map(g=>(
-                  <OverviewCard key={g.title} title={g.title} subtitle={g.subtitle} items={g.items} prices={prices} liveUsdKrw={liveUsdKrw} color={g.color} onClick={()=>setSelectedAccount({title:g.title,items:g.items})} isMobile={isMobile}/>
+                {groups.map(g=>(
+                  <OverviewCard key={g.key} title={g.title} subtitle={g.subtitle} items={g.items} prices={prices} liveUsdKrw={liveUsdKrw} color={g.color} onClick={()=>setSelectedAccount({title:g.title,items:g.items})} isMobile={isMobile}/>
                 ))}
               </div>
             );
           })()}
 
-          {/* 통화 전환 버튼 (전체 뷰일 때만) */}
-          {overviewTab==="all" && (<div>{/* 통화 전환 버튼 */}
-          <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
-            <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
-              <button
-                onClick={()=>setCurrMode("KRW")}
-                style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent", color:currMode==="KRW"?"#c7d2fe":"#64748b" }}>
-                ₩ 원화
-              </button>
-              <button
-                onClick={()=>setCurrMode("USD")}
-                style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent", color:currMode==="USD"?"#6ee7b7":"#64748b" }}>
-                $ 달러
-              </button>
-            </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"8px":"12px", marginBottom:isMobile?"14px":"20px" }}>
-            <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
-              <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
-              <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#f8fafc", letterSpacing:"-0.04em" }}>
-                {currMode==="KRW" ? fmtKRW(totalVal) : "$"+(totalVal/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
-              </div>
-              {currMode==="USD"&&<div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
-            </div>
-            <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
-              <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
-              <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalPnL>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>
-                {currMode==="KRW"
-                  ? (totalPnL>=0?"+":"")+fmtKRW(totalPnL)
-                  : (totalPnL>=0?"+":"-")+"$"+Math.abs(totalPnL/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
+          {/* ── 전체 뷰 (기존 포트폴리오 화면) ── */}
+          {overviewTab==="all" && (
+            <div>
+            {/* 통화 전환 버튼 */}
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
+              <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
+                <button onClick={()=>setCurrMode("KRW")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent", color:currMode==="KRW"?"#c7d2fe":"#64748b" }}>₩ 원화</button>
+                <button onClick={()=>setCurrMode("USD")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent", color:currMode==="USD"?"#6ee7b7":"#64748b" }}>$ 달러</button>
               </div>
             </div>
-            <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
-              <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 수익률</div>
-              <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalRet>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>{fmtPct(totalRet)}</div>
-            </div>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&portfolio.length>0)?"1fr 250px":"1fr", gap:"12px" }}>
-            <div style={{...S.card, padding:"14px"}}>
-              {/* 헤더 + 컨트롤 */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"12px", gap:"8px", flexWrap:"wrap" }}>
-                <div>
-                  <div style={{ fontSize:"17px", fontWeight:800, letterSpacing:"-0.03em" }}>보유 종목
-                    <span style={{ fontSize:"13px", fontWeight:500, color:"#64748b", marginLeft:"8px" }}>{portfolio.length}종목</span>
-                  </div>
-                  <div style={{ fontSize:"11px", color:"#475569", marginTop:"4px" }}>KOSPI: 005930 → 자동 .KS | KOSDAQ: 035720.KQ</div>
+            {/* 요약 카드 */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"8px":"12px", marginBottom:isMobile?"14px":"20px" }}>
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
+                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
+                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#f8fafc", letterSpacing:"-0.04em" }}>
+                  {currMode==="KRW" ? fmtKRW(totalVal) : "$"+(totalVal/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
                 </div>
-                <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
-                  <button onClick={()=>setSelectedAccount({title:"포트폴리오1 전체", items:holdings})} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.35)",color:"#a5b4fc",padding:"6px 12px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>📊 전체 상세</button>
-                  {/* 그룹핑 토글 */}
-                  <button onClick={()=>setGroupBy(g=>g==="none"?"broker":"none")} style={{ ...S.btn(groupBy==="broker"?"#6366f1":"#334155", { fontSize:"12px", padding:"5px 10px" }) }}>
-                    {groupBy==="broker"?"🏦 그룹 해제":"🏦 증권사별"}
-                  </button>
-                  {/* 정렬 */}
-                  <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ ...S.inp, width:"auto", fontSize:"12px", padding:"5px 10px", appearance:"none" }}>
-                    <option value="default">기본순</option>
-                    <option value="pnl_desc">수익률 높은순</option>
-                    <option value="pnl_asc">수익률 낮은순</option>
-                    <option value="value_desc">평가금액 높은순</option>
-                  </select>
-                  <button onClick={() => setShowForm(showForm==="h"?null:"h")} style={S.btn("#6366f1", { flexShrink:0, fontSize:"13px" })}>+ 추가</button>
+                {currMode==="USD"&&<div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
+              </div>
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
+                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
+                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalPnL>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>
+                  {currMode==="KRW" ? (totalPnL>=0?"+":"")+fmtKRW(totalPnL) : (totalPnL>=0?"+":"-")+"$"+Math.abs(totalPnL/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
                 </div>
               </div>
-
-              {/* 요약 통계 */}
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"6px", marginBottom:"12px" }}>
-                {[
-                  ["수익 종목", portfolio.filter(h=>h.pnlPct>0).length+"개", "#34d399"],
-                  ["손실 종목", portfolio.filter(h=>h.pnlPct<0).length+"개", "#f87171"],
-                  ["최고 수익", portfolio.length ? (()=>{const m=portfolio.reduce((a,b)=>b.pnlPct>a.pnlPct?b:a,portfolio[0]); return m.ticker+" "+fmtPct(m.pnlPct);})() : "-", "#34d399"],
-                  ["최대 손실", portfolio.length ? (()=>{const m=portfolio.reduce((a,b)=>b.pnlPct<a.pnlPct?b:a,portfolio[0]); return m.ticker+" "+fmtPct(m.pnlPct);})() : "-", "#f87171"],
-                ].map(([l,v,c])=>(
-                  <div key={l} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"8px", padding:"7px 10px" }}>
-                    <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>{l}</div>
-                    <div style={{ fontSize:"13px", fontWeight:800, color:c, letterSpacing:"-0.02em" }}>{v}</div>
-                  </div>
-                ))}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
+                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 수익률</div>
+                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalRet>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>{fmtPct(totalRet)}</div>
               </div>
-
-              {showForm==="h" && (
-                <div style={{ background:"rgba(0,0,0,0.35)", borderRadius:"12px", padding:"18px", marginBottom:"18px", border:"1px solid rgba(99,102,241,0.35)" }}>
-                  <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:"8px" }}>
-                    <input placeholder="티커 (예: 005930, AAPL, BTC)" value={hForm.ticker} onChange={e=>setHForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
-                    <input placeholder="종목명" value={hForm.name} onChange={e=>setHForm(p=>({...p,name:e.target.value}))} style={S.inp}/>
-                    <select value={hForm.market} onChange={e=>setHForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
-                      <option value="KR">한국주식</option><option value="ISA">한국주식(ISA)</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option>
+            </div>
+            {/* 보유종목 + 자산배분 그리드 */}
+            <div style={{ display:"grid", gridTemplateColumns:(!isMobile&&portfolio.length>0)?"1fr 250px":"1fr", gap:"12px" }}>
+              <div style={{...S.card, padding:"14px"}}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"12px", gap:"8px", flexWrap:"wrap" }}>
+                  <div>
+                    <div style={{ fontSize:"17px", fontWeight:800, letterSpacing:"-0.03em" }}>보유 종목
+                      <span style={{ fontSize:"13px", fontWeight:500, color:"#64748b", marginLeft:"8px" }}>{portfolio.length}종목</span>
+                    </div>
+                    <div style={{ fontSize:"11px", color:"#475569", marginTop:"4px" }}>KOSPI: 005930 → 자동 .KS | KOSDAQ: 035720.KQ</div>
+                  </div>
+                  <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
+                    <button onClick={()=>setSelectedAccount({title:"포트폴리오1 전체", items:holdings})} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.35)",color:"#a5b4fc",padding:"6px 12px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>📊 전체 상세</button>
+                    <button onClick={()=>setGroupBy(g=>g==="none"?"broker":"none")} style={{ ...S.btn(groupBy==="broker"?"#6366f1":"#334155", { fontSize:"12px", padding:"5px 10px" }) }}>
+                      {groupBy==="broker"?"🏦 그룹 해제":"🏦 증권사별"}
+                    </button>
+                    <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ ...S.inp, width:"auto", fontSize:"12px", padding:"5px 10px", appearance:"none" }}>
+                      <option value="default">기본순</option>
+                      <option value="pnl_desc">수익률 높은순</option>
+                      <option value="pnl_asc">수익률 낮은순</option>
+                      <option value="value_desc">평가금액 높은순</option>
                     </select>
-                    <input placeholder="수량" type="number" value={hForm.quantity} onChange={e=>setHForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
-                    <input placeholder="평균 매수가" type="number" value={hForm.avgPrice} onChange={e=>setHForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
-                    <select value={hForm.broker} onChange={e=>setHForm(p=>({...p,broker:e.target.value}))} style={{...S.inp,appearance:"none",gridColumn:"1/-1"}}>
-                      <option value="">증권사 선택 (선택사항)</option>
-                      <option value="미래에셋증권">미래에셋증권</option><option value="신한금융투자">신한금융투자</option>
-                      <option value="토스증권">토스증권</option><option value="카카오페이증권">카카오페이증권</option>
-                      <option value="메리츠증권">메리츠증권</option><option value="키움증권">키움증권</option><option value="업비트">업비트</option>
-                    </select>
-                  </div>
-                  <div style={{display:"flex",gap:"8px",marginTop:"12px"}}>
-                    <button onClick={addH} style={S.btn("#10b981")}>✓ 추가</button>
-                    <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
+                    <button onClick={()=>setShowForm(showForm==="h"?null:"h")} style={S.btn("#6366f1",{flexShrink:0,fontSize:"13px"})}>+ 추가</button>
                   </div>
                 </div>
-              )}
-
-              {/* 종목 목록 — 고정 높이 + 내부 스크롤 */}
-              {portfolio.length===0 ? (
-                <div style={{textAlign:"center",padding:"44px",color:"#475569"}}>
-                  <div style={{fontSize:"36px",marginBottom:"12px"}}>📋</div>
-                  <div>종목을 추가하면 실시간 시세를 조회합니다</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"6px", marginBottom:"12px" }}>
+                  {[
+                    ["수익 종목", portfolio.filter(h=>h.pnlPct>0).length+"개", "#34d399"],
+                    ["손실 종목", portfolio.filter(h=>h.pnlPct<0).length+"개", "#f87171"],
+                    ["최고 수익", portfolio.length?(()=>{const m=portfolio.reduce((a,b)=>b.pnlPct>a.pnlPct?b:a,portfolio[0]);return m.ticker+" "+fmtPct(m.pnlPct);})():"-", "#34d399"],
+                    ["최대 손실", portfolio.length?(()=>{const m=portfolio.reduce((a,b)=>b.pnlPct<a.pnlPct?b:a,portfolio[0]);return m.ticker+" "+fmtPct(m.pnlPct);})():"-", "#f87171"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{ background:"rgba(255,255,255,0.03)", borderRadius:"8px", padding:"7px 10px" }}>
+                      <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>{l}</div>
+                      <div style={{ fontSize:"13px", fontWeight:800, color:c, letterSpacing:"-0.02em" }}>{v}</div>
+                    </div>
+                  ))}
                 </div>
-              ) : isMobile ? (
-                <div style={{display:"flex",flexDirection:"column",gap:"8px",maxHeight:"60vh",overflowY:"auto"}}>
-                  {(()=>{
-                    let sorted = [...portfolio];
-                    if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
-                    else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
-                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
-                    if(groupBy==="broker"){
-                      const groups = {};
-                      sorted.forEach(h=>{ const k=h.broker||"증권사 미지정"; if(!groups[k]) groups[k]=[]; groups[k].push(h); });
-                      return Object.entries(groups).map(([broker, items])=>(
-                        <div key={broker}>
-                          <div style={{fontSize:"12px",fontWeight:700,color:"#6366f1",padding:"6px 4px",borderBottom:"1px solid rgba(99,102,241,0.2)",marginBottom:"6px"}}>🏦 {broker} ({items.length})</div>
-                          {items.map(h=>renderMobileCard(h))}
-                        </div>
-                      ));
-                    }
-                    return sorted.map(h=>renderMobileCard(h));
-                  })()}
-                  <div style={{fontSize:"11px",color:"#334155",textAlign:"right",marginTop:"4px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
-                </div>
-              ) : (
-                <div style={{overflowY:"auto", maxHeight:"480px"}}>
-                  {(()=>{
-                    let sorted = [...portfolio];
-                    if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
-                    else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
-                    else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
-
-                    if(groupBy==="broker"){
-                      const groups = {};
-                      sorted.forEach(h=>{ const k=h.broker||"증권사 미지정"; if(!groups[k]) groups[k]=[]; groups[k].push(h); });
-                      return Object.entries(groups).map(([broker, items])=>(
-                        <div key={broker} style={{marginBottom:"12px"}}>
-                          <div style={{fontSize:"12px",fontWeight:700,color:"#6366f1",padding:"6px 12px",background:"rgba(99,102,241,0.08)",borderRadius:"6px",marginBottom:"4px",display:"flex",justifyContent:"space-between"}}>
-                            <span>🏦 {broker}</span>
-                            <span style={{color:"#64748b"}}>{items.length}종목 · {fmtKRW(items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0))}</span>
+                {showForm==="h" && (
+                  <div style={{ background:"rgba(0,0,0,0.35)", borderRadius:"12px", padding:"18px", marginBottom:"18px", border:"1px solid rgba(99,102,241,0.35)" }}>
+                    <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:"8px" }}>
+                      <input placeholder="티커 (예: 005930, AAPL, BTC)" value={hForm.ticker} onChange={e=>setHForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
+                      <input placeholder="종목명" value={hForm.name} onChange={e=>setHForm(p=>({...p,name:e.target.value}))} style={S.inp}/>
+                      <select value={hForm.market} onChange={e=>setHForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
+                        <option value="KR">한국주식</option><option value="ISA">한국주식(ISA)</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option>
+                      </select>
+                      <input placeholder="수량" type="number" value={hForm.quantity} onChange={e=>setHForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
+                      <input placeholder="평균 매수가" type="number" value={hForm.avgPrice} onChange={e=>setHForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
+                      <select value={hForm.broker} onChange={e=>setHForm(p=>({...p,broker:e.target.value}))} style={{...S.inp,appearance:"none",gridColumn:"1/-1"}}>
+                        <option value="">증권사 선택 (선택사항)</option>
+                        <option value="미래에셋증권">미래에셋증권</option><option value="신한금융투자">신한금융투자</option>
+                        <option value="토스증권">토스증권</option><option value="카카오페이증권">카카오페이증권</option>
+                        <option value="메리츠증권">메리츠증권</option><option value="키움증권">키움증권</option><option value="업비트">업비트</option>
+                      </select>
+                    </div>
+                    <div style={{display:"flex",gap:"8px",marginTop:"12px"}}>
+                      <button onClick={addH} style={S.btn("#10b981")}>✓ 추가</button>
+                      <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
+                    </div>
+                  </div>
+                )}
+                {portfolio.length===0 ? (
+                  <div style={{textAlign:"center",padding:"44px",color:"#475569"}}>
+                    <div style={{fontSize:"36px",marginBottom:"12px"}}>📋</div>
+                    <div>종목을 추가하면 실시간 시세를 조회합니다</div>
+                  </div>
+                ) : isMobile ? (
+                  <div style={{display:"flex",flexDirection:"column",gap:"8px",maxHeight:"60vh",overflowY:"auto"}}>
+                    {(()=>{
+                      let sorted=[...portfolio];
+                      if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
+                      else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
+                      else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
+                      if(groupBy==="broker"){
+                        const groups={};
+                        sorted.forEach(h=>{const k=h.broker||"증권사 미지정";if(!groups[k])groups[k]=[];groups[k].push(h);});
+                        return Object.entries(groups).map(([broker,items])=>(
+                          <div key={broker}>
+                            <div style={{fontSize:"12px",fontWeight:700,color:"#6366f1",padding:"6px 4px",borderBottom:"1px solid rgba(99,102,241,0.2)",marginBottom:"6px"}}>🏦 {broker} ({items.length})</div>
+                            {items.map(h=>renderMobileCard(h))}
                           </div>
-                          <table style={{width:"100%",borderCollapse:"collapse"}}>
-                            <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
-                            <tbody>{items.map(h=>renderTableRow(h))}</tbody>
-                          </table>
-                        </div>
-                      ));
-                    }
-                    return (
-                      <table style={{width:"100%",borderCollapse:"collapse"}}>
-                        <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
-                        <tbody>{sorted.map(h=>renderTableRow(h))}</tbody>
-                      </table>
-                    );
-                  })()}
-                  <div style={{fontSize:"12px",color:"#334155",textAlign:"right",marginTop:"10px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
-                </div>
-              )}
-            </div>
-            {portfolio.length>0&&!isMobile&&(
-              <div style={{...S.card, display:"flex", flexDirection:"column", padding:"16px", minWidth:0}}>
-                <div style={{fontSize:"15px", fontWeight:800, marginBottom:"14px", letterSpacing:"-0.03em"}}>자산 배분</div>
-
-                {/* 전체 비중 스택 바 */}
-                <div style={{marginBottom:"14px"}}>
-                  <div style={{fontSize:"11px", color:"#64748b", marginBottom:"6px", fontWeight:700}}>포트폴리오 비중</div>
-                  <div style={{display:"flex", height:"14px", borderRadius:"7px", overflow:"hidden", gap:"2px"}}>
-                    {pieData.map(d=>(
-                      <div key={d.name} title={`${d.name}: ${((d.value/pieData.reduce((s,x)=>s+x.value,0))*100).toFixed(0)}%`}
-                        style={{flex:d.value, background:d.color, cursor:"default", transition:"opacity 0.15s"}}/>
-                    ))}
+                        ));
+                      }
+                      return sorted.map(h=>renderMobileCard(h));
+                    })()}
+                    <div style={{fontSize:"11px",color:"#334155",textAlign:"right",marginTop:"4px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
                   </div>
-                  <div style={{display:"flex", flexWrap:"wrap", gap:"6px", marginTop:"8px"}}>
-                    {pieData.map(d=>{
-                      const total=pieData.reduce((s,x)=>s+x.value,0);
-                      return(
-                        <span key={d.name} style={{display:"flex",alignItems:"center",gap:"4px",fontSize:"11px",color:"#94a3b8"}}>
-                          <span style={{width:"8px",height:"8px",borderRadius:"2px",background:d.color,flexShrink:0}}/>
-                          {d.name} <span style={{fontWeight:700,color:"#e2e8f0"}}>{((d.value/total)*100).toFixed(0)}%</span>
-                        </span>
+                ) : (
+                  <div style={{overflowY:"auto",maxHeight:"480px"}}>
+                    {(()=>{
+                      let sorted=[...portfolio];
+                      if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
+                      else if(sortBy==="pnl_asc") sorted.sort((a,b)=>a.pnlPct-b.pnlPct);
+                      else if(sortBy==="value_desc") sorted.sort((a,b)=>toKRWLive(b.value,b.cur)-toKRWLive(a.value,a.cur));
+                      if(groupBy==="broker"){
+                        const groups={};
+                        sorted.forEach(h=>{const k=h.broker||"증권사 미지정";if(!groups[k])groups[k]=[];groups[k].push(h);});
+                        return Object.entries(groups).map(([broker,items])=>(
+                          <div key={broker} style={{marginBottom:"12px"}}>
+                            <div style={{fontSize:"12px",fontWeight:700,color:"#6366f1",padding:"6px 12px",background:"rgba(99,102,241,0.08)",borderRadius:"6px",marginBottom:"4px",display:"flex",justifyContent:"space-between"}}>
+                              <span>🏦 {broker}</span>
+                              <span style={{color:"#64748b"}}>{items.length}종목 · {fmtKRW(items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0))}</span>
+                            </div>
+                            <table style={{width:"100%",borderCollapse:"collapse"}}>
+                              <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
+                              <tbody>{items.map(h=>renderTableRow(h))}</tbody>
+                            </table>
+                          </div>
+                        ));
+                      }
+                      return (
+                        <table style={{width:"100%",borderCollapse:"collapse"}}>
+                          <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
+                          <tbody>{sorted.map(h=>renderTableRow(h))}</tbody>
+                        </table>
                       );
-                    })}
+                    })()}
+                    <div style={{fontSize:"12px",color:"#334155",textAlign:"right",marginTop:"10px"}}>* USD 환산: 1달러 = {liveUsdKrw.toLocaleString()}원 기준 (실시간)</div>
                   </div>
-                </div>
-
-                {/* 구분선 */}
-                <div style={{borderTop:"1px solid rgba(255,255,255,0.07)", marginBottom:"12px"}}/>
-
-                {/* 시장별 수익률 바 */}
-                <div style={{fontSize:"11px", color:"#64748b", marginBottom:"8px", fontWeight:700}}>시장별 수익률</div>
-                <div style={{display:"flex", flexDirection:"column", gap:"9px"}}>
-                  {(()=>{
-                    const maxAbs = Math.max(...Object.keys(MARKET_LABEL).map(k=>{
-                      const items = portfolio.filter(h=>h.market===k);
-                      if(!items.length) return 0;
-                      const val  = items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
-                      const cost = items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
-                      return Math.abs(cost>0?((val-cost)/cost)*100:0);
-                    }), 0.1);
-                    return Object.entries(MARKET_LABEL).map(([k,label])=>{
-                      const items = portfolio.filter(h=>h.market===k);
-                      if(!items.length) return null;
-                      const val  = items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
-                      const cost = items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
-                      const ret  = cost>0?((val-cost)/cost)*100:0;
-                      const barW = (Math.abs(ret)/Math.max(maxAbs,1))*100;
-                      const isUp = ret>=0;
-                      return(
-                        <div key={k} style={{display:"grid",gridTemplateColumns:"58px 1fr 46px",alignItems:"center",gap:"8px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
-                            <div style={{width:"7px",height:"7px",borderRadius:"2px",background:MARKET_COLOR[k],flexShrink:0}}/>
-                            <span style={{fontSize:"11px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
-                          </div>
-                          <div style={{background:"rgba(255,255,255,0.05)",borderRadius:"4px",height:"8px",overflow:"hidden"}}>
-                            <div style={{
-                              width:barW+"%", height:"100%",
-                              background:isUp?"#34d399":"#f87171",
-                              borderRadius:"4px",
-                              marginLeft:isUp?"0":`${100-barW}%`
-                            }}/>
-                          </div>
-                          <span style={{fontSize:"12px",fontWeight:800,color:isUp?"#34d399":"#f87171",textAlign:"right",letterSpacing:"-0.02em"}}>
-                            {isUp?"+":""}{ret.toFixed(1)}%
+                )}
+              </div>
+              {portfolio.length>0&&!isMobile&&(
+                <div style={{...S.card,display:"flex",flexDirection:"column",padding:"16px 14px",minWidth:0}}>
+                  <div style={{fontSize:"15px",fontWeight:800,marginBottom:"14px",letterSpacing:"-0.03em"}}>자산 배분</div>
+                  <div style={{marginBottom:"14px"}}>
+                    <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px",fontWeight:700}}>포트폴리오 비중</div>
+                    <div style={{display:"flex",height:"14px",borderRadius:"7px",overflow:"hidden",gap:"2px"}}>
+                      {pieData.map(d=>(
+                        <div key={d.name} title={d.name+": "+((d.value/pieData.reduce((s,x)=>s+x.value,0))*100).toFixed(0)+"%"}
+                          style={{flex:d.value,background:d.color,cursor:"default"}}/>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"6px",marginTop:"8px"}}>
+                      {pieData.map(d=>{
+                        const total=pieData.reduce((s,x)=>s+x.value,0);
+                        return(
+                          <span key={d.name} style={{display:"flex",alignItems:"center",gap:"4px",fontSize:"11px",color:"#94a3b8"}}>
+                            <span style={{width:"8px",height:"8px",borderRadius:"2px",background:d.color,flexShrink:0}}/>
+                            {d.name} <span style={{fontWeight:700,color:"#e2e8f0"}}>{((d.value/total)*100).toFixed(0)}%</span>
                           </span>
-                        </div>
-                      );
-                    }).filter(Boolean);
-                  })()}
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",marginBottom:"12px"}}/>
+                  <div style={{fontSize:"11px",color:"#64748b",marginBottom:"8px",fontWeight:700}}>시장별 수익률</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"9px"}}>
+                    {(()=>{
+                      const maxAbs=Math.max(...Object.keys(MARKET_LABEL).map(k=>{
+                        const items=portfolio.filter(h=>h.market===k);
+                        if(!items.length) return 0;
+                        const val=items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+                        const cost=items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
+                        return Math.abs(cost>0?((val-cost)/cost)*100:0);
+                      }),0.1);
+                      return Object.entries(MARKET_LABEL).map(([k,label])=>{
+                        const items=portfolio.filter(h=>h.market===k);
+                        if(!items.length) return null;
+                        const val=items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+                        const cost=items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
+                        const ret=cost>0?((val-cost)/cost)*100:0;
+                        const barW=(Math.abs(ret)/Math.max(maxAbs,1))*100;
+                        const isUp=ret>=0;
+                        return(
+                          <div key={k} style={{display:"grid",gridTemplateColumns:"58px 1fr 46px",alignItems:"center",gap:"8px"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
+                              <div style={{width:"7px",height:"7px",borderRadius:"2px",background:MARKET_COLOR[k],flexShrink:0}}/>
+                              <span style={{fontSize:"11px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                            </div>
+                            <div style={{background:"rgba(255,255,255,0.05)",borderRadius:"4px",height:"8px",overflow:"hidden"}}>
+                              <div style={{width:barW+"%",height:"100%",background:isUp?"#34d399":"#f87171",borderRadius:"4px",marginLeft:isUp?"0":(100-barW)+"%"}}/>
+                            </div>
+                            <span style={{fontSize:"12px",fontWeight:800,color:isUp?"#34d399":"#f87171",textAlign:"right",letterSpacing:"-0.02em"}}>
+                              {isUp?"+":""}{ret.toFixed(1)}%
+                            </span>
+                          </div>
+                        );
+                      }).filter(Boolean);
+                    })()}
+                  </div>
+                  <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",marginTop:"14px",paddingTop:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>총 평가금액</span>
+                    <span style={{fontSize:"14px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.03em"}}>{fmtKRW(totalVal)}</span>
+                  </div>
                 </div>
+              )}
+            </div>
+            </div>
+          )}
 
-                {/* 총 자산 요약 */}
-                <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",marginTop:"14px",paddingTop:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>총 평가금액</span>
-                  <span style={{fontSize:"14px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.03em"}}>{fmtKRW(totalVal)}</span>
-                </div>
-              </div>
-            )}
-          </div>
           </div>
         )}
 
