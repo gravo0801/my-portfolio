@@ -534,7 +534,7 @@ function StockDetail({ holding, price, onClose, isMobile }) {
 
 // ── Overview 카드 컴포넌트 ───────────────────────────────────────────────────
 function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onClick, isMobile }) {
-  const toKRWL = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
+  const toKRWL = (v, cur) => { try { return cur === "KRW" ? (v||0) : (v||0) * (liveUsdKrw||1380); } catch { return 0; } };
   const fmtK   = (v) => {
     const n = Math.abs(Math.round(v));
     if (n >= 100000000) return (Math.round(v/100000000*10)/10).toLocaleString("ko-KR") + "억₩";
@@ -542,8 +542,9 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
     return Math.round(v).toLocaleString("ko-KR") + "₩";
   };
 
+  const safeP = prices || {};
   const portfolio = items.map(h => {
-    const p   = prices[h.ticker];
+    const p   = safeP[h.ticker];
     const cur = h.market === "US" ? "USD"
       : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") ? "USD"
       : "KRW";
@@ -559,18 +560,19 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
   const pnlPct    = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
   const isUp      = pnlPct >= 0;
 
-  if (items.length === 0) return null;
+  if (!items || items.length === 0) return null;
+  if (!liveUsdKrw) return null;
 
   return (
     <div onClick={onClick} style={{
-      background: `rgba(${color},0.07)`,
-      border: `1px solid rgba(${color},0.25)`,
+      background: `${color}12`,
+      border: `1px solid ${color}44`,
       borderRadius:"14px", padding:"16px",
       cursor: onClick ? "pointer" : "default",
       transition:"all 0.15s",
     }}
-    onMouseEnter={e=>{ if(onClick) e.currentTarget.style.background=`rgba(${color},0.13)`; }}
-    onMouseLeave={e=>{ if(onClick) e.currentTarget.style.background=`rgba(${color},0.07)`; }}>
+    onMouseEnter={e=>{ if(onClick) e.currentTarget.style.background=`${color}22`; }}
+    onMouseLeave={e=>{ if(onClick) e.currentTarget.style.background=`${color}12`; }}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"12px"}}>
         <div>
           <div style={{fontSize:"15px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>{title}</div>
@@ -591,23 +593,24 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
       <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",color:"#64748b"}}>
         <span>{items.length}종목</span>
         <span style={{color:"#34d399"}}>▲{portfolio.filter(h=>{
-          const p2=prices[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
+          const p2=safeP[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
           const v=((p2?.price??h.avgPrice)*h.quantity); const c=h.avgPrice*h.quantity;
           return v>c;
         }).length}</span>
         <span style={{color:"#f87171"}}>▼{portfolio.filter(h=>{
-          const p2=prices[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
+          const p2=safeP[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
           const v=((p2?.price??h.avgPrice)*h.quantity); const c=h.avgPrice*h.quantity;
           return v<c;
         }).length}</span>
-        {onClick&&<span style={{color:`rgb(${color})`,fontWeight:700}}>상세 →</span>}
+        {onClick&&<span style={{color:color,fontWeight:700}}>상세 →</span>}
       </div>
     </div>
   );
 }
 
 // ── 전체 현황 Overview ────────────────────────────────────────────────────────
-function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock }) {
+function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: rawPrices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock }) {
+  const prices = rawPrices || {};
   const [viewMode, setViewMode] = useState("account"); // account | broker | region
   const toKRWL = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
   const fmtK   = (v) => v >= 1e8 ? (v/1e8).toFixed(1)+"억₩" : v >= 1e4 ? Math.round(v/1e4)+"만₩" : Math.round(v).toLocaleString("ko-KR")+"₩";
@@ -735,9 +738,9 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices, sna
               key={g.key}
               title={g.title}
               subtitle={g.subtitle}
-              totalVal={gVal}
-              totalCost={gCost}
               items={g.items}
+              prices={prices}
+              liveUsdKrw={liveUsdKrw}
               color={g.color}
               isMobile={isMobile}
               onClick={()=>onSelectAccount({title:g.title+(g.subtitle?" ("+g.subtitle+")":""), items:g.items.map(h=>({...h,id:h.id||Math.random()}))})}
