@@ -33,10 +33,12 @@ function useIsMobile() {
   return isMobile;
 }
 
+let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
+
 async function fetchYahoo(ticker) {
   const q1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
   const q2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
-  const proxies = [
+  const allProxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(q1)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(q2)}`,
     `https://corsproxy.io/?url=${encodeURIComponent(q1)}`,
@@ -44,22 +46,32 @@ async function fetchYahoo(ticker) {
     `https://thingproxy.freeboard.io/fetch/${q1}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(q1)}`,
   ];
+  // 마지막으로 성공한 프록시를 앞으로 이동
+  const proxies = [
+    allProxies[_bestProxy],
+    ...allProxies.filter((_,i) => i !== _bestProxy),
+  ];
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
       const m = d?.chart?.result?.[0]?.meta;
       if (!m?.regularMarketPrice) continue;
       const price = m.regularMarketPrice;
       const prev  = m.previousClose || m.chartPreviousClose || price;
+      const proxyIdx = allProxies.indexOf(url);
+      if (proxyIdx >= 0 && proxyIdx !== _bestProxy) {
+        _bestProxy = proxyIdx;
+        try { localStorage.setItem("pm_best_proxy", String(proxyIdx)); } catch {}
+      }
       return { price, changePercent: ((price - prev) / prev) * 100, currency: m.currency };
     } catch { continue; }
   }
   // 마지막 수단: stooq (CORS 프록시 불필요)
   try {
     const tk = ticker.endsWith(".KS") || ticker.endsWith(".KQ") ? ticker.replace(".KS","").replace(".KQ","") + ".KR" : ticker + ".US";
-    const r = await fetch(`https://stooq.com/q/l/?s=${tk}&f=sd2ohlcv&h&e=json`, { signal: AbortSignal.timeout(8000) });
+    const r = await fetch(`https://stooq.com/q/l/?s=${tk}&f=sd2ohlcv&h&e=json`, { signal: AbortSignal.timeout(6000) });
     const d = await r.json();
     const row = d?.symbols?.[0];
     if (row?.close) {
@@ -89,7 +101,7 @@ async function fetchGold(liveUsdKrw) {
     ];
     for (const url of proxies) {
       try {
-        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
         if (!r.ok) continue;
         const d = await r.json();
         const m = d?.chart?.result?.[0]?.meta;
@@ -132,7 +144,7 @@ async function fetchHistory(ticker, market) {
   ];
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
       const result = d?.chart?.result?.[0];
@@ -172,7 +184,7 @@ async function fetchStockInfo(ticker, market) {
   ];
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
       const sd = d?.quoteSummary?.result?.[0]?.summaryDetail;
@@ -567,7 +579,12 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [trades, setTrades]       = useState([]);
   const [alerts, setAlerts]       = useState([]);
   const [snapshots, setSnapshots] = useState([]);
-  const [prices, setPrices]       = useState({});
+  const [prices, setPrices] = useState(() => {
+    try { const c = localStorage.getItem("pm_prices_cache"); return c ? JSON.parse(c) : {}; } catch { return {}; }
+  });
+  const [priceAge, setPriceAge] = useState(() => {
+    try { return parseInt(localStorage.getItem("pm_prices_age")||"0"); } catch { return 0; }
+  });
   const [loading, setLoading]     = useState(false);
   const [toasts, setToasts]       = useState([]);
   const [loaded, setLoaded]       = useState(false);
@@ -613,11 +630,20 @@ function PortfolioApp({ syncKey, onLogout }) {
   useEffect(() => {
     const fetchRate = async () => {
       try {
-        const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW");
+        const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(5000) });
         const d = await r.json();
-        if (d?.rates?.KRW) setLiveUsdKrw(Math.round(d.rates.KRW));
+        if (d?.rates?.KRW) {
+          const rate = Math.round(d.rates.KRW);
+          setLiveUsdKrw(rate);
+          try { localStorage.setItem("pm_usd_krw", String(rate)); } catch {}
+        }
       } catch {}
     };
+    // 캐시된 환율 즉시 적용
+    try {
+      const cached = localStorage.getItem("pm_usd_krw");
+      if (cached) setLiveUsdKrw(parseInt(cached));
+    } catch {}
     fetchRate();
     const id = setInterval(fetchRate, 600000);
     return () => clearInterval(id);
@@ -667,6 +693,11 @@ function PortfolioApp({ syncKey, onLogout }) {
     setPrices(next);
     const now = new Date();
     setLastUpdated(now.toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit" }));
+    setPriceAge(now.getTime());
+    try {
+      localStorage.setItem("pm_prices_cache", JSON.stringify(next));
+      localStorage.setItem("pm_prices_age", String(now.getTime()));
+    } catch {}
 
     const tv = holdings.reduce((s, h) => {
       const p = next[h.ticker];
@@ -700,7 +731,16 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   useEffect(() => {
     if (!loaded || !holdings.length) return;
-    fetchPrices();
+    // 5분 이상 지난 캐시면 즉시 갱신, 아니면 캐시 보여주고 백그라운드 갱신
+    const ageMin = (Date.now() - priceAge) / 60000;
+    if (ageMin > 5) {
+      fetchPrices();
+    } else {
+      // 캐시 즉시 표시 후 10초 뒤 백그라운드 갱신
+      const bg = setTimeout(fetchPrices, 10000);
+      const id = setInterval(fetchPrices, 60000);
+      return () => { clearTimeout(bg); clearInterval(id); };
+    }
     const id = setInterval(fetchPrices, 60000);
     return () => clearInterval(id);
   }, [loaded, fetchPrices]);
@@ -914,7 +954,17 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div style={{ minWidth:0 }}>
             <div style={{ fontSize:isMobile?"16px":"19px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc" }}>내 투자 포트폴리오</div>
             <div style={{ display:"flex", alignItems:"center", gap:"6px", marginTop:"2px", flexWrap:"wrap" }}>
-              {lastUpdated && <span style={{ fontSize:"11px", color:"#475569" }}>{lastUpdated}</span>}
+              {lastUpdated && (
+                <span style={{ fontSize:"11px", color:"#475569" }}>
+                  {lastUpdated}
+                  {priceAge && (Date.now()-priceAge) < 300000
+                    ? <span style={{ color:"#34d399", marginLeft:"4px", fontWeight:700 }}>●</span>
+                    : <span style={{ color:"#f59e0b", marginLeft:"4px", fontWeight:700 }}>↻</span>}
+                </span>
+              )}
+              {!lastUpdated && priceAge > 0 && (
+                <span style={{ fontSize:"11px", color:"#f59e0b" }}>캐시 표시 중 ↻</span>
+              )}
               <span style={{ background:"rgba(99,102,241,0.2)", color:"#a5b4fc", padding:"1px 8px", borderRadius:"20px", fontSize:"11px", fontWeight:700 }}>🔑 {syncKey}</span>
             </div>
           </div>
