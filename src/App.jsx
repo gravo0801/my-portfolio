@@ -1131,7 +1131,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [divRecords, setDivRecords] = useState([]); // [{ id, date, ticker, name, amount, currency }]
   const [divForm, setDivForm]     = useState({ date:"", ticker:"", name:"", amount:"", currency:"KRW" });
   const [divEditTicker, setDivEditTicker] = useState(null);
-  const [divInfoForm, setDivInfoForm]     = useState({ perShare:"", cycle:"quarterly", month:"3", currency:"KRW" });
+  const [divInfoForm, setDivInfoForm]     = useState({ perShare:"", months:[], currency:"KRW" });
   const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
   const isMobile = useIsMobile();
   const saving = useRef({});
@@ -2157,7 +2157,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const ps = +di.perShare;
                 const qty = +h.quantity;
                 const isUSD = di.currency === "USD";
-                const annualRaw = di.cycle==="monthly"?ps*12:di.cycle==="quarterly"?ps*4:di.cycle==="semi"?ps*2:ps;
+                const divMonths = di.months||[];
+                const annualRaw = ps*(divMonths.length||1);
                 expectedAnnual += (isUSD ? annualRaw*liveUsdKrw : annualRaw) * qty;
               });
 
@@ -2212,17 +2213,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const ps=+di.perShare, qty=+h.quantity;
                 const isUSD=di.currency==="USD";
                 const raw=ps*qty*(isUSD?liveUsdKrw:1);
-                if(di.cycle==="monthly"){
-                  for(let i=0;i<12;i++) expectedByMonth[i]+=raw;
-                } else if(di.cycle==="quarterly"){
-                  const base=(+di.month||3)-1;
-                  [0,3,6,9].forEach(off=>{ expectedByMonth[(base+off)%12]+=raw; });
-                } else if(di.cycle==="semi"){
-                  const base=(+di.month||6)-1;
-                  [0,6].forEach(off=>{ expectedByMonth[(base+off)%12]+=raw; });
-                } else {
-                  expectedByMonth[(+di.month||12)-1]+=raw;
-                }
+                const months=di.months||[];
+                months.forEach(m=>{ expectedByMonth[m-1]+=raw; });
               });
 
               const maxVal = Math.max(...actualByMonth, ...expectedByMonth, 1);
@@ -2266,10 +2258,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                 {[...holdings,...holdings2].filter(h=>h.market!=="CRYPTO").map(h=>{
                   const di = divInfo[h.ticker]||{};
                   const isEditing = divEditTicker===h.ticker;
-                  const CYCLES = {monthly:"월배당",quarterly:"분기배당",semi:"반기배당",annual:"연배당"};
+                  const cycleLabel = di.months&&di.months.length ? di.months.join("·")+"월 ("+di.months.length+"회/년)" : "";
                   const ps=+di.perShare||0, qty=+h.quantity;
                   const isUSD=di.currency==="USD";
-                  const annual=di.cycle==="monthly"?ps*12:di.cycle==="quarterly"?ps*4:di.cycle==="semi"?ps*2:ps;
+                  const months=di.months||[];
+              const annual=ps*(months.length||1);
                   const annualKRW=annual*(isUSD?liveUsdKrw:1)*qty;
                   const yieldPct = h.avgPrice>0&&annual>0 ? (annual/(isUSD?h.avgPrice*liveUsdKrw:h.avgPrice))*100 : 0;
                   return (
@@ -2286,14 +2279,14 @@ function PortfolioApp({ syncKey, onLogout }) {
                           {ps>0&&(
                             <div style={{textAlign:"right"}}>
                               <div style={{fontSize:"13px",fontWeight:700,color:"#f59e0b"}}>{Math.round(annualKRW).toLocaleString()}₩/년</div>
-                              <div style={{fontSize:"11px",color:"#64748b"}}>{CYCLES[di.cycle]||""} · 수익률 {yieldPct.toFixed(2)}%</div>
+                              <div style={{fontSize:"11px",color:"#64748b"}}>{cycleLabel} · 수익률 {yieldPct.toFixed(2)}%</div>
                             </div>
                           )}
                           <button onClick={()=>{
                             if(isEditing){setDivEditTicker(null);}
                             else{
                               setDivEditTicker(h.ticker);
-                              setDivInfoForm({perShare:di.perShare||"",cycle:di.cycle||"quarterly",month:di.month||"3",currency:di.currency||"KRW"});
+                              setDivInfoForm({perShare:di.perShare||"",months:di.months||[],currency:di.currency||"KRW"});
                             }
                           }} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
                             {isEditing?"✕ 닫기":"✏️ 편집"}
@@ -2301,37 +2294,61 @@ function PortfolioApp({ syncKey, onLogout }) {
                         </div>
                       </div>
                       {isEditing&&(
-                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:"8px",marginTop:"4px"}}>
-                          <div>
-                            <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>주당 배당금</div>
-                            <input type="number" placeholder="예: 500" value={divInfoForm.perShare} onChange={e=>setDivInfoForm(p=>({...p,perShare:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/>
+                        <div style={{display:"flex",flexDirection:"column",gap:"10px",marginTop:"4px"}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                            <div>
+                              <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>주당 배당금 (1회 지급액)</div>
+                              <input type="number" placeholder="예: 500 (₩) 또는 0.25 ($)" value={divInfoForm.perShare} onChange={e=>setDivInfoForm(p=>({...p,perShare:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/>
+                            </div>
+                            <div>
+                              <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div>
+                              <select value={divInfoForm.currency} onChange={e=>setDivInfoForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}>
+                                <option value="KRW">₩ 원화</option>
+                                <option value="USD">$ 달러</option>
+                              </select>
+                            </div>
                           </div>
                           <div>
-                            <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>배당 주기</div>
-                            <select value={divInfoForm.cycle} onChange={e=>setDivInfoForm(p=>({...p,cycle:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}>
-                              <option value="monthly">월배당</option>
-                              <option value="quarterly">분기배당</option>
-                              <option value="semi">반기배당</option>
-                              <option value="annual">연배당</option>
-                            </select>
+                            <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px"}}>배당 지급 월 <span style={{color:"#475569"}}>(해당되는 월을 모두 선택)</span></div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+                              {[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{
+                                const selected=(divInfoForm.months||[]).includes(m);
+                                return (
+                                  <button key={m} onClick={()=>setDivInfoForm(p=>{
+                                    const cur=p.months||[];
+                                    return {...p,months:selected?cur.filter(x=>x!==m):[...cur,m].sort((a,b)=>a-b)};
+                                  })} style={{
+                                    width:"40px",height:"36px",borderRadius:"8px",cursor:"pointer",
+                                    fontSize:"13px",fontWeight:selected?800:500,
+                                    background:selected?"rgba(245,158,11,0.3)":"rgba(255,255,255,0.05)",
+                                    border:selected?"1px solid rgba(245,158,11,0.6)":"1px solid rgba(255,255,255,0.1)",
+                                    color:selected?"#fbbf24":"#64748b",
+                                  }}>{m}월</button>
+                                );
+                              })}
+                            </div>
+                            <div style={{display:"flex",gap:"8px",marginTop:"8px",flexWrap:"wrap"}}>
+                              {[["월배당",[1,2,3,4,5,6,7,8,9,10,11,12]],["분기(1,4,7,10)",[1,4,7,10]],["분기(2,5,8,11)",[2,5,8,11]],["분기(3,6,9,12)",[3,6,9,12]],["반기(상)",[3,9]],["반기(하)",[6,12]],["연(12월)",[12]]].map(([label,ms])=>(
+                                <button key={label} onClick={()=>setDivInfoForm(p=>({...p,months:ms}))} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"3px 9px",borderRadius:"20px",cursor:"pointer",fontSize:"11px",fontWeight:500}}>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div>
-                            <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>첫 배당월</div>
-                            <select value={divInfoForm.month} onChange={e=>setDivInfoForm(p=>({...p,month:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}>
-                              {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}월</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div>
-                            <select value={divInfoForm.currency} onChange={e=>setDivInfoForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}>
-                              <option value="KRW">₩ 원화</option>
-                              <option value="USD">$ 달러</option>
-                            </select>
-                          </div>
+                          {divInfoForm.perShare&&(divInfoForm.months||[]).length>0&&(
+                            <div style={{background:"rgba(245,158,11,0.08)",borderRadius:"8px",padding:"8px 12px",fontSize:"12px",color:"#94a3b8"}}>
+                              연간 예상: <span style={{color:"#fbbf24",fontWeight:700}}>
+                                {divInfoForm.currency==="USD"
+                                  ? "$"+(+divInfoForm.perShare*(divInfoForm.months||[]).length*+h.quantity).toFixed(2)
+                                  : Math.round(+divInfoForm.perShare*(divInfoForm.months||[]).length*+h.quantity).toLocaleString("ko-KR")+"₩"}
+                              </span>
+                              <span style={{marginLeft:"10px"}}>({(divInfoForm.months||[]).length}회/년)</span>
+                            </div>
+                          )}
                           <button onClick={()=>{
                             setDivInfo(p=>({...p,[h.ticker]:{...divInfoForm}}));
                             setDivEditTicker(null);
-                          }} style={{...S.btn("#f59e0b",{fontSize:"13px",gridColumn:"1/-1"})}}>💾 저장</button>
+                          }} style={S.btn("#f59e0b",{fontSize:"13px"})}>💾 저장</button>
                         </div>
                       )}
                     </div>
