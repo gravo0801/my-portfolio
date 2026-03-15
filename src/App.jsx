@@ -566,7 +566,7 @@ function ContribProgressBar({ taxAccounts, holdings2, prices, liveUsdKrw, contri
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px",flexWrap:"wrap",gap:"4px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                   <span style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0"}}>{acc.replace("(신한금융투자)","").replace("(미래에셋증권)","")}</span>
-                  <span style={{fontSize:"10px",color:"#64748b"}}>{acc.includes("(")?acc.match(/\(([^)]+)\)/)?.[1]:"":""}</span>
+                  <span style={{fontSize:"10px",color:"#64748b"}}>{acc.includes("(")?acc.split("(")[1]?.replace(")",""):""}</span>
                   <span style={{fontSize:"11px",background:isAhead?"rgba(52,211,153,0.15)":"rgba(245,158,11,0.15)",color:isAhead?"#34d399":"#f59e0b",padding:"1px 7px",borderRadius:"20px",fontWeight:700}}>
                     {pct.toFixed(1)}%
                   </span>
