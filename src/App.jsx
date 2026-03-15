@@ -626,6 +626,22 @@ function PortfolioApp({ syncKey, onLogout }) {
     return () => unsubs.forEach(u => typeof u === "function" && u());
   }, [syncKey]);
 
+  // 앱 시작 시 캐시된 시세 즉시 표시 (Firebase 로딩 전에도)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("pm_prices_cache");
+      const age    = parseInt(localStorage.getItem("pm_prices_age") || "0");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // 24시간 이내 캐시면 즉시 표시
+        if (Date.now() - age < 86400000) {
+          setPrices(parsed);
+          setPriceAge(age);
+        }
+      }
+    } catch {}
+  }, []);
+
   // 실시간 환율 가져오기
   useEffect(() => {
     const fetchRate = async () => {
@@ -690,14 +706,18 @@ function PortfolioApp({ syncKey, onLogout }) {
       }
       if (result) next[h.ticker] = result;
     }));
-    setPrices(next);
+    // 기존 캐시와 병합 - 새로 불러온 것만 업데이트, 실패한 것은 이전 값 유지
+    setPrices(prev => {
+      const merged = { ...prev, ...next };
+      try {
+        localStorage.setItem("pm_prices_cache", JSON.stringify(merged));
+        localStorage.setItem("pm_prices_age", String(Date.now()));
+      } catch {}
+      return merged;
+    });
     const now = new Date();
     setLastUpdated(now.toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit" }));
     setPriceAge(now.getTime());
-    try {
-      localStorage.setItem("pm_prices_cache", JSON.stringify(next));
-      localStorage.setItem("pm_prices_age", String(now.getTime()));
-    } catch {}
 
     const tv = holdings.reduce((s, h) => {
       const p = next[h.ticker];
@@ -731,19 +751,21 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   useEffect(() => {
     if (!loaded || !holdings.length) return;
-    // 5분 이상 지난 캐시면 즉시 갱신, 아니면 캐시 보여주고 백그라운드 갱신
     const ageMin = (Date.now() - priceAge) / 60000;
+    let fetchTimer;
     if (ageMin > 5) {
+      // 오래된 캐시 → 바로 갱신
       fetchPrices();
     } else {
-      // 캐시 즉시 표시 후 10초 뒤 백그라운드 갱신
-      const bg = setTimeout(fetchPrices, 10000);
-      const id = setInterval(fetchPrices, 60000);
-      return () => { clearTimeout(bg); clearInterval(id); };
+      // 신선한 캐시 → 30초 뒤 백그라운드 갱신 (화면은 즉시 보임)
+      fetchTimer = setTimeout(fetchPrices, 30000);
     }
-    const id = setInterval(fetchPrices, 60000);
-    return () => clearInterval(id);
-  }, [loaded, fetchPrices]);
+    const interval = setInterval(fetchPrices, 60000);
+    return () => {
+      if (fetchTimer) clearTimeout(fetchTimer);
+      clearInterval(interval);
+    };
+  }, [loaded, holdings.length > 0]);
 
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   const portfolio = holdings.map(h => {
@@ -954,16 +976,13 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div style={{ minWidth:0 }}>
             <div style={{ fontSize:isMobile?"16px":"19px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc" }}>내 투자 포트폴리오</div>
             <div style={{ display:"flex", alignItems:"center", gap:"6px", marginTop:"2px", flexWrap:"wrap" }}>
-              {lastUpdated && (
+              {(lastUpdated || priceAge > 0) && (
                 <span style={{ fontSize:"11px", color:"#475569" }}>
-                  {lastUpdated}
-                  {priceAge && (Date.now()-priceAge) < 300000
-                    ? <span style={{ color:"#34d399", marginLeft:"4px", fontWeight:700 }}>●</span>
-                    : <span style={{ color:"#f59e0b", marginLeft:"4px", fontWeight:700 }}>↻</span>}
+                  {lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}
+                  {(Date.now() - priceAge) < 300000
+                    ? <span style={{ color:"#34d399", marginLeft:"4px", fontWeight:700 }} title="5분 이내 최신">●</span>
+                    : <span style={{ color:"#f59e0b", marginLeft:"4px", fontWeight:700 }} title="캐시 데이터">↻</span>}
                 </span>
-              )}
-              {!lastUpdated && priceAge > 0 && (
-                <span style={{ fontSize:"11px", color:"#f59e0b" }}>캐시 표시 중 ↻</span>
               )}
               <span style={{ background:"rgba(99,102,241,0.2)", color:"#a5b4fc", padding:"1px 8px", borderRadius:"20px", fontSize:"11px", fontWeight:700 }}>🔑 {syncKey}</span>
             </div>
