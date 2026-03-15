@@ -1696,7 +1696,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           })()}
 
           {/* 통화 전환 버튼 (전체 뷰일 때만) */}
-          {overviewTab==="all" && <>{/* 통화 전환 버튼 */}
+          {overviewTab==="all" && (<div>{/* 통화 전환 버튼 */}
           <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
             <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
               <button
@@ -1939,7 +1939,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             )}
           </div>
-        </>)}
+        </div>)}
 
         {/* ── PORTFOLIO 2 (절세계좌) ── */}
         {tab === "portfolio" && mainTab === "p2" && (
