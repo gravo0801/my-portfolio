@@ -1004,8 +1004,8 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
             {[...portfolio].sort((a,b)=>b.pnlPct-a.pnlPct).map(h=>(
               <div key={h.id} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px",alignItems:"center",gap:"8px",padding:"8px 10px",background:"rgba(255,255,255,0.03)",borderRadius:"8px"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:"14px"}}>{h.ticker}</div>
-                  <div style={{fontSize:"11px",color:"#64748b"}}>{h.name||""}</div>
+                  <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9"}}>{h.name||h.ticker}</div>
+                  <div style={{fontSize:"11px",color:"#a5b4fc",marginTop:"1px"}}>{h.ticker}</div>
                 </div>
                 <div style={{fontSize:"13px",fontWeight:700,textAlign:"right"}}>
                   {h.cur==="KRW"?Math.round(h.price).toLocaleString("ko-KR")+"₩":"$"+h.price.toFixed(2)}
@@ -1424,9 +1424,9 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
           <div style={{width:"10px",height:"10px",borderRadius:"3px",background:MARKET_COLOR[h.market],flexShrink:0}}/>
           <div>
-            <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em",color:"#a5b4fc",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"3px"}}>{h.ticker}</div>
-            <div style={{fontSize:"12px",color:"#cbd5e1",fontWeight:500}}>{h.name||MARKET_LABEL[h.market]}</div>
-            {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"2px",letterSpacing:"0.05em"}}>ISA</div>}
+            <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
+            <div style={{fontSize:"11px",color:"#a5b4fc",fontWeight:600,marginTop:"2px",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"2px"}}>{h.ticker}</div>
+            {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"3px",letterSpacing:"0.05em"}}>ISA</div>}
                                 {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
         </div>
@@ -1493,8 +1493,8 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"}} onClick={()=>setSelectedStock(h)} onTouchStart={()=>{if(!_chartCache[h.ticker]){fetchHistory(h.ticker,h.market).then(d=>{_chartCache[h.ticker]=d});fetchStockInfo(h.ticker,h.market).then(d=>{_infoCache[h.ticker]=d});}}}>
           <div style={{width:"8px",height:"8px",borderRadius:"2px",background:MARKET_COLOR[h.market],flexShrink:0}}/>
           <div>
-            <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.03em",color:"#a5b4fc"}}>{h.ticker} <span style={{fontSize:"11px",color:"#6366f1"}}>상세보기 ›</span></div>
-            <div style={{fontSize:"12px",color:"#cbd5e1",fontWeight:500}}>{h.name||MARKET_LABEL[h.market]}</div>
+            <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
+            <div style={{fontSize:"11px",color:"#a5b4fc",fontWeight:600,marginTop:"2px"}}>{h.ticker} <span style={{color:"#6366f1",fontSize:"10px"}}>상세보기 ›</span></div>
             {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
         </div>
@@ -1635,7 +1635,8 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
 
         {/* ── PORTFOLIO ── */}
-        {tab === "portfolio" && mainTab === "p1" && (<>
+        {tab === "portfolio" && mainTab === "p1" && (
+          <div>
 
           {/* ── 뷰 선택 탭 ── */}
           <div style={{display:"flex",gap:"4px",marginBottom:"14px",flexWrap:"wrap"}}>
@@ -1939,7 +1940,8 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             )}
           </div>
-        </div>)}
+          </div>
+        )}
 
         {/* ── PORTFOLIO 2 (절세계좌) ── */}
         {tab === "portfolio" && mainTab === "p2" && (
@@ -2054,8 +2056,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                                   <div style={{width:"8px",height:"8px",borderRadius:"2px",background:MARKET_COLOR[h.market]||"#eab308",flexShrink:0}}/>
                                   <div>
-                                    <div style={{fontWeight:800,fontSize:"14px",letterSpacing:"-0.02em"}}>{h.ticker}</div>
-                                    <div style={{fontSize:"11px",color:"#cbd5e1"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                                    <div style={{fontWeight:800,fontSize:"14px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
+                                    <div style={{fontSize:"11px",color:"#a5b4fc",fontWeight:600,marginTop:"1px"}}>{h.ticker}</div>
                                   </div>
                                 </div>
                               </td>
