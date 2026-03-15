@@ -606,53 +606,6 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
   );
 }
 
-
-// ── Overview 카드 컴포넌트 ───────────────────────────────────────────────────
-function OverviewCard({ title, subtitle, totalVal, totalCost, items, color, onClick, isMobile }) {
-  const fmtK = (v) => {
-    if (v >= 1e8) return (v/1e8).toFixed(1)+"억₩";
-    if (v >= 1e4) return Math.round(v/1e4)+"만₩";
-    return Math.round(v).toLocaleString("ko-KR")+"₩";
-  };
-  const pnl = totalVal - totalCost;
-  const ret = totalCost > 0 ? ((pnl/totalCost)*100) : 0;
-  const isUp = ret >= 0;
-  const topItems = [...items].sort((a,b)=>b.value-a.value).slice(0,3);
-  return (
-    <div onClick={onClick} style={{background:"rgba(255,255,255,0.04)",border:`1px solid ${color}33`,borderRadius:"14px",padding:"16px",cursor:"pointer",transition:"all 0.15s",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:0,left:0,right:0,height:"3px",background:color,borderRadius:"14px 14px 0 0"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"12px"}}>
-        <div>
-          <div style={{fontSize:"14px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.02em"}}>{title}</div>
-          {subtitle && <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>{subtitle}</div>}
-        </div>
-        <div style={{fontSize:"11px",color:"#64748b",background:"rgba(255,255,255,0.06)",padding:"2px 8px",borderRadius:"20px"}}>{items.length}종목</div>
-      </div>
-      <div style={{marginBottom:"10px"}}>
-        <div style={{fontSize:"20px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.04em"}}>{fmtK(totalVal)}</div>
-        <div style={{display:"flex",alignItems:"center",gap:"8px",marginTop:"3px"}}>
-          <span style={{fontSize:"13px",fontWeight:700,color:isUp?"#34d399":"#f87171"}}>{isUp?"+":""}{ret.toFixed(2)}%</span>
-          <span style={{fontSize:"12px",color:"#64748b"}}>{isUp?"+":""}{fmtK(Math.abs(pnl))}</span>
-        </div>
-      </div>
-      {/* 미니 바 */}
-      <div style={{background:"rgba(255,255,255,0.06)",borderRadius:"4px",height:"6px",overflow:"hidden",marginBottom:"10px"}}>
-        <div style={{width:Math.min(Math.abs(ret)/20*100,100).toFixed(1)+"%",height:"100%",background:isUp?"#34d399":"#f87171",borderRadius:"4px"}}/>
-      </div>
-      {/* 상위 3종목 */}
-      {topItems.length > 0 && (
-        <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
-          {topItems.map(h=>(
-            <span key={h.id||h.ticker} style={{fontSize:"11px",background:"rgba(255,255,255,0.07)",color:"#94a3b8",padding:"2px 8px",borderRadius:"20px"}}>{h.ticker}</span>
-          ))}
-          {items.length > 3 && <span style={{fontSize:"11px",color:"#475569"}}>+{items.length-3}</span>}
-        </div>
-      )}
-      <div style={{position:"absolute",bottom:"12px",right:"14px",fontSize:"11px",color:"#475569"}}>상세보기 →</div>
-    </div>
-  );
-}
-
 // ── 전체 현황 Overview ────────────────────────────────────────────────────────
 function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock }) {
   const [viewMode, setViewMode] = useState("account"); // account | broker | region
