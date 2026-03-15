@@ -762,8 +762,8 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
                   <div key={h.id||h.ticker} style={{display:"grid",gridTemplateColumns:"24px 1fr 70px",alignItems:"center",gap:"8px",cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
                     <span style={{fontSize:"12px",color:"#475569",fontWeight:700,textAlign:"center"}}>{i+1}</span>
                     <div>
-                      <div style={{fontSize:"13px",fontWeight:700,color:"#a5b4fc"}}>{h.ticker}</div>
-                      <div style={{fontSize:"11px",color:"#64748b"}}>{h.name||""}</div>
+                      <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9"}}>{h.name||h.ticker}</div>
+                      <div style={{fontSize:"11px",color:"#a5b4fc",marginTop:"1px"}}>{h.name?h.ticker:""}</div>
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:"13px",fontWeight:800,color:h.pnlPct>=0?"#34d399":"#f87171"}}>{h.pnlPct>=0?"+":""}{h.pnlPct.toFixed(2)}%</div>
