@@ -1158,7 +1158,13 @@ function PortfolioApp({ syncKey, onLogout }) {
     attach("snapshots", setSnapshots, "s");
     attach("holdings2",  setHoldings2, "h2");
     attach("watchlist",    setWatchlist,   "wl");
-    attach("divInfo",      setDivInfo,     "di");
+    // divInfo는 객체 형태로 저장 - 별도 처리
+    const uDi = dbOn(`users/${syncKey}/divInfo`, val => {
+      if (saving.current["di"]) return;
+      setDivInfo(val && typeof val === "object" && !Array.isArray(val) ? val : {});
+      setLoaded(true);
+    });
+    unsubs.push(uDi);
     attach("divRecords",   setDivRecords,  "dr");
     setTimeout(() => setLoaded(true), 2000);
     return () => unsubs.forEach(u => typeof u === "function" && u());
@@ -2157,7 +2163,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const ps = +di.perShare;
                 const qty = +h.quantity;
                 const isUSD = di.currency === "USD";
-                const divMonths = di.months||[];
+                const rawM = di.months||[];
+                const divMonths = Array.isArray(rawM) ? rawM : Object.values(rawM);
                 const annualRaw = ps*(divMonths.length||1);
                 expectedAnnual += (isUSD ? annualRaw*liveUsdKrw : annualRaw) * qty;
               });
@@ -2213,7 +2220,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const ps=+di.perShare, qty=+h.quantity;
                 const isUSD=di.currency==="USD";
                 const raw=ps*qty*(isUSD?liveUsdKrw:1);
-                const months=di.months||[];
+                const rawMonths=di.months||[];
+                const months=Array.isArray(rawMonths)?rawMonths:Object.values(rawMonths);
                 months.forEach(m=>{ expectedByMonth[m-1]+=raw; });
               });
 
@@ -2258,10 +2266,12 @@ function PortfolioApp({ syncKey, onLogout }) {
                 {[...holdings,...holdings2].filter(h=>h.market!=="CRYPTO").map(h=>{
                   const di = divInfo[h.ticker]||{};
                   const isEditing = divEditTicker===h.ticker;
-                  const cycleLabel = di.months&&di.months.length ? di.months.join("·")+"월 ("+di.months.length+"회/년)" : "";
+                  const rawCM=di.months||[]; const cm=Array.isArray(rawCM)?rawCM:Object.values(rawCM);
+                  const cycleLabel = cm.length ? cm.join("·")+"월 ("+cm.length+"회/년)" : "";
                   const ps=+di.perShare||0, qty=+h.quantity;
                   const isUSD=di.currency==="USD";
-                  const months=di.months||[];
+                  const rawDivM=di.months||[];
+              const months=Array.isArray(rawDivM)?rawDivM:Object.values(rawDivM);
               const annual=ps*(months.length||1);
                   const annualKRW=annual*(isUSD?liveUsdKrw:1)*qty;
                   const yieldPct = h.avgPrice>0&&annual>0 ? (annual/(isUSD?h.avgPrice*liveUsdKrw:h.avgPrice))*100 : 0;
@@ -2286,7 +2296,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                             if(isEditing){setDivEditTicker(null);}
                             else{
                               setDivEditTicker(h.ticker);
-                              setDivInfoForm({perShare:di.perShare||"",months:di.months||[],currency:di.currency||"KRW"});
+                              const rawEM=di.months||[]; setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW"});
                             }
                           }} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
                             {isEditing?"✕ 닫기":"✏️ 편집"}
