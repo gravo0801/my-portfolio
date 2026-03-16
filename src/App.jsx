@@ -36,15 +36,25 @@ function useIsMobile() {
 let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 
 async function fetchYahoo(ticker) {
-  // v7/quote: 실시간 시세 (프리/정규/애프터 포함)
+  const isKR = ticker.endsWith(".KS") || ticker.endsWith(".KQ");
   const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,postMarketPrice,currency,marketState";
-  const q1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
-  const q2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
+
+  // 국내주식: v8/chart가 프록시에서 더 안정적
+  // 미국주식: v7/quote로 프리/애프터 포함 실시간 시세
+  const urls = isKR ? [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
+  ] : [
+    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`,
+    `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`,
+  ];
+
   const allProxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(q1)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(q2)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(q1)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(q2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[0])}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[1])}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[0])}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[1])}`,
+    `https://corsproxy.io/?url=${encodeURIComponent(urls[0])}`,
   ];
   // 마지막으로 성공한 프록시를 앞으로 이동
   const proxies = [
@@ -56,38 +66,42 @@ async function fetchYahoo(ticker) {
       const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
-      // v7/quote 응답 파싱
-      const q = d?.quoteResponse?.result?.[0];
-      if (!q?.regularMarketPrice) continue;
-      const price = q.regularMarketPrice;
-      const prev  = q.regularMarketPreviousClose || price;
-      const state = q.marketState || "REGULAR";
-      const displayPrice = state==="PRE" && q.preMarketPrice ? q.preMarketPrice
-                         : state==="POST" && q.postMarketPrice ? q.postMarketPrice
-                         : price;
-      const displayChg = state==="PRE" && q.preMarketPrice ? ((q.preMarketPrice-prev)/prev)*100
-                       : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
-                       : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
+      let price, prev, state, displayPrice, displayChg, currency;
+
+      if (isKR) {
+        // v8/chart 파싱 (국내주식)
+        const m = d?.chart?.result?.[0]?.meta;
+        if (!m?.regularMarketPrice) continue;
+        price = m.regularMarketPrice;
+        prev  = m.previousClose || m.chartPreviousClose || price;
+        state = "REGULAR";
+        displayPrice = price;
+        displayChg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
+        currency     = m.currency || "KRW";
+      } else {
+        // v7/quote 파싱 (미국주식)
+        const q = d?.quoteResponse?.result?.[0];
+        if (!q?.regularMarketPrice) continue;
+        price = q.regularMarketPrice;
+        prev  = q.regularMarketPreviousClose || price;
+        state = q.marketState || "REGULAR";
+        displayPrice = state==="PRE"  && q.preMarketPrice  ? q.preMarketPrice
+                     : state==="POST" && q.postMarketPrice ? q.postMarketPrice
+                     : price;
+        displayChg   = state==="PRE"  && q.preMarketPrice  ? ((q.preMarketPrice-prev)/prev)*100
+                     : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
+                     : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
+        currency     = q.currency || "USD";
+      }
+
       const proxyIdx = allProxies.indexOf(url);
       if (proxyIdx >= 0 && proxyIdx !== _bestProxy) {
         _bestProxy = proxyIdx;
         try { localStorage.setItem("pm_best_proxy", String(proxyIdx)); } catch {}
       }
-      return { price: displayPrice, regularPrice: price, changePercent: displayChg, currency: q.currency, marketState: state };
+      return { price: displayPrice, regularPrice: price, changePercent: displayChg, currency, marketState: state };
     } catch { continue; }
   }
-  // 마지막 수단: stooq (CORS 프록시 불필요)
-  try {
-    const tk = ticker.endsWith(".KS") || ticker.endsWith(".KQ") ? ticker.replace(".KS","").replace(".KQ","") + ".KR" : ticker + ".US";
-    const r = await fetch(`https://stooq.com/q/l/?s=${tk}&f=sd2ohlcv&h&e=json`, { signal: AbortSignal.timeout(6000) });
-    const d = await r.json();
-    const row = d?.symbols?.[0];
-    if (row?.close) {
-      const price = parseFloat(row.close);
-      const open  = parseFloat(row.open) || price;
-      return { price, changePercent: ((price - open) / open) * 100, currency: ticker.endsWith(".KS")||ticker.endsWith(".KQ") ? "KRW" : "USD" };
-    }
-  } catch {}
   return null;
 }
 async function fetchCrypto(ticker) {
@@ -105,7 +119,7 @@ async function fetchGold(liveUsdKrw) {
   try {
     const proxies = [
       `https://api.allorigins.win/raw?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d")}`,
-      `https://corsproxy.io/?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d")}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1d")}`,
     ];
     for (const url of proxies) {
       try {
@@ -148,7 +162,7 @@ async function fetchHistory(ticker, market) {
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
   const proxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(yahooUrl)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
   ];
   for (const url of proxies) {
     try {
@@ -188,7 +202,7 @@ async function fetchStockInfo(ticker, market) {
   const yahooUrl = `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${tk}?modules=summaryDetail,defaultKeyStatistics,assetProfile`;
   const proxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(yahooUrl)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
   ];
   for (const url of proxies) {
     try {
@@ -954,7 +968,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
   const fmtP = (n) => (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
 
   const portfolio = items.map(h => {
-    const p   = prices[h.ticker];
+    const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
     const cur = h.market === "US" ? "USD"
       : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") ? "USD"
       : "KRW";
@@ -1398,7 +1412,10 @@ function PortfolioApp({ syncKey, onLogout }) {
     if (stockItems.length > 0) {
       const tickers = [...new Set(stockItems.map(h => {
         let tk = h.ticker;
+        // KR/ISA: 항상 .KS (이미 .KQ 있으면 유지)
         if ((h.market === "KR" || h.market === "ISA") && !tk.includes(".")) tk += ".KS";
+        // ETF: 숫자로 시작하면 한국 ETF → .KS 추가
+        if (h.market === "ETF" && /^\d/.test(tk) && !tk.includes(".")) tk += ".KS";
         return tk;
       }))];
 
@@ -1406,15 +1423,34 @@ function PortfolioApp({ syncKey, onLogout }) {
       const chunks = [];
       for (let i = 0; i < tickers.length; i += 20) chunks.push(tickers.slice(i, i + 20));
 
-      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent,currency,marketState";
+      // 국내(KR): v8/chart 개별 조회, 해외(US/ETF): v7/quote 묶음 조회
+      const krTickers = tickers.filter(t => t.endsWith(".KS") || t.endsWith(".KQ"));
+      const usTickers = tickers.filter(t => !t.endsWith(".KS") && !t.endsWith(".KQ"));
+
+      // 국내 주식 병렬 개별 조회
+      await Promise.all(krTickers.map(async tk => {
+        const r = await fetchYahoo(tk);
+        if (r) {
+          next[tk] = r;
+          next[tk.replace(".KS","").replace(".KQ","")] = r;
+        }
+      }));
+
+      // 해외 주식만 묶음으로 청크
+      const usTicks = usTickers;
+      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,postMarketPrice,currency,marketState";
       const proxies = [
         (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
         (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
-        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
-        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
+        (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
+        (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
       ];
+      // 기존 chunks를 US 티커로만 재구성
+      chunks.length = 0;
+      for (let i = 0; i < usTicks.length; i += 20) chunks.push(usTicks.slice(i, i + 20));
 
       for (const chunk of chunks) {
+        if (!chunk.length) continue;
         const syms = chunk.join(",");
         let fetched = false;
         for (const proxyFn of proxies) {
@@ -1454,9 +1490,11 @@ function PortfolioApp({ syncKey, onLogout }) {
             break;
           } catch { continue; }
         }
-        // 묶음 실패 시 개별 fallback
-        if (!fetched) {
-          await Promise.all(chunk.map(async tk => {
+        // 묶음 실패 or 일부 누락 시 개별 fallback
+        const missingTickers = chunk.filter(tk => !next[tk]);
+        if (!fetched || missingTickers.length > 0) {
+          const toFetch = !fetched ? chunk : missingTickers;
+          await Promise.all(toFetch.map(async tk => {
             const r = await fetchYahoo(tk);
             if (r) {
               next[tk] = r;
@@ -1469,6 +1507,11 @@ function PortfolioApp({ syncKey, onLogout }) {
     }
 
     // ── 3. 결과 저장 + 알람 체크 ──────────────────────────────────
+    // 성공/실패 현황
+    const allTickers = [...holdings,...holdings2,...watchlist].map(h=>h.ticker);
+    const succeeded = allTickers.filter(t => next[t] || next[t+".KS"] || next[t+".KQ"]).length;
+    const failed = allTickers.length - succeeded;
+
     setPrices(prev => {
       const merged = { ...prev, ...next };
       try {
@@ -1477,6 +1520,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       } catch {}
       return merged;
     });
+    if (failed > 0) console.warn(`[시세] ${succeeded}/${allTickers.length} 성공, ${failed}개 실패:`, allTickers.filter(t=>!next[t]&&!next[t+".KS"]&&!next[t+".KQ"]));
     const now = new Date();
     setLastUpdated(now.toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit", second:"2-digit" }));
     setPriceAge(now.getTime());
@@ -1530,7 +1574,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   const portfolio = holdings.map(h => {
-    const p   = prices[h.ticker];
+    const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
     const cur = h.market === "US" ? "USD"
       : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
       : "KRW"; // KR, ISA, CRYPTO, GOLD, GOLD 모두 원화
@@ -1732,7 +1776,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   // 포트폴리오2 계산
   const portfolio2 = holdings2.map(h => {
-    const p   = prices[h.ticker] || (h.market==="GOLD" ? prices["GOLD"] : null);
+    const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || (h.market==="GOLD" ? prices["GOLD"] : null);
     const cur = h.market === "US" ? "USD"
       : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
       : "KRW";
