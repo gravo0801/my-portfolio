@@ -229,11 +229,13 @@ function dbOn(path, cb) { return window.firebaseDB.onValue(dbRef(path), snap => 
 
 // ── 날씨 & 환율 위젯 ─────────────────────────────────────────────────────────
 function InfoWidget() {
-  const [mode, setMode] = useState("weather"); // "weather" | "rate"
-  const [weather, setWeather] = useState({ seoul:null, nyc:null });
-  const [rates, setRates] = useState({ usd:null, jpy:null });
+  const [mode, setMode] = useState("weather"); // "weather" | "rate" | "rate2"
+  const [weather, setWeather] = useState({ seoul:null, nyc:null, tokyo:null, custom:null });
+  const [rates, setRates]     = useState({});
   const [wLoading, setWLoading] = useState(false);
   const [rLoading, setRLoading] = useState(false);
+  const [customCity, setCustomCity] = useState("london"); // 사용자 선택 도시
+  const [extraCurrency, setExtraCurrency] = useState("EUR"); // 추가 환율
 
   const WX_CODE = {
     0:"맑음",1:"대체로맑음",2:"구름조금",3:"흐림",
@@ -248,17 +250,44 @@ function InfoWidget() {
     95:"⛈️",96:"⛈️",99:"⛈️"
   };
 
+  const CITIES = {
+    london:   { label:"🇬🇧 런던",    lat:51.5074,  lon:-0.1278,  tz:"Europe/London" },
+    paris:    { label:"🇫🇷 파리",    lat:48.8566,  lon:2.3522,   tz:"Europe/Paris" },
+    shanghai: { label:"🇨🇳 상하이",  lat:31.2304,  lon:121.4737, tz:"Asia/Shanghai" },
+    dubai:    { label:"🇦🇪 두바이",  lat:25.2048,  lon:55.2708,  tz:"Asia/Dubai" },
+    sydney:   { label:"🇦🇺 시드니",  lat:-33.8688, lon:151.2093, tz:"Australia/Sydney" },
+    singapore:{ label:"🇸🇬 싱가포르",lat:1.3521,   lon:103.8198, tz:"Asia/Singapore" },
+    frankfurt:{ label:"🇩🇪 프랑크푸르트",lat:50.1109,lon:8.6821, tz:"Europe/Berlin" },
+    hongkong: { label:"🇭🇰 홍콩",    lat:22.3193,  lon:114.1694, tz:"Asia/Hong_Kong" },
+  };
+
+  const CURRENCIES = {
+    EUR:{ label:"🇪🇺 EUR", flag:"€" },
+    CNY:{ label:"🇨🇳 CNY", flag:"¥" },
+    GBP:{ label:"🇬🇧 GBP", flag:"£" },
+    AUD:{ label:"🇦🇺 AUD", flag:"A$" },
+    SGD:{ label:"🇸🇬 SGD", flag:"S$" },
+    HKD:{ label:"🇭🇰 HKD", flag:"HK$" },
+    CHF:{ label:"🇨🇭 CHF", flag:"Fr" },
+    CAD:{ label:"🇨🇦 CAD", flag:"C$" },
+  };
+
   const fetchWeather = async () => {
     setWLoading(true);
     try {
-      const [sRes, nRes] = await Promise.all([
-        fetch("https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul"),
-        fetch("https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,weathercode&timezone=America/New_York"),
-      ]);
-      const [s, n] = await Promise.all([sRes.json(), nRes.json()]);
+      const city = CITIES[customCity];
+      const urls = [
+        `https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul`,
+        `https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,weathercode&timezone=America/New_York`,
+        `https://api.open-meteo.com/v1/forecast?latitude=35.6762&longitude=139.6503&current=temperature_2m,weathercode&timezone=Asia/Tokyo`,
+        `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weathercode&timezone=${encodeURIComponent(city.tz)}`,
+      ];
+      const results = await Promise.all(urls.map(u => fetch(u).then(r=>r.json()).catch(()=>null)));
       setWeather({
-        seoul: { temp: Math.round(s.current.temperature_2m), code: s.current.weathercode },
-        nyc:   { temp: Math.round(n.current.temperature_2m), code: n.current.weathercode },
+        seoul:  results[0] ? { temp: Math.round(results[0].current.temperature_2m), code: results[0].current.weathercode } : null,
+        nyc:    results[1] ? { temp: Math.round(results[1].current.temperature_2m), code: results[1].current.weathercode } : null,
+        tokyo:  results[2] ? { temp: Math.round(results[2].current.temperature_2m), code: results[2].current.weathercode } : null,
+        custom: results[3] ? { temp: Math.round(results[3].current.temperature_2m), code: results[3].current.weathercode } : null,
       });
     } catch {}
     setWLoading(false);
@@ -266,23 +295,22 @@ function InfoWidget() {
 
   const fetchRates = async () => {
     setRLoading(true);
+    const targets = ["KRW","JPY","EUR","CNY","GBP","AUD","SGD","HKD","CHF","CAD"];
     const apis = [
       async () => {
-        const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW,JPY", { signal: AbortSignal.timeout(5000) });
-        const d = await r.json();
-        return { usd: d.rates.KRW, jpy: d.rates.KRW / d.rates.JPY };
+        const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${targets.join(",")}`, { signal: AbortSignal.timeout(6000) });
+        return (await r.json()).rates;
       },
       async () => {
-        const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(5000) });
-        const d = await r.json();
-        return { usd: d.rates.KRW, jpy: d.rates.KRW / d.rates.JPY };
+        const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) });
+        return (await r.json()).rates;
       },
     ];
     for (const apiFn of apis) {
       try {
-        const { usd, jpy } = await apiFn();
-        if (usd && usd > 900 && usd < 2000) {
-          setRates({ usd: Math.round(usd), jpy: Math.round(jpy * 100) / 100 });
+        const r = await apiFn();
+        if (r?.KRW && r.KRW > 900) {
+          setRates(r);
           setRLoading(false);
           return;
         }
@@ -292,10 +320,10 @@ function InfoWidget() {
   };
 
   useEffect(() => { fetchWeather(); fetchRates(); }, []);
-  // 날씨 10분, 환율 10분마다 갱신
+  useEffect(() => { fetchWeather(); }, [customCity]);
   useEffect(() => {
     const w = setInterval(fetchWeather, 600000);
-    const r = setInterval(fetchRates,   600000);
+    const r = setInterval(fetchRates, 300000); // 5분
     return () => { clearInterval(w); clearInterval(r); };
   }, []);
 
@@ -304,64 +332,121 @@ function InfoWidget() {
     border: active ? "1px solid rgba(99,102,241,0.5)" : "1px solid rgba(255,255,255,0.1)",
     color: active ? "#c7d2fe" : "#64748b",
     padding: "3px 10px", borderRadius: "6px", cursor: "pointer",
-    fontSize: "11px", fontWeight: 700, letterSpacing: "-0.01em",
+    fontSize: "11px", fontWeight: 700,
   });
 
+  const cardStyle = {
+    background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)",
+    borderRadius:"10px", padding:"7px 12px", textAlign:"center", minWidth:"72px",
+  };
+
+  const krwPer = (cur) => {
+    if (!rates?.KRW || !rates?.[cur]) return null;
+    return Math.round(rates.KRW / rates[cur]);
+  };
+
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"6px" }}>
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"5px" }}>
       {/* 토글 버튼 */}
       <div style={{ display:"flex", gap:"4px" }}>
         <button style={btnStyle(mode==="weather")} onClick={()=>setMode("weather")}>🌤️ 날씨</button>
         <button style={btnStyle(mode==="rate")}    onClick={()=>setMode("rate")}>💱 환율</button>
+        <button style={btnStyle(mode==="rate2")}   onClick={()=>{setMode("rate2");if(!Object.keys(rates).length)fetchRates();}}>🌐 통화</button>
       </div>
 
       {/* 날씨 */}
       {mode === "weather" && (
-        <div style={{ display:"flex", gap:"8px" }}>
-          {wLoading ? (
-            <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span>
-          ) : (<>
-            {weather.seoul && (
-              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 10px", textAlign:"center", minWidth:"70px" }}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>🇰🇷 서울</div>
-                <div style={{ fontSize:"16px", lineHeight:1 }}>{WX_ICON[weather.seoul.code]??'🌡️'}</div>
-                <div style={{ fontSize:"13px", fontWeight:800, color:"#f1f5f9", marginTop:"2px" }}>{weather.seoul.temp}°C</div>
-                <div style={{ fontSize:"10px", color:"#64748b" }}>{WX_CODE[weather.seoul.code]??""}</div>
+        <div style={{ display:"flex", gap:"6px", alignItems:"flex-start" }}>
+          {wLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (<>
+            {[
+              ["🇰🇷 서울", weather.seoul],
+              ["🇺🇸 뉴욕",  weather.nyc],
+              ["🇯🇵 도쿄", weather.tokyo],
+              [CITIES[customCity]?.label, weather.custom],
+            ].map(([label, w]) => w ? (
+              <div key={label} style={cardStyle}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700, whiteSpace:"nowrap" }}>{label}</div>
+                <div style={{ fontSize:"22px", lineHeight:1 }}>{WX_ICON[w.code]??'🌡️'}</div>
+                <div style={{ fontSize:"16px", fontWeight:800, color:"#f1f5f9", marginTop:"3px" }}>{w.temp}°C</div>
+                <div style={{ fontSize:"10px", color:"#64748b", marginTop:"2px" }}>{WX_CODE[w.code]??""}</div>
               </div>
-            )}
-            {weather.nyc && (
-              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 10px", textAlign:"center", minWidth:"70px" }}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>🇺🇸 뉴욕</div>
-                <div style={{ fontSize:"16px", lineHeight:1 }}>{WX_ICON[weather.nyc.code]??'🌡️'}</div>
-                <div style={{ fontSize:"13px", fontWeight:800, color:"#f1f5f9", marginTop:"2px" }}>{weather.nyc.temp}°C</div>
-                <div style={{ fontSize:"10px", color:"#64748b" }}>{WX_CODE[weather.nyc.code]??""}</div>
-              </div>
-            )}
+            ) : null)}
+            {/* 도시 선택 */}
+            <div style={{ display:"flex", flexDirection:"column", justifyContent:"center" }}>
+              <select value={customCity} onChange={e=>setCustomCity(e.target.value)}
+                style={{ background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", padding:"3px 6px", borderRadius:"6px", fontSize:"10px", cursor:"pointer", appearance:"none", outline:"none" }}>
+                {Object.entries(CITIES).map(([k,v]) => <option key={k} value={k} style={{background:"#1e293b"}}>{v.label}</option>)}
+              </select>
+            </div>
           </>)}
         </div>
       )}
 
-      {/* 환율 */}
+      {/* 주요 환율 (USD·JPY) */}
       {mode === "rate" && (
-        <div style={{ display:"flex", gap:"8px" }}>
-          {rLoading ? (
-            <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span>
-          ) : (<>
-            {rates.usd && (
-              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 12px", textAlign:"center", minWidth:"80px" }}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇺🇸 USD → KRW</div>
-                <div style={{ fontSize:"15px", fontWeight:800, color:"#34d399" }}>{rates.usd.toLocaleString()}₩</div>
+        <div style={{ display:"flex", gap:"6px" }}>
+          {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (<>
+            {rates?.KRW && (
+              <div style={cardStyle}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇺🇸 USD</div>
+                <div style={{ fontSize:"16px", fontWeight:800, color:"#34d399" }}>{Math.round(rates.KRW).toLocaleString()}₩</div>
                 <div style={{ fontSize:"10px", color:"#64748b" }}>1달러</div>
               </div>
             )}
-            {rates.jpy && (
-              <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"8px", padding:"5px 12px", textAlign:"center", minWidth:"80px" }}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇯🇵 JPY → KRW</div>
-                <div style={{ fontSize:"15px", fontWeight:800, color:"#f59e0b" }}>{rates.jpy.toFixed(2)}₩</div>
-                <div style={{ fontSize:"10px", color:"#64748b" }}>1엔</div>
+            {rates?.JPY && rates?.KRW && (
+              <div style={cardStyle}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇯🇵 JPY</div>
+                <div style={{ fontSize:"16px", fontWeight:800, color:"#f59e0b" }}>{Math.round(rates.KRW/rates.JPY*100).toLocaleString()}₩</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>100엔</div>
               </div>
             )}
+            {/* 추가 통화 선택 */}
+            {rates?.KRW && (
+              <div style={cardStyle}>
+                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>{CURRENCIES[extraCurrency]?.label}</div>
+                <div style={{ fontSize:"16px", fontWeight:800, color:"#a5b4fc" }}>{krwPer(extraCurrency)?.toLocaleString()}₩</div>
+                <div style={{ fontSize:"10px", color:"#64748b" }}>1{CURRENCIES[extraCurrency]?.flag}</div>
+              </div>
+            )}
+            <div style={{ display:"flex", flexDirection:"column", justifyContent:"center" }}>
+              <select value={extraCurrency} onChange={e=>setExtraCurrency(e.target.value)}
+                style={{ background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", padding:"3px 6px", borderRadius:"6px", fontSize:"10px", cursor:"pointer", appearance:"none", outline:"none" }}>
+                {Object.entries(CURRENCIES).map(([k,v]) => <option key={k} value={k} style={{background:"#1e293b"}}>{v.label}</option>)}
+              </select>
+            </div>
           </>)}
+        </div>
+      )}
+
+      {/* 전체 환율 보기 */}
+      {mode === "rate2" && (
+        <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", maxWidth:"400px", justifyContent:"flex-end" }}>
+          {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (
+            rates?.KRW ? (
+              [
+                ["USD","🇺🇸","#34d399","1달러"],
+                ["JPY","🇯🇵","#f59e0b","100엔"],
+                ["EUR","🇪🇺","#60a5fa","1유로"],
+                ["CNY","🇨🇳","#f87171","1위안"],
+                ["GBP","🇬🇧","#c084fc","1파운드"],
+                ["AUD","🇦🇺","#34d399","1호주달러"],
+                ["SGD","🇸🇬","#fb923c","1싱가포르달러"],
+                ["HKD","🇭🇰","#f59e0b","1홍콩달러"],
+              ].map(([cur, flag, color, label]) => {
+                const krw = cur==="JPY"
+                  ? Math.round(rates.KRW/rates.JPY*100)
+                  : krwPer(cur);
+                if (!krw) return null;
+                return (
+                  <div key={cur} style={{...cardStyle, minWidth:"64px", padding:"5px 8px"}}>
+                    <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>{flag} {cur}</div>
+                    <div style={{ fontSize:"14px", fontWeight:800, color }}>{krw.toLocaleString()}₩</div>
+                    <div style={{ fontSize:"9px", color:"#475569" }}>{label}</div>
+                  </div>
+                );
+              })
+            ) : <span style={{fontSize:"11px",color:"#f87171",cursor:"pointer"}} onClick={fetchRates}>⟳ 다시 시도</span>
+          )}
         </div>
       )}
     </div>
@@ -1227,36 +1312,23 @@ function PortfolioApp({ syncKey, onLogout }) {
     } catch {}
 
     const fetchRate = async () => {
-      // 여러 환율 API 순차 시도
       const apis = [
+        async () => { const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
+        async () => { const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
         async () => {
-          const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(5000) });
-          const d = await r.json();
-          return d?.rates?.KRW;
-        },
-        async () => {
-          // ExchangeRate-API (무료, 키 불필요)
-          const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(5000) });
-          const d = await r.json();
-          return d?.rates?.KRW;
-        },
-        async () => {
-          // Yahoo Finance KRW=X
           const url = `https://api.allorigins.win/raw?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/KRW%3DX?interval=1d&range=1d")}`;
-          const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
-          const d = await r.json();
-          return d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          const r = await fetch(url, { signal: AbortSignal.timeout(7000) });
+          return (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice;
         },
       ];
-
       for (const apiFn of apis) {
         try {
           const rate = await apiFn();
-          if (rate && rate > 900 && rate < 2000) { // 유효한 환율 범위
+          if (rate && rate > 900 && rate < 2000) {
             const rounded = Math.round(rate);
             setLiveUsdKrw(rounded);
             try { localStorage.setItem("pm_usd_krw", String(rounded)); } catch {}
-            return; // 성공하면 종료
+            return;
           }
         } catch { continue; }
       }
