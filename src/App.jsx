@@ -1241,6 +1241,12 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [selectedStock, setSelectedStock] = useState(null);
   const [sortBy, setSortBy]   = useState("default");
   const [compactMode, setCompactMode] = useState(false);
+  const [bgTheme, setBgTheme] = useState(() => {
+    try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
+  });
+  const [bgImage, setBgImage] = useState(() => {
+    try { return localStorage.getItem("pm_bg_image") || ""; } catch { return ""; }
+  });
   const [groupBy, setGroupBy] = useState("none");
   const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
@@ -1816,56 +1822,70 @@ function PortfolioApp({ syncKey, onLogout }) {
   const total2Ret  = total2Cost > 0 ? (total2PnL / total2Cost) * 100 : 0;
 
   return (
-    <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)", color:"#e2e8f0", minHeight:"100vh", fontFamily:FONT, fontSize:"15px", lineHeight:"1.6", letterSpacing:"-0.01em" }}>
+    <div style={{
+      background: bgImage
+        ? `url(${bgImage}) center/cover fixed`
+        : bgTheme==="ocean"   ? "linear-gradient(135deg,#0c1445 0%,#0f3460 50%,#16213e 100%)"
+        : bgTheme==="forest"  ? "linear-gradient(135deg,#0a1f0f 0%,#0d2b1a 50%,#0f1b0d 100%)"
+        : bgTheme==="sunset"  ? "linear-gradient(135deg,#1a0a2e 0%,#2d1b4e 40%,#3d1518 100%)"
+        : bgTheme==="midnight"? "linear-gradient(135deg,#000000 0%,#0a0a1a 50%,#050510 100%)"
+        : bgTheme==="navy"    ? "linear-gradient(135deg,#0a0f2c 0%,#0d1b3e 50%,#091428 100%)"
+        : "linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)",
+      color:"#e2e8f0", minHeight:"100vh", fontFamily:FONT, fontSize:"15px", lineHeight:"1.6", letterSpacing:"-0.01em",
+    }}>
+      {/* 배경 이미지 오버레이 */}
+      {bgImage && <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:0,pointerEvents:"none"}}/>}
       {/* ── 장 상태 최상단 바 ── */}
-      <div style={{ background:"rgba(8,12,28,0.98)", borderBottom:"1px solid rgba(255,255,255,0.06)", padding:"5px 18px", display:"flex", gap:"16px", alignItems:"center", flexWrap:"wrap", position:"sticky", top:0, zIndex:51 }}>
+      <div style={{ background:"rgba(6,9,20,0.98)", borderBottom:"1px solid rgba(255,255,255,0.07)", padding:"6px 18px", position:"sticky", top:0, zIndex:51, display:"flex", alignItems:"center", gap:"20px", flexWrap:"wrap" }}>
         {(()=>{
           const kst  = new Date(Date.now()+9*3600000);
           const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
           const isDST = (()=>{ const d=new Date(),jan=new Date(d.getFullYear(),0,1),jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
 
-          // 국내장
-          const krRegular = mins>=9*60 && mins<15*60+35;
-          const krAfter   = mins>=15*60+35 && mins<18*60;
-          const krPre     = mins>=8*60 && mins<9*60;
+          // 국내장 시간대 (KST)
+          // KRX: 정규 09:00~15:30 / 시간외단일가 16:00~18:00
+          // NXT(대체거래소): 프리 08:00~08:50 / 정규 09:00~15:20 / 애프터 15:40~20:00
+          const krPre     = mins>=8*60    && mins<9*60;         // 08:00~09:00 프리 (NXT)
+          const krRegular = mins>=9*60    && mins<15*60+30;     // 09:00~15:30 정규
+          const krAfter   = mins>=15*60+30&& mins<20*60;        // 15:30~20:00 애프터 (NXT 포함)
+          const krClosed  = !krPre && !krRegular && !krAfter;
 
-          // 미국장
-          const preStart = isDST?17*60+30:18*60;
-          const regStart = isDST?22*60+30:23*60+30;
-          const regEnd   = isDST?5*60:6*60;
-          const afterEnd = isDST?9*60:10*60;
-          const usRegular = mins>=regStart || mins<regEnd;
-          const usPre     = !usRegular && mins>=preStart && mins<regStart;
-          const usAfter   = !usRegular && mins>=regEnd   && mins<afterEnd;
+          // 미국장 시간대 (섬머타임 자동 반영)
+          const usPreStart  = isDST?17*60+30:18*60;
+          const usRegStart  = isDST?22*60+30:23*60+30;
+          const usRegEnd    = isDST?5*60:6*60;
+          const usAfterEnd  = isDST?9*60:10*60;
+          const usRegular = mins>=usRegStart || mins<usRegEnd;
+          const usPre     = !usRegular && mins>=usPreStart && mins<usRegStart;
+          const usAfter   = !usRegular && mins>=usRegEnd   && mins<usAfterEnd;
 
-          const dot = (color) => (
-            <span style={{ width:"8px", height:"8px", borderRadius:"50%", background:color, display:"inline-block", flexShrink:0,
-              boxShadow: color==="#22c55e"?"0 0 6px #22c55e":color==="#f59e0b"?"0 0 6px #f59e0b":color==="#a78bfa"?"0 0 6px #a78bfa":"none" }}/>
-          );
-
-          const mkStatus = (label, isRegular, isPre, isAfter) => {
-            let color, text, subtext;
-            if      (isRegular) { color="#22c55e"; text="정규장"; subtext="LIVE"; }
-            else if (isPre)     { color="#f59e0b"; text="프리장"; subtext="LIVE"; }
-            else if (isAfter)   { color="#a78bfa"; text="애프터"; subtext="LIVE"; }
-            else                { color="#475569"; text="장마감"; subtext=""; }
+          const MarketItem = ({flag, name, regular, pre, after}) => {
+            let dotColor, label, labelColor;
+            if      (regular) { dotColor="#22c55e"; label="정규장"; labelColor="#4ade80"; }
+            else if (pre)     { dotColor="#f59e0b"; label="프리장"; labelColor="#fbbf24"; }
+            else if (after)   { dotColor="#a78bfa"; label="애프터"; labelColor="#c4b5fd"; }
+            else              { dotColor="#374151"; label="장마감"; labelColor="#6b7280"; }
             return (
-              <div style={{ display:"flex", alignItems:"center", gap:"6px" }}>
-                {dot(color)}
-                <span style={{ fontSize:"11px", color:"#64748b", fontWeight:600 }}>{label}</span>
-                <span style={{ fontSize:"12px", fontWeight:800, color, letterSpacing:"-0.01em" }}>{text}</span>
-                {subtext&&<span style={{ fontSize:"9px", background:color+"22", color, padding:"1px 5px", borderRadius:"20px", fontWeight:700 }}>{subtext}</span>}
+              <div style={{display:"flex",alignItems:"center",gap:"7px",lineHeight:1}}>
+                <span style={{
+                  width:"9px",height:"9px",borderRadius:"50%",background:dotColor,
+                  display:"inline-block",flexShrink:0,
+                  boxShadow:regular?"0 0 7px "+dotColor:pre?"0 0 5px "+dotColor:after?"0 0 5px "+dotColor:"none"
+                }}/>
+                <span style={{fontSize:"11px",color:"#94a3b8",fontWeight:500,letterSpacing:"0.02em"}}>{flag} {name}</span>
+                <span style={{fontSize:"12px",fontWeight:700,color:labelColor,letterSpacing:"-0.01em"}}>{label}</span>
+                {(regular||pre||after)&&<span style={{fontSize:"9px",background:dotColor+"25",color:dotColor,padding:"1px 6px",borderRadius:"20px",fontWeight:700,letterSpacing:"0.04em"}}>LIVE</span>}
               </div>
             );
           };
 
           return (<>
-            {mkStatus("🇰🇷 국내", krRegular, krPre, krAfter)}
-            <span style={{ color:"rgba(255,255,255,0.1)", fontSize:"14px" }}>│</span>
-            {mkStatus("🇺🇸 미국", usRegular, usPre, usAfter)}
-            <span style={{ marginLeft:"auto", fontSize:"10px", color:"#334155" }}>
-              {loading && <span style={{color:"#6366f1"}}>↻ 조회 중</span>}
-              {!loading && (lastUpdated||priceAge>0) && <span>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>}
+            <MarketItem flag="🇰🇷" name="국내" regular={krRegular} pre={krPre} after={krAfter}/>
+            <span style={{color:"rgba(255,255,255,0.08)",fontSize:"16px",userSelect:"none"}}>|</span>
+            <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
+            <span style={{marginLeft:"auto",fontSize:"10px",color:"#374151",display:"flex",alignItems:"center",gap:"6px"}}>
+              {loading&&<span style={{color:"#6366f1",fontWeight:600}}>↻ 조회중</span>}
+              {!loading&&(lastUpdated||priceAge>0)&&<span style={{color:"#4b5563"}}>{lastUpdated||new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>}
             </span>
           </>);
         })()}
@@ -1875,7 +1895,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px", flexWrap:"wrap" }}>
           {/* 좌: 타이틀 + 상태 */}
           <div style={{ display:"flex", alignItems:"center", gap:"10px", minWidth:0, flexWrap:"wrap" }}>
-            <div style={{ fontSize:isMobile?"14px":"16px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc", whiteSpace:"nowrap" }}>📈 내 투자 포트폴리오</div>
+            <div style={{ fontSize:isMobile?"16px":"20px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc", whiteSpace:"nowrap" }}>📈 내 투자 포트폴리오</div>
             {(lastUpdated || priceAge > 0) && (
               <span style={{ fontSize:"10px", color:"#475569", display:"flex", alignItems:"center", gap:"4px" }}>
 
@@ -1892,10 +1912,60 @@ function PortfolioApp({ syncKey, onLogout }) {
               <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
               {loading?"…":"새로고침"}
             </button>
+            <button onClick={()=>setShowForm(showForm==="theme"?null:"theme")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="배경 테마">🎨</button>
             <button onClick={onLogout} style={S.btn("#334155", { fontSize:"11px", padding:"5px 9px" })}>로그아웃</button>
           </div>
         </div>
         {isMobile && <div style={{ marginTop:"4px" }}><InfoWidget /></div>}
+
+        {/* 테마 선택 패널 */}
+        {showForm==="theme" && (
+          <div style={{background:"rgba(8,12,28,0.98)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"16px",marginTop:"8px",zIndex:100}}>
+            <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",marginBottom:"12px"}}>🎨 배경 테마</div>
+            {/* 프리셋 색상 */}
+            <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginBottom:"14px"}}>
+              {[
+                ["default","기본","#0f172a"],["navy","네이비","#0a0f2c"],["ocean","오션","#0c1445"],
+                ["forest","포레스트","#0a1f0f"],["sunset","선셋","#1a0a2e"],["midnight","미드나잇","#000000"],
+              ].map(([key,label,color])=>(
+                <button key={key} onClick={()=>{setBgTheme(key);setBgImage("");try{localStorage.setItem("pm_bg_theme",key);localStorage.removeItem("pm_bg_image");}catch{};setShowForm(null);}}
+                  style={{display:"flex",alignItems:"center",gap:"6px",background:bgTheme===key?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.05)",border:bgTheme===key?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:bgTheme===key?"#c7d2fe":"#94a3b8",padding:"6px 12px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:bgTheme===key?700:500}}>
+                  <span style={{width:"14px",height:"14px",borderRadius:"3px",background:color,border:"1px solid rgba(255,255,255,0.2)",flexShrink:0}}/>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* 배경 이미지 업로드 */}
+            <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:"12px"}}>
+              <div style={{fontSize:"12px",color:"#64748b",marginBottom:"8px"}}>📷 배경 이미지 (JPG/PNG)</div>
+              <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+                <label style={{background:"rgba(99,102,241,0.2)",border:"1px solid rgba(99,102,241,0.35)",color:"#a5b4fc",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
+                  이미지 선택
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const dataUrl = ev.target.result;
+                      setBgImage(dataUrl);
+                      setBgTheme("default");
+                      try { localStorage.setItem("pm_bg_image", dataUrl); } catch {}
+                      setShowForm(null);
+                    };
+                    reader.readAsDataURL(file);
+                  }}/>
+                </label>
+                {bgImage && (
+                  <button onClick={()=>{setBgImage("");try{localStorage.removeItem("pm_bg_image");}catch{};}} style={{background:"none",border:"1px solid rgba(248,113,113,0.35)",color:"#f87171",padding:"6px 10px",borderRadius:"8px",cursor:"pointer",fontSize:"12px"}}>
+                    이미지 제거
+                  </button>
+                )}
+                {bgImage && <span style={{fontSize:"11px",color:"#34d399"}}>✓ 적용됨</span>}
+              </div>
+              <div style={{fontSize:"10px",color:"#475569",marginTop:"6px"}}>※ 이미지는 브라우저에만 저장됩니다</div>
+            </div>
+          </div>
+        )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:"6px", marginBottom:"4px" }}>
           {[["p1","📊 포트폴리오1 (주식·코인)"],["p2","🏦 포트폴리오2 (절세계좌)"]].map(([id,label])=>(
