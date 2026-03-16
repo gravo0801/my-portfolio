@@ -1201,6 +1201,59 @@ function ContribModal({ limits, amounts, onSave, onClose, isMobile }) {
   );
 }
 
+
+// ── 애니메이션 숫자 컴포넌트 ─────────────────────────────────────────────────
+function AnimatedNumber({ value, format, color, fontSize, duration=800 }) {
+  const [display, setDisplay] = useState(value);
+  const [isRolling, setIsRolling] = useState(false);
+  const prevRef = useRef(value);
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    if (prevRef.current === value) return;
+    const startVal = prevRef.current;
+    const endVal   = value;
+    const startTime = performance.now();
+    setIsRolling(true);
+
+    // easeOutExpo
+    const ease = (t) => t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = ease(progress);
+      const current = startVal + (endVal - startVal) * eased;
+      setDisplay(current);
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate);
+      } else {
+        setDisplay(endVal);
+        setIsRolling(false);
+        prevRef.current = endVal;
+      }
+    };
+
+    frameRef.current = requestAnimationFrame(animate);
+    return () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); };
+  }, [value]);
+
+  return (
+    <span style={{
+      color,
+      fontSize,
+      fontWeight:800,
+      letterSpacing:"-0.04em",
+      display:"inline-block",
+      transition:"color 0.3s",
+      filter: isRolling ? "blur(0.4px)" : "none",
+      animation: isRolling ? "rollUp 0.1s ease-out" : "none",
+    }}>
+      {format(display)}
+    </span>
+  );
+}
+
 function LoginScreen({ onLogin }) {
   const [key, setKey] = useState("");
   const [err, setErr] = useState("");
@@ -2128,20 +2181,38 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"8px":"12px", marginBottom:isMobile?"14px":"20px" }}>
               <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
                 <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
-                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#f8fafc", letterSpacing:"-0.04em" }}>
-                  {currMode==="KRW" ? fmtKRW(totalVal) : "$"+(totalVal/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
-                </div>
+                <AnimatedNumber
+                  value={currMode==="KRW" ? totalVal : totalVal/liveUsdKrw}
+                  format={v => currMode==="KRW"
+                    ? fmtKRW(v)
+                    : "$"+(Math.round(v)).toLocaleString("en-US")}
+                  color="#f8fafc"
+                  fontSize={isMobile?"15px":"22px"}
+                />
                 {currMode==="USD"&&<div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
               </div>
               <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
                 <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
-                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalPnL>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>
-                  {currMode==="KRW" ? (totalPnL>=0?"+":"")+fmtKRW(totalPnL) : (totalPnL>=0?"+":"-")+"$"+Math.abs(totalPnL/liveUsdKrw).toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0})}
-                </div>
+                <AnimatedNumber
+                  value={currMode==="KRW" ? totalPnL : totalPnL/liveUsdKrw}
+                  format={v => {
+                    const sign = v >= 0 ? "+" : "";
+                    return currMode==="KRW"
+                      ? sign + fmtKRW(v)
+                      : (v>=0?"+":"-") + "$" + Math.abs(Math.round(v)).toLocaleString("en-US");
+                  }}
+                  color={totalPnL>=0?"#34d399":"#f87171"}
+                  fontSize={isMobile?"15px":"22px"}
+                />
               </div>
               <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
                 <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 수익률</div>
-                <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:totalRet>=0?"#34d399":"#f87171", letterSpacing:"-0.04em" }}>{fmtPct(totalRet)}</div>
+                <AnimatedNumber
+                  value={totalRet}
+                  format={v => (v>=0?"+":"") + v.toFixed(2) + "%"}
+                  color={totalRet>=0?"#34d399":"#f87171"}
+                  fontSize={isMobile?"15px":"22px"}
+                />
               </div>
             </div>
             {/* 보유종목 + 자산배분 그리드 */}
@@ -3066,7 +3137,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           </div>
         ))}
       </div>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} select option{background:#1e293b} *{-webkit-font-smoothing:antialiased}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes rollUp{0%{transform:translateY(8px);opacity:0.3}100%{transform:translateY(0);opacity:1}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}} select option{background:#1e293b} *{-webkit-font-smoothing:antialiased}`}</style>
     </div>
   );
 }
