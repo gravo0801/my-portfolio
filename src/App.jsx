@@ -47,16 +47,17 @@ async function fetchYahoo(ticker) {
   const quoteUrl2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
 
   // 국내: v8/chart 우선, 미국: v7/quote 우선 후 v8/chart fallback
+  const ts = Date.now();
   const allProxies = isKR ? [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1+"&_="+ts)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2+"&_="+ts)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl2)}`,
   ] : [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl1)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl2)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl1+"&_="+ts)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl2+"&_="+ts)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1+"&_="+ts)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2+"&_="+ts)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl1)}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
   ];
@@ -152,28 +153,45 @@ async function fetchGold(liveUsdKrw) {
 }
 
 async function fetchKospiFutures() {
-  // 코스피 야간선물: Yahoo Finance KM=F (KOSPI 200 Mini Futures)
-  const tickers = ["KM=F", "ES=F"]; // KM=F: 코스피선물, ES=F 참고용
-  const urls = [
-    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=KM%3DF&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,marketState`,
-    `https://query2.finance.yahoo.com/v7/finance/quote?symbols=KM%3DF&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,marketState`,
-  ];
-  const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[0])}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[1])}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[0])}`,
-  ];
-  for (const proxy of proxies) {
+  // 코스피 야간선물 - 여러 소스 시도
+  // 1순위: Naver Finance polling API (야간선물 근월물)
+  try {
+    // 현재 분기 코드 자동 계산 (3,6,9,12월 만기)
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    const y = now.getFullYear();
+    const expMonth = m <= 3 ? 3 : m <= 6 ? 6 : m <= 9 ? 9 : 12;
+    const code = `${y}${String(expMonth).padStart(2,'0')}`;
+    const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:FX_${code}&_=${Date.now()}`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}`;
+    const r = await fetch(proxy, { signal: AbortSignal.timeout(6000) });
+    if (r.ok) {
+      const d = await r.json();
+      const item = d?.result?.areas?.[0]?.datas?.[0];
+      if (item?.nv && +item.nv > 0) {
+        const price = +item.nv;
+        const prev  = +item.sv || price;
+        const chg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
+        return { price, chg, label: `코스피200선물 ${code}` };
+      }
+    }
+  } catch {}
+
+  // 2순위: Yahoo Finance ^KS200 (코스피200 지수 - 야간은 0이지만 참고용)
+  // 3순위: Yahoo Finance KM=F, NKD=F 시도
+  const fallbacks = ['KM%3DF', 'NK%3DF', '%5EKS200'];
+  for (const sym of fallbacks) {
     try {
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
+      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose`;
+      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&_=${Date.now()}`;
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
       const q = d?.quoteResponse?.result?.[0];
       if (!q?.regularMarketPrice) continue;
       const price = q.regularMarketPrice;
       const prev  = q.regularMarketPreviousClose || price;
-      const chg   = q.regularMarketChangePercent ?? ((price - prev) / prev * 100);
-      return { price: Math.round(price * 100) / 100, chg, prev };
+      return { price: Math.round(price*100)/100, chg: q.regularMarketChangePercent ?? ((price-prev)/prev*100), label: '코스피200선물' };
     } catch { continue; }
   }
   return null;
@@ -1622,8 +1640,8 @@ function PortfolioApp({ syncKey, onLogout }) {
       const usTicks = usTickers;
       const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,preMarketChange,postMarketPrice,postMarketChangePercent,postMarketChange,currency,marketState";
       const proxies = [
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}&_=${Date.now()}`)}`,
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}&_=${Date.now()}`)}`,
         (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
         (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
       ];
@@ -2074,8 +2092,8 @@ function PortfolioApp({ syncKey, onLogout }) {
               const isUp = chg >= 0;
               return (
                 <div style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"3px 10px"}}>
-                  <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>🌙 코스피선물</span>
-                  <span style={{fontSize:"12px",fontWeight:700,color:"#f1f5f9"}}>{price.toLocaleString()}</span>
+                  <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>🌙 {kospiFutures.label||"코스피200선물"}</span>
+                  <span style={{fontSize:"12px",fontWeight:700,color:"#f1f5f9"}}>{typeof price==="number"?price.toLocaleString():price}</span>
                   <span style={{fontSize:"11px",fontWeight:700,color:isUp?"#34d399":"#f87171"}}>
                     {isUp?"+":""}{chg.toFixed(2)}%
                   </span>
