@@ -151,6 +151,34 @@ async function fetchGold(liveUsdKrw) {
   return null;
 }
 
+async function fetchKospiFutures() {
+  // 코스피 야간선물: Yahoo Finance KM=F (KOSPI 200 Mini Futures)
+  const tickers = ["KM=F", "ES=F"]; // KM=F: 코스피선물, ES=F 참고용
+  const urls = [
+    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=KM%3DF&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,marketState`,
+    `https://query2.finance.yahoo.com/v7/finance/quote?symbols=KM%3DF&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose,marketState`,
+  ];
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[0])}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[1])}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[0])}`,
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
+      if (!r.ok) continue;
+      const d = await r.json();
+      const q = d?.quoteResponse?.result?.[0];
+      if (!q?.regularMarketPrice) continue;
+      const price = q.regularMarketPrice;
+      const prev  = q.regularMarketPreviousClose || price;
+      const chg   = q.regularMarketChangePercent ?? ((price - prev) / prev * 100);
+      return { price: Math.round(price * 100) / 100, chg, prev };
+    } catch { continue; }
+  }
+  return null;
+}
+
 async function fetchHistory(ticker, market) {
   const isKR = market === "KR" || market === "ISA";
   const isETFKR = market === "ETF" && /^[0-9]/.test(ticker);
@@ -1375,6 +1403,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [selectedStock, setSelectedStock] = useState(null);
   const [sortBy, setSortBy]   = useState("default");
   const [compactMode, setCompactMode] = useState(false);
+  const [kospiFutures, setKospiFutures] = useState(null);
   const [bgTheme, setBgTheme] = useState(() => {
     try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
   });
@@ -1503,8 +1532,16 @@ function PortfolioApp({ syncKey, onLogout }) {
     };
 
     fetchRate();
-    const id = setInterval(fetchRate, 300000); // 5분마다 (기존 10분 → 단축)
+    const id = setInterval(fetchRate, 300000);
     return () => clearInterval(id);
+  }, []);
+
+  // 코스피 야간선물 15초 갱신
+  useEffect(() => {
+    const load = () => fetchKospiFutures().then(d => { if (d) setKospiFutures(d); });
+    load();
+    const timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
   }, []);
 
   const saveData = useCallback((path, data, key) => {
@@ -1708,9 +1745,8 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   useEffect(() => {
     if (!loaded || (!holdings.length && !holdings2.length)) return;
-    const ageMin = (Date.now() - priceAge) / 60000;
-    if (ageMin > 5) fetchPrices();
-    else setTimeout(fetchPrices, 3000);
+    // 항상 즉시 새로고침 (캐시는 첫 화면에만 사용)
+    fetchPrices();
 
     // 장 중 감지 (KST 기준)
     const getInterval = () => {
@@ -2028,6 +2064,24 @@ function PortfolioApp({ syncKey, onLogout }) {
             <MarketItem flag="🇰🇷" name="국내" regular={krRegular} pre={krPre} after={krAfter}/>
             <span style={{color:"rgba(255,255,255,0.08)",fontSize:"16px",userSelect:"none"}}>|</span>
             <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
+            {/* 코스피 야간선물 */}
+            {kospiFutures && (()=>{
+              const kst = new Date(Date.now()+9*3600000);
+              const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
+              const isNight = mins>=15*60+30 || mins<9*60; // 정규장 외 시간
+              if (!isNight) return null;
+              const { price, chg } = kospiFutures;
+              const isUp = chg >= 0;
+              return (
+                <div style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"3px 10px"}}>
+                  <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>🌙 코스피선물</span>
+                  <span style={{fontSize:"12px",fontWeight:700,color:"#f1f5f9"}}>{price.toLocaleString()}</span>
+                  <span style={{fontSize:"11px",fontWeight:700,color:isUp?"#34d399":"#f87171"}}>
+                    {isUp?"+":""}{chg.toFixed(2)}%
+                  </span>
+                </div>
+              );
+            })()}
             <span style={{marginLeft:"auto",fontSize:"10px",color:"#374151",display:"flex",alignItems:"center",gap:"6px"}}>
               {loading&&<span style={{color:"#6366f1",fontWeight:600}}>↻ 조회중</span>}
               {!loading&&(lastUpdated||priceAge>0)&&<span style={{color:"#4b5563"}}>{lastUpdated||new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>}
