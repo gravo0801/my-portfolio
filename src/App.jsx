@@ -1251,30 +1251,89 @@ function PortfolioApp({ syncKey, onLogout }) {
   }, []);
 
   const fetchPrices = useCallback(async () => {
-    if (!holdings.length) return;
+    if (!holdings.length && !holdings2.length) return;
     setLoading(true);
     const next = {};
-    await Promise.all([...holdings, ...holdings2, ...watchlist].map(async h => {
-      let result;
-      if (h.market === "CRYPTO") {
-        const raw = await fetchCrypto(h.ticker);
-        if (raw) {
-          result = {
-            price: Math.round(raw.price * liveUsdKrw),
-            changePercent: raw.changePercent,
-            currency: "KRW",
-          };
-        }
-      }
-      else if (h.market === "GOLD") result = await fetchGold(liveUsdKrw);
-      else {
+    const allItems = [...holdings, ...holdings2, ...watchlist];
+
+    // ── 1. 암호화폐 병렬 처리 ──────────────────────────────────────
+    const cryptoItems = allItems.filter(h => h.market === "CRYPTO");
+    const goldItems   = allItems.filter(h => h.market === "GOLD");
+    const stockItems  = allItems.filter(h => h.market !== "CRYPTO" && h.market !== "GOLD");
+
+    // 코인
+    await Promise.all(cryptoItems.map(async h => {
+      const raw = await fetchCrypto(h.ticker);
+      if (raw) next[h.ticker] = { price: Math.round(raw.price * liveUsdKrw), changePercent: raw.changePercent, currency: "KRW" };
+    }));
+
+    // 금현물
+    if (goldItems.length > 0) {
+      const g = await fetchGold(liveUsdKrw);
+      if (g) goldItems.forEach(h => { next[h.ticker] = g; next["GOLD"] = g; });
+    }
+
+    // ── 2. 주식/ETF 묶음 조회 (Yahoo Finance batch) ────────────────
+    if (stockItems.length > 0) {
+      const tickers = [...new Set(stockItems.map(h => {
         let tk = h.ticker;
         if ((h.market === "KR" || h.market === "ISA") && !tk.includes(".")) tk += ".KS";
-        result = await fetchYahoo(tk);
+        return tk;
+      }))];
+
+      // 20개씩 묶어서 요청 (Yahoo 한도)
+      const chunks = [];
+      for (let i = 0; i < tickers.length; i += 20) chunks.push(tickers.slice(i, i + 20));
+
+      const proxies = [
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,currency,previousClose`)}`,
+        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
+      ];
+
+      for (const chunk of chunks) {
+        const syms = chunk.join(",");
+        let fetched = false;
+        for (const proxyFn of proxies) {
+          try {
+            const r = await fetch(proxyFn(syms), { signal: AbortSignal.timeout(8000) });
+            if (!r.ok) continue;
+            const d = await r.json();
+            const quotes = d?.quoteResponse?.result || d?.quoteSummary?.result || [];
+            if (!quotes.length) continue;
+            quotes.forEach(q => {
+              const sym = q.symbol;
+              const price = q.regularMarketPrice;
+              const prev  = q.regularMarketPreviousClose || q.previousClose || price;
+              if (!price) return;
+              next[sym] = {
+                price,
+                changePercent: ((price - prev) / prev) * 100,
+                currency: q.currency || "KRW",
+              };
+              // .KS 티커 → 원래 티커도 매핑
+              if (sym.endsWith(".KS")) next[sym.replace(".KS", "")] = next[sym];
+              if (sym.endsWith(".KQ")) next[sym.replace(".KQ", "")] = next[sym];
+            });
+            fetched = true;
+            break;
+          } catch { continue; }
+        }
+        // 묶음 실패 시 개별 fallback
+        if (!fetched) {
+          await Promise.all(chunk.map(async tk => {
+            const r = await fetchYahoo(tk);
+            if (r) {
+              next[tk] = r;
+              if (tk.endsWith(".KS")) next[tk.replace(".KS","")] = r;
+              if (tk.endsWith(".KQ")) next[tk.replace(".KQ","")] = r;
+            }
+          }));
+        }
       }
-      if (result) next[h.ticker] = result;
-    }));
-    // 기존 캐시와 병합 - 새로 불러온 것만 업데이트, 실패한 것은 이전 값 유지
+    }
+
+    // ── 3. 결과 저장 + 알람 체크 ──────────────────────────────────
     setPrices(prev => {
       const merged = { ...prev, ...next };
       try {
@@ -1284,63 +1343,52 @@ function PortfolioApp({ syncKey, onLogout }) {
       return merged;
     });
     const now = new Date();
-    setLastUpdated(now.toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit" }));
+    setLastUpdated(now.toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit", second:"2-digit" }));
     setPriceAge(now.getTime());
 
-    const tv = holdings.reduce((s, h) => {
-      const p = next[h.ticker];
-      const cur = p?.currency || (h.market === "KR" ? "KRW" : "USD");
-      return s + toKRWLive((p?.price ?? h.avgPrice) * h.quantity, cur);
-    }, 0);
-    const tc = holdings.reduce((s, h) => {
-      const p = next[h.ticker];
-      const cur = p?.currency || (h.market === "KR" ? "KRW" : "USD");
-      return s + toKRWLive(h.avgPrice * h.quantity, cur);
-    }, 0);
-    if (tv > 0) {
-      const sid = now.getTime().toString();
-      const label = `${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")}`;
-      saving.current["s"] = true;
-      dbSet(`users/${syncKey}/snapshots/${sid}`, {
-        id: sid, label, date: today(),
-        totalValue: Math.round(tv),
-        returnRate: parseFloat((tc > 0 ? ((tv-tc)/tc)*100 : 0).toFixed(2))
-      }).finally(() => setTimeout(() => { saving.current["s"] = false; }, 500));
-    }
-
-    // 관심종목 목표가 도달 알림
+    // 관심종목 목표가 알림
     watchlist.forEach(w => {
       const p = next[w.ticker]; if (!p) return;
       const price = p.price;
       if (w.targetBuy  && price <= +w.targetBuy)  toast(`🎯 ${w.ticker} 목표 매수가 ${Math.round(+w.targetBuy).toLocaleString()}₩ 도달!`, "up");
       if (w.targetSell && price >= +w.targetSell) toast(`🎯 ${w.ticker} 목표 매도가 ${Math.round(+w.targetSell).toLocaleString()}₩ 도달!`, "down");
     });
+    // 가격 알람
     alerts.filter(a => a.enabled).forEach(a => {
       const p = next[a.ticker]; if (!p) return;
-      const chg = p.changePercent;
-      if (a.direction === "up"   && chg >=  a.threshold) toast(`📈 ${a.ticker} +${chg.toFixed(2)}% 상승 알람!`, "up");
-      if (a.direction === "down" && chg <= -a.threshold) toast(`📉 ${a.ticker} ${chg.toFixed(2)}% 하락 알람!`, "down");
+      if (a.direction === "down" && p.changePercent <= -(+a.threshold)) toast(`📉 ${a.ticker} ${a.threshold}% 이상 하락!`, "down");
+      if (a.direction === "up"   && p.changePercent >= +(+a.threshold)) toast(`📈 ${a.ticker} ${a.threshold}% 이상 상승!`, "up");
     });
     setLoading(false);
-  }, [holdings, alerts, toast, syncKey]);
+  }, [holdings, holdings2, watchlist, alerts, toast, syncKey, liveUsdKrw]);
 
   useEffect(() => {
-    if (!loaded || !holdings.length) return;
+    if (!loaded || (!holdings.length && !holdings2.length)) return;
     const ageMin = (Date.now() - priceAge) / 60000;
-    let fetchTimer;
-    if (ageMin > 5) {
-      // 오래된 캐시 → 바로 갱신
-      fetchPrices();
-    } else {
-      // 신선한 캐시 → 30초 뒤 백그라운드 갱신 (화면은 즉시 보임)
-      fetchTimer = setTimeout(fetchPrices, 30000);
-    }
-    const interval = setInterval(fetchPrices, 60000);
-    return () => {
-      if (fetchTimer) clearTimeout(fetchTimer);
-      clearInterval(interval);
+    if (ageMin > 5) fetchPrices();
+    else setTimeout(fetchPrices, 3000);
+
+    // 장 중 감지 (KST 기준 9:00~15:35, 미장 23:30~06:00)
+    const getInterval = () => {
+      const kst = new Date(Date.now() + 9*3600000);
+      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
+      const mins = h*60+m;
+      const kospiOpen  = mins >= 9*60   && mins < 15*60+35; // 국장
+      const nyseOpen   = mins >= 23*60+30 || mins < 6*60;    // 미장
+      if (kospiOpen || nyseOpen) return 5000;   // 장 중: 5초
+      return 30000;                              // 장 외: 30초
     };
-  }, [loaded, holdings.length > 0]);
+
+    let interval;
+    const schedule = () => {
+      interval = setTimeout(() => {
+        fetchPrices();
+        schedule();
+      }, getInterval());
+    };
+    schedule();
+    return () => clearTimeout(interval);
+  }, [loaded, holdings.length, holdings2.length]);
 
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   const portfolio = holdings.map(h => {
@@ -1565,11 +1613,18 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={{ fontSize:isMobile?"16px":"19px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc" }}>내 투자 포트폴리오</div>
             <div style={{ display:"flex", alignItems:"center", gap:"6px", marginTop:"2px", flexWrap:"wrap" }}>
               {(lastUpdated || priceAge > 0) && (
-                <span style={{ fontSize:"11px", color:"#475569" }}>
-                  {lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})}
-                  {(Date.now() - priceAge) < 300000
-                    ? <span style={{ color:"#34d399", marginLeft:"4px", fontWeight:700 }} title="5분 이내 최신">●</span>
-                    : <span style={{ color:"#f59e0b", marginLeft:"4px", fontWeight:700 }} title="캐시 데이터">↻</span>}
+                <span style={{ fontSize:"11px", color:"#475569", display:"flex", alignItems:"center", gap:"5px" }}>
+                  {(()=>{
+                    const kst = new Date(Date.now()+9*3600000);
+                    const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
+                    const kospi = mins>=9*60 && mins<15*60+35;
+                    const nyse  = mins>=23*60+30 || mins<6*60;
+                    if (kospi) return <span style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔴 국장 LIVE</span>;
+                    if (nyse)  return <span style={{background:"rgba(59,130,246,0.15)",color:"#60a5fa",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔵 미장 LIVE</span>;
+                    return <span style={{background:"rgba(100,116,139,0.15)",color:"#64748b",padding:"1px 7px",borderRadius:"20px",fontSize:"10px"}}>장 외</span>;
+                  })()}
+                  <span>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
+                  {loading && <span style={{color:"#6366f1",fontWeight:700,fontSize:"10px"}}>조회 중...</span>}
                 </span>
               )}
               <span style={{ background:"rgba(99,102,241,0.2)", color:"#a5b4fc", padding:"1px 8px", borderRadius:"20px", fontSize:"11px", fontWeight:700 }}>🔑 {syncKey}</span>
