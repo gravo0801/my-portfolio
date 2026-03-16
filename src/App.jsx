@@ -41,10 +41,11 @@ async function fetchYahoo(ticker) {
 
   // 국내주식: v8/chart가 프록시에서 더 안정적
   // 미국주식: v7/quote로 프리/애프터 포함 실시간 시세
-  const chartUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-  const chartUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
-  const quoteUrl1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
-  const quoteUrl2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
+  const _t = Date.now();
+  const chartUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_=${_t}`;
+  const chartUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_=${_t}`;
+  const quoteUrl1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}&_=${_t}`;
+  const quoteUrl2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}&_=${_t}`;
 
   // 국내: v8/chart 우선, 미국: v7/quote 우선 후 v8/chart fallback
   const ts = Date.now();
@@ -152,6 +153,21 @@ async function fetchGold(liveUsdKrw) {
   return null;
 }
 
+// 미국 서머타임(EDT) 여부 - 날짜 기반 (브라우저 timezone 무관)
+function isUSDST() {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  // 3월 두번째 일요일 계산
+  const dstStart = new Date(Date.UTC(y, 2, 1)); // Mar 1
+  dstStart.setUTCDate(1 + (7 - dstStart.getUTCDay()) % 7 + 7); // 2nd Sunday
+  dstStart.setUTCHours(7, 0, 0, 0); // 02:00 ET = 07:00 UTC
+  // 11월 첫번째 일요일 계산
+  const dstEnd = new Date(Date.UTC(y, 10, 1)); // Nov 1
+  dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7); // 1st Sunday
+  dstEnd.setUTCHours(6, 0, 0, 0); // 02:00 ET = 06:00 UTC
+  return now >= dstStart && now < dstEnd;
+}
+
 async function fetchKospiFutures() {
   // 코스피 야간선물 - 여러 소스 시도
   // 1순위: Naver Finance polling API (야간선물 근월물)
@@ -236,7 +252,7 @@ async function fetchHistory(ticker, market) {
 
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!r.ok) continue;
       const d = await r.json();
       const result = d?.chart?.result?.[0];
@@ -287,7 +303,7 @@ async function fetchStockInfo(ticker, market) {
 
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!r.ok) continue;
       const d = await r.json();
       const sd = d?.quoteSummary?.result?.[0]?.summaryDetail;
@@ -1636,18 +1652,13 @@ function PortfolioApp({ syncKey, onLogout }) {
         }
       }));
 
-      // 해외 주식만 묶음으로 청크
-      const usTicks = usTickers;
-      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,preMarketChange,postMarketPrice,postMarketChangePercent,postMarketChange,currency,marketState";
-      const proxies = [
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}&_=${Date.now()}`)}`,
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}&_=${Date.now()}`)}`,
-        (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
-        (syms) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
-      ];
-      // 기존 chunks를 US 티커로만 재구성
+      // 해외주식: 개별 병렬 조회 (프록시 캐시 문제 회피)
+      await Promise.all(usTickers.map(async tk => {
+        const r = await fetchYahoo(tk);
+        if (r) next[tk] = r;
+      }));
+      // chunks 비워서 아래 루프 스킵
       chunks.length = 0;
-      for (let i = 0; i < usTicks.length; i += 20) chunks.push(usTicks.slice(i, i + 20));
 
       for (const chunk of chunks) {
         if (!chunk.length) continue;
@@ -1770,7 +1781,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     const getInterval = () => {
       const kst = new Date(Date.now() + 9*3600000);
       const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
-      const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
+      const isDST = isUSDST();
       const kospi  = mins>=9*60 && mins<15*60+35;
       const nyseReg  = mins>=(isDST?22*60+30:23*60+30) || mins<(isDST?5*60:6*60);
       const nysePre  = mins>=(isDST?17*60+30:18*60) && mins<(isDST?22*60+30:23*60+30);
@@ -2039,7 +2050,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         {(()=>{
           const kst  = new Date(Date.now()+9*3600000);
           const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
-          const isDST = (()=>{ const d=new Date(),jan=new Date(d.getFullYear(),0,1),jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
+          const isDST = isUSDST();
 
           // 국내장 시간대 (KST)
           // KRX: 정규 09:00~15:30 / 시간외단일가 16:00~18:00
