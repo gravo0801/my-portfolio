@@ -58,8 +58,9 @@ async function fetchYahoo(ticker) {
       if (results[ticker]) return results[ticker];
     } catch (e) {
       // Vercel API 실패 시 폴백으로 전환
-      console.warn('[fetchYahoo] Vercel API 실패, 프록시로 전환:', e.message);
+      console.warn('[fetchYahoo] Vercel API 실패, 2분 후 재시도:', e.message);
       _useVercelApi = false;
+      setTimeout(() => { _useVercelApi = true; }, 120000);
     }
   }
 
@@ -1682,8 +1683,9 @@ function PortfolioApp({ syncKey, onLogout }) {
           console.log(`[시세] Vercel API ${hit}/${tickers.length}개 성공`);
           chunks.length = 0; // 배치 성공 → 아래 fallback 루프 스킵
         } catch(e) {
-          console.warn('[시세] Vercel API 실패 → 프록시 fallback:', e.message);
+          console.warn('[시세] Vercel API 실패 → 2분 후 재시도:', e.message);
           _useVercelApi = false;
+          setTimeout(() => { _useVercelApi = true; }, 120000);
         }
       }
 
