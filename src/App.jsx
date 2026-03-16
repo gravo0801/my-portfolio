@@ -1417,7 +1417,20 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [alerts, setAlerts]       = useState([]);
   const [snapshots, setSnapshots] = useState([]);
   const [prices, setPrices] = useState(() => {
-    try { const c = localStorage.getItem("pm_prices_cache"); return c ? JSON.parse(c) : {}; } catch { return {}; }
+    try {
+      const c   = localStorage.getItem("pm_prices_cache");
+      const age = parseInt(localStorage.getItem("pm_prices_age") || "0");
+      if (!c) return {};
+      const parsed = JSON.parse(c);
+      const isNewDay = new Date(age).toDateString() !== new Date().toDateString();
+      // 새 날짜면 변동률 0으로 초기화
+      if (isNewDay) {
+        const cleaned = {};
+        Object.entries(parsed).forEach(([k,v]) => { cleaned[k] = {...v, changePercent:0}; });
+        return cleaned;
+      }
+      return Date.now() - age < 1800000 ? parsed : {};
+    } catch { return {}; }
   });
   const [priceAge, setPriceAge] = useState(() => {
     try { return parseInt(localStorage.getItem("pm_prices_age")||"0"); } catch { return 0; }
@@ -1522,10 +1535,24 @@ function PortfolioApp({ syncKey, onLogout }) {
       const age    = parseInt(localStorage.getItem("pm_prices_age") || "0");
       if (cached) {
         const parsed = JSON.parse(cached);
-        // 24시간 이내 캐시면 즉시 표시
-        if (Date.now() - age < 86400000) {
+        const ageMs  = Date.now() - age;
+        // 오늘 날짜 vs 캐시 날짜 비교 (새 거래일이면 캐시 무효)
+        const cacheDate = new Date(age).toDateString();
+        const todayDate = new Date().toDateString();
+        const isNewDay  = cacheDate !== todayDate;
+        // 30분 이내 + 같은 날이면 캐시 사용, 아니면 무시 (빠른 첫 화면용)
+        if (!isNewDay && ageMs < 1800000) {
           setPrices(parsed);
           setPriceAge(age);
+        } else {
+          // 날짜 바뀌었으면 캐시의 changePercent는 틀림 → 가격만 유지, 변동률 제거
+          if (isNewDay && parsed && typeof parsed === 'object') {
+            const priceOnly = {};
+            Object.entries(parsed).forEach(([k,v]) => {
+              priceOnly[k] = { ...v, changePercent: 0, chgAmt: 0 };
+            });
+            setPrices(priceOnly);
+          }
         }
       }
     } catch {}
@@ -1759,7 +1786,12 @@ function PortfolioApp({ syncKey, onLogout }) {
     setPrices(prev => {
       const merged = { ...prev, ...next };
       try {
-        localStorage.setItem("pm_prices_cache", JSON.stringify(merged));
+        // 캐시에는 가격/통화만 저장 (변동률은 항상 fresh fetch 필요)
+        const cacheOnly = {};
+        Object.entries(merged).forEach(([k,v]) => {
+          cacheOnly[k] = { price: v.price, regularPrice: v.regularPrice, currency: v.currency };
+        });
+        localStorage.setItem("pm_prices_cache", JSON.stringify(cacheOnly));
         localStorage.setItem("pm_prices_age", String(Date.now()));
       } catch {}
       return merged;
