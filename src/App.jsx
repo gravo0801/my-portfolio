@@ -266,14 +266,28 @@ function InfoWidget() {
 
   const fetchRates = async () => {
     setRLoading(true);
-    try {
-      const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW,JPY");
-      const d = await r.json();
-      const usdKrw = d.rates.KRW;
-      // JPY to KRW: 1 USD = X JPY, 1 USD = Y KRW → 1 JPY = Y/X KRW
-      const jpyKrw = usdKrw / d.rates.JPY;
-      setRates({ usd: Math.round(usdKrw), jpy: Math.round(jpyKrw * 100) / 100 });
-    } catch {}
+    const apis = [
+      async () => {
+        const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW,JPY", { signal: AbortSignal.timeout(5000) });
+        const d = await r.json();
+        return { usd: d.rates.KRW, jpy: d.rates.KRW / d.rates.JPY };
+      },
+      async () => {
+        const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(5000) });
+        const d = await r.json();
+        return { usd: d.rates.KRW, jpy: d.rates.KRW / d.rates.JPY };
+      },
+    ];
+    for (const apiFn of apis) {
+      try {
+        const { usd, jpy } = await apiFn();
+        if (usd && usd > 900 && usd < 2000) {
+          setRates({ usd: Math.round(usd), jpy: Math.round(jpy * 100) / 100 });
+          setRLoading(false);
+          return;
+        }
+      } catch { continue; }
+    }
     setRLoading(false);
   };
 
@@ -1206,24 +1220,50 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   // 실시간 환율 가져오기
   useEffect(() => {
-    const fetchRate = async () => {
-      try {
-        const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(5000) });
-        const d = await r.json();
-        if (d?.rates?.KRW) {
-          const rate = Math.round(d.rates.KRW);
-          setLiveUsdKrw(rate);
-          try { localStorage.setItem("pm_usd_krw", String(rate)); } catch {}
-        }
-      } catch {}
-    };
     // 캐시된 환율 즉시 적용
     try {
       const cached = localStorage.getItem("pm_usd_krw");
       if (cached) setLiveUsdKrw(parseInt(cached));
     } catch {}
+
+    const fetchRate = async () => {
+      // 여러 환율 API 순차 시도
+      const apis = [
+        async () => {
+          const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(5000) });
+          const d = await r.json();
+          return d?.rates?.KRW;
+        },
+        async () => {
+          // ExchangeRate-API (무료, 키 불필요)
+          const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(5000) });
+          const d = await r.json();
+          return d?.rates?.KRW;
+        },
+        async () => {
+          // Yahoo Finance KRW=X
+          const url = `https://api.allorigins.win/raw?url=${encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/KRW%3DX?interval=1d&range=1d")}`;
+          const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+          const d = await r.json();
+          return d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        },
+      ];
+
+      for (const apiFn of apis) {
+        try {
+          const rate = await apiFn();
+          if (rate && rate > 900 && rate < 2000) { // 유효한 환율 범위
+            const rounded = Math.round(rate);
+            setLiveUsdKrw(rounded);
+            try { localStorage.setItem("pm_usd_krw", String(rounded)); } catch {}
+            return; // 성공하면 종료
+          }
+        } catch { continue; }
+      }
+    };
+
     fetchRate();
-    const id = setInterval(fetchRate, 600000);
+    const id = setInterval(fetchRate, 300000); // 5분마다 (기존 10분 → 단축)
     return () => clearInterval(id);
   }, []);
 
