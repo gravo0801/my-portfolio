@@ -35,80 +35,76 @@ function useIsMobile() {
 
 let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 
+// Vercel API Route 사용 가능 여부 체크
+let _useVercelApi = true;
+
+async function fetchViaVercel(tickers) {
+  // tickers: string[] → { ticker: result } 반환
+  const syms = tickers.join(',');
+  const r = await fetch(`/api/quote?symbols=${encodeURIComponent(syms)}`, {
+    signal: AbortSignal.timeout(8000),
+    cache: 'no-store',
+  });
+  if (!r.ok) throw new Error('Vercel API failed: ' + r.status);
+  const d = await r.json();
+  return d.results || {};
+}
+
 async function fetchYahoo(ticker) {
+  // 1순위: Vercel API Route (서버사이드, 캐시 없음)
+  if (_useVercelApi) {
+    try {
+      const results = await fetchViaVercel([ticker]);
+      if (results[ticker]) return results[ticker];
+    } catch (e) {
+      // Vercel API 실패 시 폴백으로 전환
+      console.warn('[fetchYahoo] Vercel API 실패, 프록시로 전환:', e.message);
+      _useVercelApi = false;
+    }
+  }
+
+  // 2순위: 기존 프록시 폴백
   const isKR = ticker.endsWith(".KS") || ticker.endsWith(".KQ");
   const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent,currency,marketState";
-
-  // 국내주식: v8/chart가 프록시에서 더 안정적
-  // 미국주식: v7/quote로 프리/애프터 포함 실시간 시세
   const _t = Date.now();
-  const chartUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_=${_t}`;
-  const chartUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_=${_t}`;
-  const quoteUrl1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}&_=${_t}`;
-  const quoteUrl2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}&_=${_t}`;
+  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+  const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
 
-  // 국내: v8/chart 우선, 미국: v7/quote 우선 후 v8/chart fallback
-  const ts = Date.now();
-  const allProxies = isKR ? [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1+"&_="+ts)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2+"&_="+ts)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl2)}`,
+  const proxies = isKR ? [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl+"&_="+_t)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl.replace("query1","query2")+"&_="+_t)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl)}`,
   ] : [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl1+"&_="+ts)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl2+"&_="+ts)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1+"&_="+ts)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2+"&_="+ts)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl1)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl+"&_="+_t)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl.replace("query1","query2")+"&_="+_t)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl)}`,
   ];
-  // 마지막으로 성공한 프록시를 앞으로 이동
-  const proxies = [
-    allProxies[_bestProxy],
-    ...allProxies.filter((_,i) => i !== _bestProxy),
-  ];
+
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
       const d = await r.json();
-      let price, prev, state, displayPrice, displayChg, currency;
-
-      // v8/chart 또는 v7/quote 자동 감지
       const chartMeta = d?.chart?.result?.[0]?.meta;
       const quoteRes  = d?.quoteResponse?.result?.[0];
-      if (chartMeta?.regularMarketPrice) {
-        // v8/chart 파싱
-        price = chartMeta.regularMarketPrice;
-        prev  = chartMeta.previousClose || chartMeta.chartPreviousClose || price;
-        state = "REGULAR";
-        displayPrice = price;
-        displayChg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-        currency     = chartMeta.currency || (isKR ? "KRW" : "USD");
-      } else if (quoteRes?.regularMarketPrice) {
-        // v7/quote 파싱
-        price = quoteRes.regularMarketPrice;
-        prev  = quoteRes.regularMarketPreviousClose || price;
-        state = quoteRes.marketState || "REGULAR";
-        displayPrice = state==="PRE"  && quoteRes.preMarketPrice  ? quoteRes.preMarketPrice
-                     : state==="POST" && quoteRes.postMarketPrice ? quoteRes.postMarketPrice
-                     : price;
-        displayChg   = state==="PRE"  && quoteRes.preMarketPrice
-                     ? (quoteRes.preMarketChangePercent ?? ((quoteRes.preMarketPrice-prev)/prev)*100)
-                     : state==="POST" && quoteRes.postMarketPrice
-                     ? (quoteRes.postMarketChangePercent ?? ((quoteRes.postMarketPrice-prev)/prev)*100)
-                     : (quoteRes.regularMarketChangePercent ?? ((price-prev)/prev)*100);
-        currency     = quoteRes.currency || "USD";
-      } else {
-        continue;
-      }
 
-      const proxyIdx = allProxies.indexOf(url);
-      if (proxyIdx >= 0 && proxyIdx !== _bestProxy) {
-        _bestProxy = proxyIdx;
-        try { localStorage.setItem("pm_best_proxy", String(proxyIdx)); } catch {}
+      if (chartMeta?.regularMarketPrice) {
+        const price = chartMeta.regularMarketPrice;
+        const prev  = chartMeta.previousClose || chartMeta.chartPreviousClose || price;
+        return { price, changePercent: prev>0?((price-prev)/prev)*100:0, currency: chartMeta.currency||(isKR?"KRW":"USD"), marketState:"REGULAR" };
+      } else if (quoteRes?.regularMarketPrice) {
+        const price  = quoteRes.regularMarketPrice;
+        const prev   = quoteRes.regularMarketPreviousClose || price;
+        const state  = quoteRes.marketState || "REGULAR";
+        const dPrice = state==="PRE" && quoteRes.preMarketPrice ? quoteRes.preMarketPrice
+                     : state==="POST"&& quoteRes.postMarketPrice? quoteRes.postMarketPrice : price;
+        const dChg   = state==="PRE" && quoteRes.preMarketPrice
+                     ? (quoteRes.preMarketChangePercent??((quoteRes.preMarketPrice-prev)/prev*100))
+                     : state==="POST"&& quoteRes.postMarketPrice
+                     ? (quoteRes.postMarketChangePercent??((quoteRes.postMarketPrice-prev)/prev*100))
+                     : (quoteRes.regularMarketChangePercent??((price-prev)/prev*100));
+        return { price:dPrice, regularPrice:price, changePercent:dChg, currency:quoteRes.currency||"USD", marketState:state };
       }
-      return { price: displayPrice, regularPrice: price, changePercent: displayChg, currency, marketState: state };
     } catch { continue; }
   }
   return null;
@@ -1639,26 +1635,42 @@ function PortfolioApp({ syncKey, onLogout }) {
       const chunks = [];
       for (let i = 0; i < tickers.length; i += 20) chunks.push(tickers.slice(i, i + 20));
 
-      // 국내(KR): v8/chart 개별 조회, 해외(US/ETF): v7/quote 묶음 조회
       const krTickers = tickers.filter(t => t.endsWith(".KS") || t.endsWith(".KQ"));
       const usTickers = tickers.filter(t => !t.endsWith(".KS") && !t.endsWith(".KQ"));
 
-      // 국내 주식 병렬 개별 조회
-      await Promise.all(krTickers.map(async tk => {
-        const r = await fetchYahoo(tk);
-        if (r) {
-          next[tk] = r;
-          next[tk.replace(".KS","").replace(".KQ","")] = r;
+      // 1순위: Vercel API 배치 조회 (서버사이드, 캐시 없음, 빠름)
+      if (_useVercelApi && tickers.length > 0) {
+        try {
+          const batchRes = await fetchViaVercel(tickers);
+          let hit = 0;
+          tickers.forEach(tk => {
+            if (batchRes[tk]) {
+              next[tk] = batchRes[tk];
+              if (tk.endsWith(".KS")) next[tk.replace(".KS","")] = batchRes[tk];
+              if (tk.endsWith(".KQ")) next[tk.replace(".KQ","")] = batchRes[tk];
+              hit++;
+            }
+          });
+          console.log(`[시세] Vercel API ${hit}/${tickers.length}개 성공`);
+          chunks.length = 0; // 배치 성공 → 아래 fallback 루프 스킵
+        } catch(e) {
+          console.warn('[시세] Vercel API 실패 → 프록시 fallback:', e.message);
+          _useVercelApi = false;
         }
-      }));
+      }
 
-      // 해외주식: 개별 병렬 조회 (프록시 캐시 문제 회피)
-      await Promise.all(usTickers.map(async tk => {
-        const r = await fetchYahoo(tk);
-        if (r) next[tk] = r;
-      }));
-      // chunks 비워서 아래 루프 스킵
-      chunks.length = 0;
+      // 2순위: Vercel 실패 시 개별 병렬 조회
+      if (!_useVercelApi) {
+        await Promise.all(krTickers.map(async tk => {
+          const r = await fetchYahoo(tk);
+          if (r) { next[tk] = r; next[tk.replace(".KS","").replace(".KQ","")] = r; }
+        }));
+        await Promise.all(usTickers.map(async tk => {
+          const r = await fetchYahoo(tk);
+          if (r) next[tk] = r;
+        }));
+        chunks.length = 0;
+      }
 
       for (const chunk of chunks) {
         if (!chunk.length) continue;
