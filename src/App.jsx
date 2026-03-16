@@ -856,7 +856,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
     const cost   = h.avgPrice * h.quantity;
     const pnl    = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p };
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p, marketState: p?.marketState };
   });
 
   const totalVal  = portfolio.reduce((s, h) => s + toKRWL(h.value, h.cur), 0);
@@ -1137,7 +1137,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const saving = useRef({});
   const fbLoadedRef = useRef({});
 
-  const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
+  const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", stockType:"일반주식", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
   const [tForm, setTForm] = useState({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"" });
@@ -1306,10 +1306,21 @@ function PortfolioApp({ syncKey, onLogout }) {
               const price = q.regularMarketPrice;
               const prev  = q.regularMarketPreviousClose || q.previousClose || price;
               if (!price) return;
+              // 프리/애프터 시간 반영
+              const state = q.marketState || "CLOSED";
+              const displayPrice = state==="PRE"  && q.preMarketPrice  ? q.preMarketPrice
+                                 : state==="POST" && q.postMarketPrice ? q.postMarketPrice
+                                 : price;
+              const displayChg   = state==="PRE"  && q.preMarketChange  ? ((q.preMarketPrice-prev)/prev)*100
+                                 : state==="POST" && q.postMarketChange ? ((q.postMarketPrice-prev)/prev)*100
+                                 : ((price-prev)/prev)*100;
               next[sym] = {
-                price,
-                changePercent: ((price - prev) / prev) * 100,
+                price: displayPrice,
+                regularPrice: price,
+                changePercent: displayChg,
+                regularChangePercent: ((price-prev)/prev)*100,
                 currency: q.currency || "KRW",
+                marketState: state,
               };
               // .KS 티커 → 원래 티커도 매핑
               if (sym.endsWith(".KS")) next[sym.replace(".KS", "")] = next[sym];
@@ -1368,15 +1379,18 @@ function PortfolioApp({ syncKey, onLogout }) {
     if (ageMin > 5) fetchPrices();
     else setTimeout(fetchPrices, 3000);
 
-    // 장 중 감지 (KST 기준 9:00~15:35, 미장 23:30~06:00)
+    // 장 중 감지 (KST 기준)
     const getInterval = () => {
       const kst = new Date(Date.now() + 9*3600000);
-      const h = kst.getUTCHours(), m = kst.getUTCMinutes();
-      const mins = h*60+m;
-      const kospiOpen  = mins >= 9*60   && mins < 15*60+35; // 국장
-      const nyseOpen   = mins >= 23*60+30 || mins < 6*60;    // 미장
-      if (kospiOpen || nyseOpen) return 5000;   // 장 중: 5초
-      return 30000;                              // 장 외: 30초
+      const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
+      const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
+      const kospiOpen  = mins >= 9*60 && mins < 15*60+35;           // 국장 정규
+      const nyseReg    = mins >= (isDST?22*60+30:23*60+30) || mins < (isDST?5*60:6*60); // 미장 정규
+      const nysePre    = mins >= (isDST?17*60+30:18*60) && mins < (isDST?22*60+30:23*60+30); // 프리장
+      const nyseAfter  = mins >= (isDST?5*60:6*60) && mins < (isDST?9*60:10*60);  // 애프터
+      if (kospiOpen || nyseReg)          return 5000;   // 정규장: 5초
+      if (nysePre   || nyseAfter)        return 15000;  // 프리/애프터: 15초
+      return 60000;                                       // 장 외: 60초
     };
 
     let interval;
@@ -1424,7 +1438,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const addH = () => {
     if (!hForm.ticker || !hForm.quantity || !hForm.avgPrice) return;
     setHoldings(p => [...p, { id: Date.now(), ...hForm, quantity: +hForm.quantity, avgPrice: +hForm.avgPrice }]);
-    setHForm({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"" }); setShowForm(null);
+    setHForm({ ticker:"", name:"", market:"KR", stockType:"일반주식", quantity:"", avgPrice:"", broker:"" }); setShowForm(null);
   };
   const startEdit = (h) => {
     setEditingId(h.id);
@@ -1473,7 +1487,11 @@ function PortfolioApp({ syncKey, onLogout }) {
         </div>
       </td>
       <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
-      <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.chgPct)}</td>
+      <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>
+        {fmtPct(h.chgPct)}
+        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1}}>🌅프리</div>}
+        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1}}>🌙애프터</div>}
+      </td>
       <td style={S.TD}>{h.quantity.toLocaleString()}</td>
       <td style={{...S.TD,fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
       <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.pnlPct)}</td>
@@ -1536,6 +1554,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div>
             <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
             <div style={{fontSize:"11px",color:"#a5b4fc",fontWeight:600,marginTop:"2px"}}>{h.ticker} <span style={{color:"#6366f1",fontSize:"10px"}}>상세보기 ›</span></div>
+            {h.stockType&&h.stockType!=="일반주식"&&<div style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.stockType}</div>}
             {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
         </div>
@@ -1607,43 +1626,56 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   return (
     <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)", color:"#e2e8f0", minHeight:"100vh", fontFamily:FONT, fontSize:"15px", lineHeight:"1.6", letterSpacing:"-0.01em" }}>
-      <div style={{ background:"rgba(15,23,42,0.88)", backdropFilter:"blur(14px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:isMobile?"10px 14px":"14px 22px", position:"sticky", top:0, zIndex:50 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px" }}>
-          <div style={{ minWidth:0 }}>
-            <div style={{ fontSize:isMobile?"16px":"19px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc" }}>내 투자 포트폴리오</div>
-            <div style={{ display:"flex", alignItems:"center", gap:"6px", marginTop:"2px", flexWrap:"wrap" }}>
-              {(lastUpdated || priceAge > 0) && (
-                <span style={{ fontSize:"11px", color:"#475569", display:"flex", alignItems:"center", gap:"5px" }}>
-                  {(()=>{
-                    const kst = new Date(Date.now()+9*3600000);
-                    const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
-                    const kospi = mins>=9*60 && mins<15*60+35;
-                    const nyse  = mins>=23*60+30 || mins<6*60;
-                    if (kospi) return <span style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔴 국장 LIVE</span>;
-                    if (nyse)  return <span style={{background:"rgba(59,130,246,0.15)",color:"#60a5fa",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔵 미장 LIVE</span>;
-                    return <span style={{background:"rgba(100,116,139,0.15)",color:"#64748b",padding:"1px 7px",borderRadius:"20px",fontSize:"10px"}}>장 외</span>;
-                  })()}
-                  <span>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
-                  {loading && <span style={{color:"#6366f1",fontWeight:700,fontSize:"10px"}}>조회 중...</span>}
-                </span>
-              )}
-              <span style={{ background:"rgba(99,102,241,0.2)", color:"#a5b4fc", padding:"1px 8px", borderRadius:"20px", fontSize:"11px", fontWeight:700 }}>🔑 {syncKey}</span>
-            </div>
+      <div style={{ background:"rgba(15,23,42,0.88)", backdropFilter:"blur(14px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:isMobile?"7px 12px":"8px 18px", position:"sticky", top:0, zIndex:50 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px", flexWrap:"wrap" }}>
+          {/* 좌: 타이틀 + 상태 */}
+          <div style={{ display:"flex", alignItems:"center", gap:"10px", minWidth:0, flexWrap:"wrap" }}>
+            <div style={{ fontSize:isMobile?"14px":"16px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc", whiteSpace:"nowrap" }}>📈 내 투자 포트폴리오</div>
+            {(lastUpdated || priceAge > 0) && (
+              <span style={{ fontSize:"10px", color:"#475569", display:"flex", alignItems:"center", gap:"4px" }}>
+                {(()=>{
+                  const kst = new Date(Date.now()+9*3600000);
+                  const h = kst.getUTCHours(), m = kst.getUTCMinutes();
+                  const mins = h*60+m;
+                  // 국장: 9:00~15:35 KST
+                  const kospi = mins>=9*60 && mins<15*60+35;
+                  // 미장 (EST 기준, 섬머타임 고려 근사치)
+                  // 프리장: KST 17:30(EDT)/18:00(EST) ~ 22:30(EDT)/23:30(EST)
+                  // 정규장: KST 22:30(EDT)/23:30(EST) ~ 05:00(EDT)/06:00(EST)
+                  // 애프터: KST 05:00(EDT)/06:00(EST) ~ 09:00(EDT)/10:00(EST)
+                  const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
+                  const preStart  = isDST ? 17*60+30 : 18*60;    // 프리장 시작
+                  const regStart  = isDST ? 22*60+30 : 23*60+30;  // 정규장 시작
+                  const regEnd    = isDST ?  5*60     :  6*60;     // 정규장 종료 (익일)
+                  const afterEnd  = isDST ?  9*60     : 10*60;     // 애프터 종료
+                  const isNYSEReg   = mins>=regStart || mins<regEnd;
+                  const isNYSEPre   = !isNYSEReg && mins>=preStart && mins<regStart;
+                  const isNYSEAfter = !isNYSEReg && mins>=regEnd   && mins<afterEnd;
+                  if (kospi) return <span style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔴 국장 LIVE</span>;
+                  if (isNYSEReg)   return <span style={{background:"rgba(59,130,246,0.2)",color:"#60a5fa",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔵 미장 LIVE</span>;
+                  if (isNYSEPre)   return <span style={{background:"rgba(251,191,36,0.15)",color:"#fbbf24",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🌅 미장 프리</span>;
+                  if (isNYSEAfter) return <span style={{background:"rgba(168,85,247,0.15)",color:"#c084fc",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🌙 미장 애프터</span>;
+                  return <span style={{color:"#475569",fontSize:"10px"}}>장 외</span>;
+                })()}
+                <span style={{color:"#475569"}}>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
+                {loading && <span style={{color:"#6366f1",fontWeight:700}}>↻</span>}
+              </span>
+            )}
+            <span style={{ background:"rgba(99,102,241,0.15)", color:"#a5b4fc", padding:"1px 7px", borderRadius:"20px", fontSize:"10px", fontWeight:700 }}>🔑 {syncKey}</span>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"6px", flexShrink:0 }}>
-            <div style={{ display:"flex", gap:"6px" }}>
-              <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", gap:"4px", opacity:loading?0.7:1, fontSize:"12px", padding:"6px 10px" })}>
-                <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
-                {isMobile?(loading?"…":"새로고침"):(loading?"조회 중...":"새로고침")}
-              </button>
-              <button onClick={onLogout} style={S.btn("#334155", { fontSize:"12px", padding:"6px 10px" })}>로그아웃</button>
-            </div>
+          {/* 우: 버튼 + 위젯 */}
+          <div style={{ display:"flex", alignItems:"center", gap:"6px", flexShrink:0 }}>
             {!isMobile && <InfoWidget />}
+            <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", gap:"3px", opacity:loading?0.7:1, fontSize:"11px", padding:"5px 9px" })}>
+              <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
+              {loading?"…":"새로고침"}
+            </button>
+            <button onClick={onLogout} style={S.btn("#334155", { fontSize:"11px", padding:"5px 9px" })}>로그아웃</button>
           </div>
         </div>
-        {isMobile && <div style={{ marginTop:"8px" }}><InfoWidget /></div>}
+        {isMobile && <div style={{ marginTop:"4px" }}><InfoWidget /></div>}
         {/* 포트폴리오 선택 탭 */}
-        <div style={{ display:"flex", gap:"4px", marginTop:"10px", marginBottom:"6px" }}>
+        <div style={{ display:"flex", gap:"4px", marginTop:"6px", marginBottom:"4px" }}>
           {[["p1","📊 포트폴리오1 (주식·코인)"],["p2","🏦 포트폴리오2 (절세계좌)"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
               {isMobile?(id==="p1"?"P1 주식":"P2 절세"):label}
@@ -1660,7 +1692,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         </div>
       </div>
 
-      <div style={{ padding:isMobile?"12px":"22px", maxWidth:"1200px", margin:"0 auto" }}>
+      <div style={{ padding:isMobile?"10px 12px":"14px 20px", maxWidth:"1200px", margin:"0 auto" }}>
 
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
@@ -1810,6 +1842,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                       <input placeholder="종목명" value={hForm.name} onChange={e=>setHForm(p=>({...p,name:e.target.value}))} style={S.inp}/>
                       <select value={hForm.market} onChange={e=>setHForm(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
                         <option value="KR">한국주식</option><option value="ISA">한국주식(ISA)</option><option value="US">미국주식</option><option value="ETF">ETF</option><option value="CRYPTO">암호화폐</option><option value="GOLD">금현물</option>
+                      </select>
+                      <select value={hForm.stockType||"일반주식"} onChange={e=>setHForm(p=>({...p,stockType:e.target.value}))} style={{...S.inp,appearance:"none"}}>
+                        <option value="일반주식">일반주식</option><option value="ETF">ETF</option><option value="리츠">리츠(REITs)</option><option value="우선주">우선주</option>
                       </select>
                       <input placeholder="수량" type="number" value={hForm.quantity} onChange={e=>setHForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                       <input placeholder="평균 매수가" type="number" value={hForm.avgPrice} onChange={e=>setHForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
