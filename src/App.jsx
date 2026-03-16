@@ -150,12 +150,15 @@ async function fetchGold(liveUsdKrw) {
 }
 
 async function fetchHistory(ticker, market) {
-  const isKR = market === "KR";
+  const isKR = market === "KR" || market === "ISA";
+  const isETFKR = market === "ETF" && /^[0-9]/.test(ticker);
   const isCrypto = market === "CRYPTO";
+  const isGold = market === "GOLD";
+
   if (isCrypto) {
     try {
       const id = CRYPTO_IDS[ticker.toUpperCase()] || ticker.toLowerCase();
-      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30&interval=daily`);
+      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30&interval=daily`, { signal: AbortSignal.timeout(8000) });
       const d = await r.json();
       return (d.prices||[]).map(([ts, price]) => ({
         date: new Date(ts).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}),
@@ -163,25 +166,40 @@ async function fetchHistory(ticker, market) {
       }));
     } catch { return []; }
   }
-  const tk = isKR && !ticker.includes(".") ? ticker + ".KS" : ticker;
-  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
+
+  if (isGold) {
+    // 금 현물 3개월 차트: GC=F (금 선물 근월물)
+    ticker = "GC%3DF";
+  }
+
+  // 티커 정규화
+  let tk = ticker;
+  if ((isKR || isETFKR) && !tk.includes(".")) tk += ".KS";
+
+  const url1 = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
+  const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
+
   const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url1)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url2)}`,
   ];
+
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
       const d = await r.json();
       const result = d?.chart?.result?.[0];
-      if (!result) continue;
-      const timestamps = result.timestamp || [];
+      if (!result?.timestamp?.length) continue;
+      const timestamps = result.timestamp;
       const closes = result.indicators?.quote?.[0]?.close || [];
-      return timestamps.map((ts, i) => ({
+      const data = timestamps.map((ts, i) => ({
         date: new Date(ts * 1000).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}),
         price: closes[i] ? Math.round(closes[i]*100)/100 : null,
       })).filter(d => d.price !== null);
+      if (data.length > 0) return data;
     } catch { continue; }
   }
   return [];
@@ -191,7 +209,7 @@ async function fetchStockInfo(ticker, market) {
   if (market === "CRYPTO") {
     try {
       const id = CRYPTO_IDS[ticker.toUpperCase()] || ticker.toLowerCase();
-      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}?localization=false&tickers=false&community_data=false&developer_data=false`);
+      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}?localization=false&tickers=false&community_data=false&developer_data=false`, { signal: AbortSignal.timeout(8000) });
       const d = await r.json();
       return {
         marketCap: d.market_data?.market_cap?.usd,
@@ -199,19 +217,29 @@ async function fetchStockInfo(ticker, market) {
         low24h: d.market_data?.low_24h?.usd,
         ath: d.market_data?.ath?.usd,
         supply: d.market_data?.circulating_supply,
-        desc: d.description?.en?.replace(/<[^>]+>/g,"").slice(0,200),
       };
     } catch { return {}; }
   }
-  const tk = market === "KR" && !ticker.includes(".") ? ticker + ".KS" : ticker;
-  const yahooUrl = `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${tk}?modules=summaryDetail,defaultKeyStatistics,assetProfile`;
+
+  if (market === "GOLD") return {};
+
+  const isKR = market === "KR" || market === "ISA";
+  const isETFKR = market === "ETF" && /^[0-9]/.test(ticker);
+  let tk = ticker;
+  if ((isKR || isETFKR) && !tk.includes(".")) tk += ".KS";
+
+  const url1 = `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${tk}?modules=summaryDetail,defaultKeyStatistics,assetProfile`;
+  const url2 = `https://query2.finance.yahoo.com/v11/finance/quoteSummary/${tk}?modules=summaryDetail,defaultKeyStatistics,assetProfile`;
+
   const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(yahooUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url1)}`,
   ];
+
   for (const url of proxies) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
       const d = await r.json();
       const sd = d?.quoteSummary?.result?.[0]?.summaryDetail;
@@ -525,7 +553,7 @@ function StockDetail({ holding, price, onClose, isMobile }) {
 
   const minP = history.length ? Math.min(...history.map(d=>d.price)) : 0;
   const maxP = history.length ? Math.max(...history.map(d=>d.price)) : 1;
-  const W = isMobile ? 340 : 560;
+  const W = isMobile ? window.innerWidth - 80 : 520;
   const H = 160;
   const pad = { t:10, r:10, b:24, l:10 };
 
