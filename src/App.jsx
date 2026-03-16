@@ -36,15 +36,15 @@ function useIsMobile() {
 let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 
 async function fetchYahoo(ticker) {
-  const q1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
-  const q2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`;
+  // v7/quote: 실시간 시세 (프리/정규/애프터 포함)
+  const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,postMarketPrice,currency,marketState";
+  const q1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
+  const q2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
   const allProxies = [
     `https://api.allorigins.win/raw?url=${encodeURIComponent(q1)}`,
     `https://api.allorigins.win/raw?url=${encodeURIComponent(q2)}`,
     `https://corsproxy.io/?url=${encodeURIComponent(q1)}`,
     `https://corsproxy.io/?url=${encodeURIComponent(q2)}`,
-    `https://thingproxy.freeboard.io/fetch/${q1}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(q1)}`,
   ];
   // 마지막으로 성공한 프록시를 앞으로 이동
   const proxies = [
@@ -56,16 +56,24 @@ async function fetchYahoo(ticker) {
       const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) continue;
       const d = await r.json();
-      const m = d?.chart?.result?.[0]?.meta;
-      if (!m?.regularMarketPrice) continue;
-      const price = m.regularMarketPrice;
-      const prev  = m.previousClose || m.chartPreviousClose || price;
+      // v7/quote 응답 파싱
+      const q = d?.quoteResponse?.result?.[0];
+      if (!q?.regularMarketPrice) continue;
+      const price = q.regularMarketPrice;
+      const prev  = q.regularMarketPreviousClose || price;
+      const state = q.marketState || "REGULAR";
+      const displayPrice = state==="PRE" && q.preMarketPrice ? q.preMarketPrice
+                         : state==="POST" && q.postMarketPrice ? q.postMarketPrice
+                         : price;
+      const displayChg = state==="PRE" && q.preMarketPrice ? ((q.preMarketPrice-prev)/prev)*100
+                       : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
+                       : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
       const proxyIdx = allProxies.indexOf(url);
       if (proxyIdx >= 0 && proxyIdx !== _bestProxy) {
         _bestProxy = proxyIdx;
         try { localStorage.setItem("pm_best_proxy", String(proxyIdx)); } catch {}
       }
-      return { price, changePercent: ((price - prev) / prev) * 100, currency: m.currency };
+      return { price: displayPrice, regularPrice: price, changePercent: displayChg, currency: q.currency, marketState: state };
     } catch { continue; }
   }
   // 마지막 수단: stooq (CORS 프록시 불필요)
@@ -1398,10 +1406,12 @@ function PortfolioApp({ syncKey, onLogout }) {
       const chunks = [];
       for (let i = 0; i < tickers.length; i += 20) chunks.push(tickers.slice(i, i + 20));
 
+      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent,currency,marketState";
       const proxies = [
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=regularMarketPrice,regularMarketChangePercent,currency,previousClose`)}`,
-        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
-        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
+        (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
+        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
+        (syms) => `https://corsproxy.io/?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}`)}`,
       ];
 
       for (const chunk of chunks) {
@@ -1417,21 +1427,22 @@ function PortfolioApp({ syncKey, onLogout }) {
             quotes.forEach(q => {
               const sym = q.symbol;
               const price = q.regularMarketPrice;
-              const prev  = q.regularMarketPreviousClose || q.previousClose || price;
+              const prev  = q.regularMarketPreviousClose || price;
               if (!price) return;
-              // 프리/애프터 시간 반영
-              const state = q.marketState || "CLOSED";
+              const state = q.marketState || "REGULAR";
+              // 프리/애프터 가격 반영
               const displayPrice = state==="PRE"  && q.preMarketPrice  ? q.preMarketPrice
                                  : state==="POST" && q.postMarketPrice ? q.postMarketPrice
                                  : price;
-              const displayChg   = state==="PRE"  && q.preMarketChange  ? ((q.preMarketPrice-prev)/prev)*100
-                                 : state==="POST" && q.postMarketChange ? ((q.postMarketPrice-prev)/prev)*100
-                                 : ((price-prev)/prev)*100;
+              // 변동률: 프리/애프터는 전일 종가 대비, 정규장은 Yahoo 제공값 사용
+              const displayChg = state==="PRE"  && q.preMarketPrice  ? ((q.preMarketPrice-prev)/prev)*100
+                               : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
+                               : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
               next[sym] = {
                 price: displayPrice,
                 regularPrice: price,
                 changePercent: displayChg,
-                regularChangePercent: ((price-prev)/prev)*100,
+                regularChangePercent: q.regularMarketChangePercent ?? ((price-prev)/prev)*100,
                 currency: q.currency || "KRW",
                 marketState: state,
               };
@@ -1497,13 +1508,13 @@ function PortfolioApp({ syncKey, onLogout }) {
       const kst = new Date(Date.now() + 9*3600000);
       const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
       const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
-      const kospiOpen  = mins >= 9*60 && mins < 15*60+35;           // 국장 정규
-      const nyseReg    = mins >= (isDST?22*60+30:23*60+30) || mins < (isDST?5*60:6*60); // 미장 정규
-      const nysePre    = mins >= (isDST?17*60+30:18*60) && mins < (isDST?22*60+30:23*60+30); // 프리장
-      const nyseAfter  = mins >= (isDST?5*60:6*60) && mins < (isDST?9*60:10*60);  // 애프터
-      if (kospiOpen || nyseReg)          return 5000;   // 정규장: 5초
-      if (nysePre   || nyseAfter)        return 15000;  // 프리/애프터: 15초
-      return 60000;                                       // 장 외: 60초
+      const kospi  = mins>=9*60 && mins<15*60+35;
+      const nyseReg  = mins>=(isDST?22*60+30:23*60+30) || mins<(isDST?5*60:6*60);
+      const nysePre  = mins>=(isDST?17*60+30:18*60) && mins<(isDST?22*60+30:23*60+30);
+      const nyseAfter= mins>=(isDST?5*60:6*60) && mins<(isDST?9*60:10*60);
+      if (kospi || nyseReg)        return 5000;   // 정규장(국내/미국): 5초
+      if (nysePre || nyseAfter)    return 10000;  // 프리/애프터: 10초
+      return 60000;
     };
 
     let interval;
@@ -1748,27 +1759,23 @@ function PortfolioApp({ syncKey, onLogout }) {
               <span style={{ fontSize:"10px", color:"#475569", display:"flex", alignItems:"center", gap:"4px" }}>
                 {(()=>{
                   const kst = new Date(Date.now()+9*3600000);
-                  const h = kst.getUTCHours(), m = kst.getUTCMinutes();
-                  const mins = h*60+m;
-                  // 국장: 9:00~15:35 KST
+                  const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
                   const kospi = mins>=9*60 && mins<15*60+35;
-                  // 미장 (EST 기준, 섬머타임 고려 근사치)
-                  // 프리장: KST 17:30(EDT)/18:00(EST) ~ 22:30(EDT)/23:30(EST)
-                  // 정규장: KST 22:30(EDT)/23:30(EST) ~ 05:00(EDT)/06:00(EST)
-                  // 애프터: KST 05:00(EDT)/06:00(EST) ~ 09:00(EDT)/10:00(EST)
                   const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
-                  const preStart  = isDST ? 17*60+30 : 18*60;    // 프리장 시작
-                  const regStart  = isDST ? 22*60+30 : 23*60+30;  // 정규장 시작
-                  const regEnd    = isDST ?  5*60     :  6*60;     // 정규장 종료 (익일)
-                  const afterEnd  = isDST ?  9*60     : 10*60;     // 애프터 종료
+                  const preStart = isDST?17*60+30:18*60;
+                  const regStart = isDST?22*60+30:23*60+30;
+                  const regEnd   = isDST?5*60:6*60;
+                  const afterEnd = isDST?9*60:10*60;
                   const isNYSEReg   = mins>=regStart || mins<regEnd;
                   const isNYSEPre   = !isNYSEReg && mins>=preStart && mins<regStart;
                   const isNYSEAfter = !isNYSEReg && mins>=regEnd   && mins<afterEnd;
-                  if (kospi) return <span style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔴 국장 LIVE</span>;
-                  if (isNYSEReg)   return <span style={{background:"rgba(59,130,246,0.2)",color:"#60a5fa",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🔵 미장 LIVE</span>;
-                  if (isNYSEPre)   return <span style={{background:"rgba(251,191,36,0.15)",color:"#fbbf24",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🌅 미장 프리</span>;
-                  if (isNYSEAfter) return <span style={{background:"rgba(168,85,247,0.15)",color:"#c084fc",padding:"1px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>🌙 미장 애프터</span>;
-                  return <span style={{color:"#475569",fontSize:"10px"}}>장 외</span>;
+                  const badges = [];
+                  if (kospi)       badges.push(<span key="kr"    style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🔴 국장 정규LIVE</span>);
+                  if (isNYSEReg)   badges.push(<span key="nyse"  style={{background:"rgba(59,130,246,0.2)",color:"#60a5fa",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🔵 미장 정규LIVE</span>);
+                  if (isNYSEPre)   badges.push(<span key="pre"   style={{background:"rgba(251,191,36,0.15)",color:"#fbbf24",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🌅 미장 프리LIVE</span>);
+                  if (isNYSEAfter) badges.push(<span key="after" style={{background:"rgba(168,85,247,0.15)",color:"#c084fc",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🌙 미장 애프터LIVE</span>);
+                  if (!badges.length) badges.push(<span key="off" style={{color:"#475569",fontSize:"10px"}}>장 외</span>);
+                  return <>{badges}</>;
                 })()}
                 <span style={{color:"#475569"}}>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
                 {loading && <span style={{color:"#6366f1",fontWeight:700}}>↻</span>}
