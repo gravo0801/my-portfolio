@@ -1121,7 +1121,8 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
     const cost   = h.avgPrice * h.quantity;
     const pnl    = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p, marketState: p?.marketState };
+    const chgAmt = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
   const totalVal  = portfolio.reduce((s, h) => s + toKRWL(h.value, h.cur), 0);
@@ -1825,7 +1826,8 @@ function PortfolioApp({ syncKey, onLogout }) {
     const cost  = h.avgPrice * h.quantity;
     const pnl   = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p, marketState: p?.marketState };
+    const chgAmt = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
   const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
@@ -1902,10 +1904,16 @@ function PortfolioApp({ syncKey, onLogout }) {
         {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#a78bfa",fontWeight:700,marginTop:"2px"}}>🌙 애프터</div>}
         {!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}
       </td>
-      <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>
-        {fmtPct(h.chgPct)}
-        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1}}>🌅프리</div>}
-        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1}}>🌙애프터</div>}
+      <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>
+        <div style={{fontWeight:800}}>
+          {h.chgAmt ? (h.chgAmt>=0?"+":"")+( h.cur==="USD"
+            ? "$"+Math.abs(h.chgAmt).toFixed(2)
+            : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩"
+          ) : "—"}
+        </div>
+        <div style={{fontSize:"11px",opacity:0.85}}>({fmtPct(h.chgPct)})</div>
+        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1.2}}>🌅프리</div>}
+        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1.2}}>🌙애프터</div>}
       </td>
       <td style={S.TD}>{h.quantity.toLocaleString()}</td>
       <td style={{...S.TD,fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
@@ -1980,8 +1988,14 @@ function PortfolioApp({ syncKey, onLogout }) {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>현재가</div><div style={{fontSize:"13px",fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</div>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{fontSize:"13px",fontWeight:700,color:h.chgPct>=0?"#34d399":"#f87171"}}>
-                    {fmtPct(h.chgPct)}
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{color:h.chgPct>=0?"#34d399":"#f87171"}}>
+                    <span style={{fontSize:"13px",fontWeight:800}}>
+                      {h.chgAmt ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
+                        ? "$"+Math.abs(h.chgAmt).toFixed(2)
+                        : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩"
+                      ) : "—"}
+                    </span>
+                    <span style={{fontSize:"11px",marginLeft:"3px",opacity:0.85}}>({fmtPct(h.chgPct)})</span>
                     {h.marketState==="PRE"  && <span style={{fontSize:"9px",background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>프리</span>}
                     {h.marketState==="POST" && <span style={{fontSize:"9px",background:"rgba(167,139,250,0.2)",color:"#a78bfa",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>애프터</span>}
                   </div></div>
@@ -2314,7 +2328,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                       ) : (
                         <div style={{overflowY:"auto",maxHeight:compactMode?"400px":"320px"}}>
                           <table style={{width:"100%",borderCollapse:"collapse"}}>
-                            <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(th=><th key={th} style={S.TH}>{th}</th>)}</tr></thead>
+                            <thead><tr>{["종목","현재가","일변동(금액/%)","수량","평가금액","손익률",""].map(th=><th key={th} style={S.TH}>{th}</th>)}</tr></thead>
                             <tbody>{g.items.map(h=>renderTableRow(h,compactMode))}</tbody>
                           </table>
                         </div>
