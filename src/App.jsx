@@ -1840,43 +1840,77 @@ function PortfolioApp({ syncKey, onLogout }) {
             ))}
           </div>
 
-          {/* ── 계좌별 뷰 ── */}
-          {overviewTab==="account" && (
-            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
-              <OverviewCard title="포트폴리오1" subtitle="국내·미국주식·코인" items={holdings} prices={prices} liveUsdKrw={liveUsdKrw} color="#6366f1" onClick={()=>setSelectedAccount({title:"포트폴리오1",items:holdings})} isMobile={isMobile}/>
-              {TAX_ACCOUNTS.map(acc=>(
-                <OverviewCard key={acc} title={acc.replace("(신한금융투자)","").replace("(미래에셋증권)","")} subtitle={acc.includes("(")?acc.split("(")[1]?.replace(")",""):""} items={holdings2.filter(h=>h.taxAccount===acc)} prices={prices} liveUsdKrw={liveUsdKrw} color="#eab308" onClick={()=>setSelectedAccount({title:acc,items:holdings2.filter(h=>h.taxAccount===acc)})} isMobile={isMobile}/>
-              ))}
-            </div>
-          )}
+          {/* ── 계좌별 / 증권사별 / 국내해외별 테이블 뷰 ── */}
+          {(overviewTab==="account"||overviewTab==="broker"||overviewTab==="market") && (()=>{
+            const allP = [...portfolio, ...portfolio2];
 
-          {/* ── 증권사별 뷰 ── */}
-          {overviewTab==="broker" && (()=>{
-            const allHoldings = [...holdings, ...holdings2];
-            const brokers = [...new Set(allHoldings.map(h=>h.broker||"미지정"))].sort();
+            // 그룹 정의
+            const getGroups = () => {
+              if (overviewTab==="account") {
+                const g = [{ key:"p1", label:"📊 포트폴리오1", sub:"주식·코인·금현물", color:"#6366f1", items: portfolio }];
+                TAX_ACCOUNTS.forEach(acc => {
+                  const items = portfolio2.filter(h=>h.taxAccount===acc);
+                  if(items.length) g.push({ key:acc, label:acc.replace("(신한금융투자)","").replace("(미래에셋증권)",""), sub:acc.includes("(")?acc.split("(")[1]?.replace(")",""):"", color:"#eab308", items });
+                });
+                return g;
+              }
+              if (overviewTab==="broker") {
+                const map = {};
+                allP.forEach(h=>{ const k=h.broker||h.taxAccount||"미지정"; if(!map[k])map[k]=[]; map[k].push(h); });
+                return Object.entries(map).sort().map(([k,items])=>({ key:k, label:"🏦 "+k, sub:"", color:"#818cf8", items }));
+              }
+              // market
+              return [
+                { key:"domestic", label:"🇰🇷 국내 주식", sub:"KR · ISA · 금현물", color:"#6366f1", items: allP.filter(h=>h.market==="KR"||h.market==="ISA"||h.market==="GOLD") },
+                { key:"overseas", label:"🌎 해외 주식", sub:"미국 · ETF", color:"#10b981", items: allP.filter(h=>h.market==="US"||h.market==="ETF") },
+                { key:"crypto",   label:"🪙 암호화폐", sub:"BTC · ETH 등", color:"#a855f7", items: allP.filter(h=>h.market==="CRYPTO") },
+              ].filter(g=>g.items.length>0);
+            };
+
             return (
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
-                {brokers.map(broker=>{
-                  const items = allHoldings.filter(h=>(h.broker||"미지정")===broker);
-                  return <OverviewCard key={broker} title={broker} items={items} prices={prices} liveUsdKrw={liveUsdKrw} color="#818cf8" onClick={()=>setSelectedAccount({title:broker,items})} isMobile={isMobile}/>;
+              <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
+                {getGroups().map(g => {
+                  const gVal  = g.items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
+                  const gCost = g.items.reduce((s,h)=>s+toKRWLive(h.cost, h.cur),0);
+                  const gRet  = gCost>0?((gVal-gCost)/gCost)*100:0;
+                  const gPnL  = gVal-gCost;
+                  return (
+                    <div key={g.key} style={{...S.card,padding:isMobile?"10px":"14px",borderTop:`3px solid ${g.color}`}}>
+                      {/* 그룹 헤더 */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px",flexWrap:"wrap",gap:"8px"}}>
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                            <span style={{fontSize:"15px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.02em"}}>{g.label}</span>
+                            {g.sub&&<span style={{fontSize:"11px",color:"#64748b"}}>{g.sub}</span>}
+                            <span style={{fontSize:"11px",color:"#475569",background:"rgba(255,255,255,0.06)",padding:"1px 7px",borderRadius:"20px"}}>{g.items.length}종목</span>
+                          </div>
+                          <div style={{display:"flex",gap:"12px",marginTop:"4px",flexWrap:"wrap"}}>
+                            <span style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0"}}>{fmtKRW(gVal)}</span>
+                            <span style={{fontSize:"13px",fontWeight:700,color:gRet>=0?"#34d399":"#f87171"}}>{gRet>=0?"+":""}{gRet.toFixed(2)}%</span>
+                            <span style={{fontSize:"12px",color:"#64748b"}}>{gPnL>=0?"+":""}{fmtKRW(gPnL)}</span>
+                          </div>
+                        </div>
+                        <button onClick={()=>setSelectedAccount({title:g.label,items:g.items.map(h=>({...h,id:h.id||Math.random()}))})}
+                          style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.35)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                          📊 상세보기
+                        </button>
+                      </div>
+                      {/* 종목 테이블 */}
+                      {isMobile ? (
+                        <div style={{display:"flex",flexDirection:"column",gap:compactMode?"4px":"7px",maxHeight:"50vh",overflowY:"auto"}}>
+                          {g.items.map(h=>renderMobileCard(h,compactMode))}
+                        </div>
+                      ) : (
+                        <div style={{overflowY:"auto",maxHeight:compactMode?"400px":"320px"}}>
+                          <table style={{width:"100%",borderCollapse:"collapse"}}>
+                            <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(th=><th key={th} style={S.TH}>{th}</th>)}</tr></thead>
+                            <tbody>{g.items.map(h=>renderTableRow(h,compactMode))}</tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
                 })}
-              </div>
-            );
-          })()}
-
-          {/* ── 국내·해외별 뷰 ── */}
-          {overviewTab==="market" && (()=>{
-            const allHoldings = [...holdings, ...holdings2];
-            const groups = [
-              {key:"domestic", title:"국내 주식", subtitle:"KR · ISA · 금현물", color:"#6366f1", items: allHoldings.filter(h=>h.market==="KR"||h.market==="ISA"||h.market==="GOLD")},
-              {key:"overseas", title:"해외 주식", subtitle:"미국 · ETF", color:"#10b981", items: allHoldings.filter(h=>h.market==="US"||h.market==="ETF")},
-              {key:"crypto",   title:"암호화폐",  subtitle:"BTC · ETH 등", color:"#a855f7", items: allHoldings.filter(h=>h.market==="CRYPTO")},
-            ].filter(g=>g.items.length>0);
-            return (
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"12px",marginBottom:"16px"}}>
-                {groups.map(g=>(
-                  <OverviewCard key={g.key} title={g.title} subtitle={g.subtitle} items={g.items} prices={prices} liveUsdKrw={liveUsdKrw} color={g.color} onClick={()=>setSelectedAccount({title:g.title,items:g.items})} isMobile={isMobile}/>
-                ))}
               </div>
             );
           })()}
