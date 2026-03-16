@@ -41,20 +41,24 @@ async function fetchYahoo(ticker) {
 
   // 국내주식: v8/chart가 프록시에서 더 안정적
   // 미국주식: v7/quote로 프리/애프터 포함 실시간 시세
-  const urls = isKR ? [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
-  ] : [
-    `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`,
-    `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`,
-  ];
+  const chartUrl1 = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+  const chartUrl2 = `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
+  const quoteUrl1 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
+  const quoteUrl2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
 
-  const allProxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[0])}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(urls[1])}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[0])}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urls[1])}`,
-    `https://corsproxy.io/?url=${encodeURIComponent(urls[0])}`,
+  // 국내: v8/chart 우선, 미국: v7/quote 우선 후 v8/chart fallback
+  const allProxies = isKR ? [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl2)}`,
+  ] : [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl1)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl1)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl1)}`,
   ];
   // 마지막으로 성공한 프록시를 앞으로 이동
   const proxies = [
@@ -68,30 +72,31 @@ async function fetchYahoo(ticker) {
       const d = await r.json();
       let price, prev, state, displayPrice, displayChg, currency;
 
-      if (isKR) {
-        // v8/chart 파싱 (국내주식)
-        const m = d?.chart?.result?.[0]?.meta;
-        if (!m?.regularMarketPrice) continue;
-        price = m.regularMarketPrice;
-        prev  = m.previousClose || m.chartPreviousClose || price;
+      // v8/chart 또는 v7/quote 자동 감지
+      const chartMeta = d?.chart?.result?.[0]?.meta;
+      const quoteRes  = d?.quoteResponse?.result?.[0];
+      if (chartMeta?.regularMarketPrice) {
+        // v8/chart 파싱
+        price = chartMeta.regularMarketPrice;
+        prev  = chartMeta.previousClose || chartMeta.chartPreviousClose || price;
         state = "REGULAR";
         displayPrice = price;
         displayChg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-        currency     = m.currency || "KRW";
-      } else {
-        // v7/quote 파싱 (미국주식)
-        const q = d?.quoteResponse?.result?.[0];
-        if (!q?.regularMarketPrice) continue;
-        price = q.regularMarketPrice;
-        prev  = q.regularMarketPreviousClose || price;
-        state = q.marketState || "REGULAR";
-        displayPrice = state==="PRE"  && q.preMarketPrice  ? q.preMarketPrice
-                     : state==="POST" && q.postMarketPrice ? q.postMarketPrice
+        currency     = chartMeta.currency || (isKR ? "KRW" : "USD");
+      } else if (quoteRes?.regularMarketPrice) {
+        // v7/quote 파싱
+        price = quoteRes.regularMarketPrice;
+        prev  = quoteRes.regularMarketPreviousClose || price;
+        state = quoteRes.marketState || "REGULAR";
+        displayPrice = state==="PRE"  && quoteRes.preMarketPrice  ? quoteRes.preMarketPrice
+                     : state==="POST" && quoteRes.postMarketPrice ? quoteRes.postMarketPrice
                      : price;
-        displayChg   = state==="PRE"  && q.preMarketPrice  ? ((q.preMarketPrice-prev)/prev)*100
-                     : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
-                     : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
-        currency     = q.currency || "USD";
+        displayChg   = state==="PRE"  && quoteRes.preMarketPrice  ? ((quoteRes.preMarketPrice-prev)/prev)*100
+                     : state==="POST" && quoteRes.postMarketPrice ? ((quoteRes.postMarketPrice-prev)/prev)*100
+                     : (quoteRes.regularMarketChangePercent ?? ((price-prev)/prev)*100);
+        currency     = quoteRes.currency || "USD";
+      } else {
+        continue;
       }
 
       const proxyIdx = allProxies.indexOf(url);
@@ -1495,7 +1500,25 @@ function PortfolioApp({ syncKey, onLogout }) {
         if (!fetched || missingTickers.length > 0) {
           const toFetch = !fetched ? chunk : missingTickers;
           await Promise.all(toFetch.map(async tk => {
-            const r = await fetchYahoo(tk);
+            // v7/quote 먼저 시도
+            let r = await fetchYahoo(tk);
+            // 실패 시 v8/chart로 재시도
+            if (!r) {
+              try {
+                const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=1d`;
+                const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl)}`;
+                const resp = await fetch(proxied, { signal: AbortSignal.timeout(7000) });
+                if (resp.ok) {
+                  const d = await resp.json();
+                  const m = d?.chart?.result?.[0]?.meta;
+                  if (m?.regularMarketPrice) {
+                    const price = m.regularMarketPrice;
+                    const prev  = m.previousClose || m.chartPreviousClose || price;
+                    r = { price, changePercent: prev>0?((price-prev)/prev)*100:0, currency: m.currency||"USD", marketState:"REGULAR" };
+                  }
+                }
+              } catch {}
+            }
             if (r) {
               next[tk] = r;
               if (tk.endsWith(".KS")) next[tk.replace(".KS","")] = r;
@@ -1880,7 +1903,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
           {/* ── 뷰 선택 탭 ── */}
           <div style={{display:"flex",gap:"4px",marginBottom:"14px",flexWrap:"wrap"}}>
-            {[["all","🗂 전체"],["account","🏦 계좌별"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
+            {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
               <button key={id} onClick={()=>setOverviewTab(id)} style={{
                 background:overviewTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)",
                 border:overviewTab===id?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",
@@ -1891,20 +1914,12 @@ function PortfolioApp({ syncKey, onLogout }) {
             ))}
           </div>
 
-          {/* ── 계좌별 / 증권사별 / 국내해외별 테이블 뷰 ── */}
-          {(overviewTab==="account"||overviewTab==="broker"||overviewTab==="market") && (()=>{
+          {/* ── 증권사별 / 국내해외별 테이블 뷰 ── */}
+          {(overviewTab==="broker"||overviewTab==="market") && (()=>{
             const allP = [...portfolio, ...portfolio2];
 
             // 그룹 정의
             const getGroups = () => {
-              if (overviewTab==="account") {
-                const g = [{ key:"p1", label:"📊 포트폴리오1", sub:"주식·코인·금현물", color:"#6366f1", items: portfolio }];
-                TAX_ACCOUNTS.forEach(acc => {
-                  const items = portfolio2.filter(h=>h.taxAccount===acc);
-                  if(items.length) g.push({ key:acc, label:acc.replace("(신한금융투자)","").replace("(미래에셋증권)",""), sub:acc.includes("(")?acc.split("(")[1]?.replace(")",""):"", color:"#eab308", items });
-                });
-                return g;
-              }
               if (overviewTab==="broker") {
                 const map = {};
                 allP.forEach(h=>{ const k=h.broker||h.taxAccount||"미지정"; if(!map[k])map[k]=[]; map[k].push(h); });
