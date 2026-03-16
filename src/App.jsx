@@ -37,7 +37,7 @@ let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 
 async function fetchYahoo(ticker) {
   const isKR = ticker.endsWith(".KS") || ticker.endsWith(".KQ");
-  const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,postMarketPrice,currency,marketState";
+  const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,postMarketPrice,postMarketChangePercent,currency,marketState";
 
   // 국내주식: v8/chart가 프록시에서 더 안정적
   // 미국주식: v7/quote로 프리/애프터 포함 실시간 시세
@@ -91,8 +91,10 @@ async function fetchYahoo(ticker) {
         displayPrice = state==="PRE"  && quoteRes.preMarketPrice  ? quoteRes.preMarketPrice
                      : state==="POST" && quoteRes.postMarketPrice ? quoteRes.postMarketPrice
                      : price;
-        displayChg   = state==="PRE"  && quoteRes.preMarketPrice  ? ((quoteRes.preMarketPrice-prev)/prev)*100
-                     : state==="POST" && quoteRes.postMarketPrice ? ((quoteRes.postMarketPrice-prev)/prev)*100
+        displayChg   = state==="PRE"  && quoteRes.preMarketPrice
+                     ? (quoteRes.preMarketChangePercent ?? ((quoteRes.preMarketPrice-prev)/prev)*100)
+                     : state==="POST" && quoteRes.postMarketPrice
+                     ? (quoteRes.postMarketChangePercent ?? ((quoteRes.postMarketPrice-prev)/prev)*100)
                      : (quoteRes.regularMarketChangePercent ?? ((price-prev)/prev)*100);
         currency     = quoteRes.currency || "USD";
       } else {
@@ -1530,7 +1532,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
       // 해외 주식만 묶음으로 청크
       const usTicks = usTickers;
-      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,postMarketPrice,currency,marketState";
+      const fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent,preMarketPrice,preMarketChangePercent,preMarketChange,postMarketPrice,postMarketChangePercent,postMarketChange,currency,marketState";
       const proxies = [
         (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
         (syms) => `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${syms}&fields=${fields}`)}`,
@@ -1563,8 +1565,10 @@ function PortfolioApp({ syncKey, onLogout }) {
                                  : state==="POST" && q.postMarketPrice ? q.postMarketPrice
                                  : price;
               // 변동률: 프리/애프터는 전일 종가 대비, 정규장은 Yahoo 제공값 사용
-              const displayChg = state==="PRE"  && q.preMarketPrice  ? ((q.preMarketPrice-prev)/prev)*100
-                               : state==="POST" && q.postMarketPrice ? ((q.postMarketPrice-prev)/prev)*100
+              const displayChg = state==="PRE"  && q.preMarketPrice
+                               ? (q.preMarketChangePercent ?? ((q.preMarketPrice-prev)/prev)*100)
+                               : state==="POST" && q.postMarketPrice
+                               ? (q.postMarketChangePercent ?? ((q.postMarketPrice-prev)/prev)*100)
                                : (q.regularMarketChangePercent ?? ((price-prev)/prev)*100);
               next[sym] = {
                 price: displayPrice,
@@ -1693,7 +1697,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     const cost  = h.avgPrice * h.quantity;
     const pnl   = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p };
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, hasLive: !!p, marketState: p?.marketState };
   });
 
   const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
@@ -1764,7 +1768,12 @@ function PortfolioApp({ syncKey, onLogout }) {
           </div>
         </div>
       </td>
-      <td style={S.TD}><div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}</td>
+      <td style={S.TD}>
+        <div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>
+        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,marginTop:"2px"}}>🌅 프리장</div>}
+        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#a78bfa",fontWeight:700,marginTop:"2px"}}>🌙 애프터</div>}
+        {!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}
+      </td>
       <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:800}}>
         {fmtPct(h.chgPct)}
         {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1}}>🌅프리</div>}
@@ -1843,7 +1852,11 @@ function PortfolioApp({ syncKey, onLogout }) {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>현재가</div><div style={{fontSize:"13px",fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</div>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{fontSize:"13px",fontWeight:700,color:h.chgPct>=0?"#34d399":"#f87171"}}>{fmtPct(h.chgPct)}</div></div>
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{fontSize:"13px",fontWeight:700,color:h.chgPct>=0?"#34d399":"#f87171"}}>
+                    {fmtPct(h.chgPct)}
+                    {h.marketState==="PRE"  && <span style={{fontSize:"9px",background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>프리</span>}
+                    {h.marketState==="POST" && <span style={{fontSize:"9px",background:"rgba(167,139,250,0.2)",color:"#a78bfa",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>애프터</span>}
+                  </div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>손익률</div><div style={{fontSize:"13px",fontWeight:700,color:h.pnlPct>=0?"#34d399":"#f87171"}}>{fmtPct(h.pnlPct)}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>수량</div><div style={{fontSize:"13px",fontWeight:700}}>{h.quantity.toLocaleString()}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px",gridColumn:"2/-1"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>평가금액</div><div style={{fontSize:"13px",fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</div></div>
