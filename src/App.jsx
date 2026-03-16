@@ -1135,6 +1135,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
   const isMobile = useIsMobile();
   const saving = useRef({});
+  const fbLoadedRef = useRef({});
 
   const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
@@ -1147,6 +1148,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     const attach = (path, setter, key) => {
       const u = dbOn(`users/${syncKey}/${path}`, val => {
         if (saving.current[key]) return;
+        fbLoadedRef.current[key] = true;
         setter(val ? (Array.isArray(val) ? val : Object.values(val)) : []);
         setLoaded(true);
       });
@@ -1161,10 +1163,26 @@ function PortfolioApp({ syncKey, onLogout }) {
     // divInfo는 객체 형태로 저장 - 별도 처리
     const uDi = dbOn(`users/${syncKey}/divInfo`, val => {
       if (saving.current["di"]) return;
+      fbLoadedRef.current["di"] = true;
       setDivInfo(val && typeof val === "object" && !Array.isArray(val) ? val : {});
       setLoaded(true);
     });
     unsubs.push(uDi);
+    // contribLimits / contribAmounts - 객체 형태
+    const uCl = dbOn(`users/${syncKey}/contribLimits`, val => {
+      if (saving.current["cl"]) return;
+      fbLoadedRef.current["cl"] = true;
+      if (val && typeof val === "object" && !Array.isArray(val)) setContribLimits(val);
+      setLoaded(true);
+    });
+    unsubs.push(uCl);
+    const uCa = dbOn(`users/${syncKey}/contribAmounts`, val => {
+      if (saving.current["ca"]) return;
+      fbLoadedRef.current["ca"] = true;
+      if (val && typeof val === "object" && !Array.isArray(val)) setContribAmounts(val);
+      setLoaded(true);
+    });
+    unsubs.push(uCa);
     attach("divRecords",   setDivRecords,  "dr");
     setTimeout(() => setLoaded(true), 2000);
     return () => unsubs.forEach(u => typeof u === "function" && u());
@@ -1211,6 +1229,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   const saveData = useCallback((path, data, key) => {
     if (!loaded) return;
+    if (!fbLoadedRef.current[key]) return; // Firebase에서 한 번도 안 읽어온 키는 저장 안 함
     saving.current[key] = true;
     dbSet(`users/${syncKey}/${path}`, data).finally(() => setTimeout(() => { saving.current[key] = false; }, 500));
   }, [syncKey, loaded]);
@@ -1218,7 +1237,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   useEffect(() => { if (loaded) saveData("holdings",  holdings.length  ? holdings  : [], "h");  }, [holdings,  loaded]);
   useEffect(() => { if (loaded) saveData("holdings2", holdings2.length ? holdings2 : [], "h2"); }, [holdings2, loaded]);
   useEffect(() => { if (loaded) saveData("watchlist",   watchlist.length   ? watchlist   : [],  "wl"); }, [watchlist,  loaded]);
-  useEffect(() => { if (loaded) saveData("divInfo",     Object.keys(divInfo).length ? divInfo : {}, "di"); }, [divInfo,    loaded]);
+  useEffect(() => { if (loaded) saveData("divInfo",        Object.keys(divInfo).length ? divInfo : {},          "di"); }, [divInfo,        loaded]);
+  useEffect(() => { if (loaded) saveData("contribLimits",  Object.keys(contribLimits).length ? contribLimits : {}, "cl"); }, [contribLimits,  loaded]);
+  useEffect(() => { if (loaded) saveData("contribAmounts", Object.keys(contribAmounts).length ? contribAmounts: {}, "ca"); }, [contribAmounts, loaded]);
   useEffect(() => { if (loaded) saveData("divRecords",  divRecords.length  ? divRecords  : [],  "dr"); }, [divRecords, loaded]);
   useEffect(() => { if (loaded) saveData("trades",   trades.length   ? trades   : [], "t"); }, [trades,   loaded]);
   useEffect(() => { if (loaded) saveData("alerts",   alerts.length   ? alerts   : [], "a"); }, [alerts,   loaded]);
@@ -1511,10 +1532,6 @@ function PortfolioApp({ syncKey, onLogout }) {
   const saveContrib = (newLimits, newAmounts) => {
     setContribLimits(newLimits);
     setContribAmounts(newAmounts);
-    try {
-      localStorage.setItem("pm_contrib_limits",  JSON.stringify(newLimits));
-      localStorage.setItem("pm_contrib_amounts", JSON.stringify(newAmounts));
-    } catch {}
     setShowContrib(false);
   };
 
