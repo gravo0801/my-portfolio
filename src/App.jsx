@@ -1817,33 +1817,68 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   return (
     <div style={{ background:"linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)", color:"#e2e8f0", minHeight:"100vh", fontFamily:FONT, fontSize:"15px", lineHeight:"1.6", letterSpacing:"-0.01em" }}>
-      <div style={{ background:"rgba(15,23,42,0.88)", backdropFilter:"blur(14px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:isMobile?"7px 12px":"8px 18px", position:"sticky", top:0, zIndex:50 }}>
+      {/* ── 장 상태 최상단 바 ── */}
+      <div style={{ background:"rgba(8,12,28,0.98)", borderBottom:"1px solid rgba(255,255,255,0.06)", padding:"5px 18px", display:"flex", gap:"16px", alignItems:"center", flexWrap:"wrap", position:"sticky", top:0, zIndex:51 }}>
+        {(()=>{
+          const kst  = new Date(Date.now()+9*3600000);
+          const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
+          const isDST = (()=>{ const d=new Date(),jan=new Date(d.getFullYear(),0,1),jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
+
+          // 국내장
+          const krRegular = mins>=9*60 && mins<15*60+35;
+          const krAfter   = mins>=15*60+35 && mins<18*60;
+          const krPre     = mins>=8*60 && mins<9*60;
+
+          // 미국장
+          const preStart = isDST?17*60+30:18*60;
+          const regStart = isDST?22*60+30:23*60+30;
+          const regEnd   = isDST?5*60:6*60;
+          const afterEnd = isDST?9*60:10*60;
+          const usRegular = mins>=regStart || mins<regEnd;
+          const usPre     = !usRegular && mins>=preStart && mins<regStart;
+          const usAfter   = !usRegular && mins>=regEnd   && mins<afterEnd;
+
+          const dot = (color) => (
+            <span style={{ width:"8px", height:"8px", borderRadius:"50%", background:color, display:"inline-block", flexShrink:0,
+              boxShadow: color==="#22c55e"?"0 0 6px #22c55e":color==="#f59e0b"?"0 0 6px #f59e0b":color==="#a78bfa"?"0 0 6px #a78bfa":"none" }}/>
+          );
+
+          const mkStatus = (label, isRegular, isPre, isAfter) => {
+            let color, text, subtext;
+            if      (isRegular) { color="#22c55e"; text="정규장"; subtext="LIVE"; }
+            else if (isPre)     { color="#f59e0b"; text="프리장"; subtext="LIVE"; }
+            else if (isAfter)   { color="#a78bfa"; text="애프터"; subtext="LIVE"; }
+            else                { color="#475569"; text="장마감"; subtext=""; }
+            return (
+              <div style={{ display:"flex", alignItems:"center", gap:"6px" }}>
+                {dot(color)}
+                <span style={{ fontSize:"11px", color:"#64748b", fontWeight:600 }}>{label}</span>
+                <span style={{ fontSize:"12px", fontWeight:800, color, letterSpacing:"-0.01em" }}>{text}</span>
+                {subtext&&<span style={{ fontSize:"9px", background:color+"22", color, padding:"1px 5px", borderRadius:"20px", fontWeight:700 }}>{subtext}</span>}
+              </div>
+            );
+          };
+
+          return (<>
+            {mkStatus("🇰🇷 국내", krRegular, krPre, krAfter)}
+            <span style={{ color:"rgba(255,255,255,0.1)", fontSize:"14px" }}>│</span>
+            {mkStatus("🇺🇸 미국", usRegular, usPre, usAfter)}
+            <span style={{ marginLeft:"auto", fontSize:"10px", color:"#334155" }}>
+              {loading && <span style={{color:"#6366f1"}}>↻ 조회 중</span>}
+              {!loading && (lastUpdated||priceAge>0) && <span>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>}
+            </span>
+          </>);
+        })()}
+      </div>
+
+      <div style={{ background:"rgba(15,23,42,0.88)", backdropFilter:"blur(14px)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:isMobile?"7px 12px":"8px 18px", position:"sticky", top:"31px", zIndex:50 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:"8px", flexWrap:"wrap" }}>
           {/* 좌: 타이틀 + 상태 */}
           <div style={{ display:"flex", alignItems:"center", gap:"10px", minWidth:0, flexWrap:"wrap" }}>
             <div style={{ fontSize:isMobile?"14px":"16px", fontWeight:800, letterSpacing:"-0.04em", color:"#f8fafc", whiteSpace:"nowrap" }}>📈 내 투자 포트폴리오</div>
             {(lastUpdated || priceAge > 0) && (
               <span style={{ fontSize:"10px", color:"#475569", display:"flex", alignItems:"center", gap:"4px" }}>
-                {(()=>{
-                  const kst = new Date(Date.now()+9*3600000);
-                  const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
-                  const kospi = mins>=9*60 && mins<15*60+35;
-                  const isDST = (() => { const d=new Date(); const jan=new Date(d.getFullYear(),0,1); const jul=new Date(d.getFullYear(),6,1); return d.getTimezoneOffset()<Math.max(jan.getTimezoneOffset(),jul.getTimezoneOffset()); })();
-                  const preStart = isDST?17*60+30:18*60;
-                  const regStart = isDST?22*60+30:23*60+30;
-                  const regEnd   = isDST?5*60:6*60;
-                  const afterEnd = isDST?9*60:10*60;
-                  const isNYSEReg   = mins>=regStart || mins<regEnd;
-                  const isNYSEPre   = !isNYSEReg && mins>=preStart && mins<regStart;
-                  const isNYSEAfter = !isNYSEReg && mins>=regEnd   && mins<afterEnd;
-                  const badges = [];
-                  if (kospi)       badges.push(<span key="kr"    style={{background:"rgba(52,211,153,0.15)",color:"#34d399",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🔴 국장 정규LIVE</span>);
-                  if (isNYSEReg)   badges.push(<span key="nyse"  style={{background:"rgba(59,130,246,0.2)",color:"#60a5fa",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🔵 미장 정규LIVE</span>);
-                  if (isNYSEPre)   badges.push(<span key="pre"   style={{background:"rgba(251,191,36,0.15)",color:"#fbbf24",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🌅 미장 프리LIVE</span>);
-                  if (isNYSEAfter) badges.push(<span key="after" style={{background:"rgba(168,85,247,0.15)",color:"#c084fc",padding:"1px 7px",borderRadius:"20px",fontWeight:700,fontSize:"10px",whiteSpace:"nowrap"}}>🌙 미장 애프터LIVE</span>);
-                  if (!badges.length) badges.push(<span key="off" style={{color:"#475569",fontSize:"10px"}}>장 외</span>);
-                  return <>{badges}</>;
-                })()}
+
                 <span style={{color:"#475569"}}>{lastUpdated || new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>
                 {loading && <span style={{color:"#6366f1",fontWeight:700}}>↻</span>}
               </span>
@@ -1879,7 +1914,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         </div>
       </div>
 
-      <div style={{ padding:isMobile?"10px 12px":"14px 20px", maxWidth:"1200px", margin:"0 auto" }}>
+      <div style={{ padding:isMobile?"10px 12px":"14px 20px", maxWidth:"1200px", margin:"0 auto", paddingTop:isMobile?"10px":"14px" }}>
 
         {/* ── OVERVIEW ── */}
         {tab === "overview" && (
