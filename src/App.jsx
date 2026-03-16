@@ -2087,7 +2087,6 @@ function PortfolioApp({ syncKey, onLogout }) {
               )}
             </div>
             </div>
-            </div>
           )}
 
           </div>
