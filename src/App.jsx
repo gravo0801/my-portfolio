@@ -352,27 +352,64 @@ function InfoWidget() {
 
   const fetchRates = async () => {
     setRLoading(true);
-    const targets = ["KRW","JPY","EUR","CNY","GBP","AUD","SGD","HKD","CHF","CAD"];
-    const apis = [
-      async () => {
-        const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${targets.join(",")}`, { signal: AbortSignal.timeout(6000) });
-        return (await r.json()).rates;
-      },
-      async () => {
-        const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) });
-        return (await r.json()).rates;
-      },
+
+    // 1순위: Yahoo Finance 실시간 환율 (장중 실시간 반영)
+    const yahooSymbols = ["KRW=X","JPY=X","EURUSD=X","CNY=X","GBPUSD=X","AUDUSD=X","SGD=X","HKD=X","CHF=X","CAD=X"];
+    const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbols.join(",")}&fields=regularMarketPrice,currency`;
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl.replace("query1","query2"))}`,
     ];
-    for (const apiFn of apis) {
+
+    for (const proxy of proxies) {
       try {
-        const r = await apiFn();
-        if (r?.KRW && r.KRW > 900) {
-          setRates(r);
+        const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
+        if (!r.ok) continue;
+        const d = await r.json();
+        const quotes = d?.quoteResponse?.result || [];
+        if (!quotes.length) continue;
+
+        const built = {};
+        quotes.forEach(q => {
+          const p = q.regularMarketPrice;
+          if (!p) return;
+          // Yahoo FX: KRW=X → USD→KRW / JPYX → USD→JPY / EURUSDX → EUR per 1 USD
+          if (q.symbol === "KRW=X")    built.KRW = p;
+          if (q.symbol === "JPY=X")    built.JPY = p;
+          // EURUSD=X = USD per EUR → invert to get EUR per USD (Frankfurter 형식과 통일)
+          if (q.symbol === "EURUSD=X") built.EUR = p > 0 ? 1/p : null;
+          if (q.symbol === "CNY=X")    built.CNY = p;
+          if (q.symbol === "GBPUSD=X") built.GBP = p > 0 ? 1/p : null;
+          if (q.symbol === "AUDUSD=X") built.AUD = p > 0 ? 1/p : null;
+          if (q.symbol === "SGD=X")    built.SGD = p;
+          if (q.symbol === "HKD=X")    built.HKD = p;
+          if (q.symbol === "CHF=X")    built.CHF = p;
+          if (q.symbol === "CAD=X")    built.CAD = p;
+        });
+
+        if (built.KRW && built.KRW > 900) {
+          setRates(built);
           setRLoading(false);
           return;
         }
       } catch { continue; }
     }
+
+    // 2순위: ExchangeRate-API (일일 기준, 폴백)
+    try {
+      const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) });
+      const d = await r.json();
+      if (d?.rates?.KRW > 900) { setRates(d.rates); setRLoading(false); return; }
+    } catch {}
+
+    // 3순위: Frankfurter (일일 기준, 폴백)
+    try {
+      const targets = ["KRW","JPY","EUR","CNY","GBP","AUD","SGD","HKD","CHF","CAD"];
+      const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${targets.join(",")}`, { signal: AbortSignal.timeout(6000) });
+      const d = await r.json();
+      if (d?.rates?.KRW > 900) { setRates(d.rates); setRLoading(false); return; }
+    } catch {}
+
     setRLoading(false);
   };
 
@@ -380,8 +417,22 @@ function InfoWidget() {
   useEffect(() => { fetchWeather(); }, [customCity]);
   useEffect(() => {
     const w = setInterval(fetchWeather, 600000);
-    const r = setInterval(fetchRates, 300000); // 5분
-    return () => { clearInterval(w); clearInterval(r); };
+    // FX 시장: 월~금 24시간 - 30초 갱신 (KST 기준 월 08:00 ~ 토 07:00)
+    const getFxInterval = () => {
+      const day = new Date().getDay(); // 0=일, 6=토
+      if (day === 0) return 300000; // 일요일 5분
+      if (day === 6) {
+        const kst = new Date(Date.now()+9*3600000);
+        if (kst.getUTCHours() >= 7) return 300000; // 토 07시 이후 5분
+      }
+      return 30000; // 평일 30초
+    };
+    let rTimer;
+    const scheduleRate = () => {
+      rTimer = setTimeout(() => { fetchRates(); scheduleRate(); }, getFxInterval());
+    };
+    scheduleRate();
+    return () => { clearInterval(w); clearTimeout(rTimer); };
   }, []);
 
   const btnStyle = (active) => ({
