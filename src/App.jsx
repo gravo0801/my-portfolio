@@ -2246,10 +2246,10 @@ function PortfolioApp({ syncKey, onLogout }) {
           {/* 우: 버튼 + 위젯 */}
           <div style={{ display:"flex", alignItems:"center", gap:"6px", flexShrink:0 }}>
             {!isMobile && <InfoWidget />}
-            <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", gap:"3px", opacity:loading?0.7:1, fontSize:"11px", padding:"5px 9px" })}>
-              <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none" }}>↻</span>
-              {loading?"…":"새로고침"}
-            </button>
+             <button onClick={fetchPrices} disabled={loading} style={S.btn(loading?"#334155":"#6366f1", { display:"flex", alignItems:"center", justifyContent:"center", gap:"3px", opacity:loading?0.7:1, fontSize:"11px", padding:"5px 0", width:"76px", minWidth:"76px" })}>
+               <span style={{ display:"inline-block", animation:loading?"spin 1s linear infinite":"none", flexShrink:0 }}>↻</span>
+               <span style={{ display:"inline-block", minWidth:"38px", textAlign:"left" }}>{loading?"조회중":"새로고침"}</span>
+             </button>
             <button onClick={()=>setShowForm(showForm==="theme"?null:"theme")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="배경 테마">🎨</button>
             <button onClick={onLogout} style={S.btn("#334155", { fontSize:"11px", padding:"5px 9px" })}>로그아웃</button>
           </div>
