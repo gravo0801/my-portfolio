@@ -1462,6 +1462,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [selectedStock, setSelectedStock] = useState(null);
   const [sortBy, setSortBy]   = useState("default");
   const [compactMode, setCompactMode] = useState(false);
+  const [hideAmt, setHideAmt] = useState(false);
   const [kospiFutures, setKospiFutures] = useState(null);
   const [bgTheme, setBgTheme] = useState(() => {
     try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
@@ -1938,7 +1939,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
 
   // 테이블 행 렌더러
-  const renderTableRow = (h, compact=false) => (
+  const renderTableRow = (h, compact=false, hide=false) => (
     <>
     <tr key={h.id}>
       <td style={{...S.TD,cursor:"pointer",padding:compact?"4px 8px":"8px 12px"}} onClick={()=>setSelectedStock(h)} onMouseEnter={()=>{if(!_chartCache[h.ticker]){fetchHistory(h.ticker,h.market).then(d=>{_chartCache[h.ticker]=d});fetchStockInfo(h.ticker,h.market).then(d=>{_infoCache[h.ticker]=d});} }}>
@@ -1970,8 +1971,8 @@ function PortfolioApp({ syncKey, onLogout }) {
         {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1.2}}>🌙애프터</div>}
       </td>
       <td style={S.TD}>{h.quantity.toLocaleString()}</td>
-      <td style={{...S.TD,fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
-      <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{fmtPct(h.pnlPct)}</td>
+      <td style={{...S.TD,fontWeight:700}}>{hide ? <span style={{color:"#334155",letterSpacing:"0.05em"}}>●●●</span> : currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
+      <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{hide ? <span style={{color:"#334155"}}>--%</span> : fmtPct(h.pnlPct)}</td>
       <td style={S.TD}>
         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
@@ -2023,7 +2024,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   );
 
   // 모바일 카드 렌더러
-  const renderMobileCard = (h, compact=false) => (
+  const renderMobileCard = (h, compact=false, hide=false) => (
     <div key={h.id} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:compact?"7px":"10px",padding:compact?"7px 10px":"12px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"8px"}}>
         <div style={{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"}} onClick={()=>setSelectedStock(h)} onTouchStart={()=>{if(!_chartCache[h.ticker]){fetchHistory(h.ticker,h.market).then(d=>{_chartCache[h.ticker]=d});fetchStockInfo(h.ticker,h.market).then(d=>{_infoCache[h.ticker]=d});}}}>
@@ -2378,13 +2379,13 @@ function PortfolioApp({ syncKey, onLogout }) {
                       {/* 종목 테이블 */}
                       {isMobile ? (
                         <div style={{display:"flex",flexDirection:"column",gap:compactMode?"4px":"7px",maxHeight:"50vh",overflowY:"auto"}}>
-                          {g.items.map(h=>renderMobileCard(h,compactMode))}
+                          {g.items.map(h=>renderMobileCard(h,compactMode,hideAmt))}
                         </div>
                       ) : (
                         <div style={{overflowY:"auto",maxHeight:compactMode?"400px":"320px"}}>
                           <table style={{width:"100%",borderCollapse:"collapse"}}>
                             <thead><tr>{["종목","현재가","일변동(금액/%)","수량","평가금액","손익률",""].map(th=><th key={th} style={S.TH}>{th}</th>)}</tr></thead>
-                            <tbody>{g.items.map(h=>renderTableRow(h,compactMode))}</tbody>
+                            <tbody>{g.items.map(h=>renderTableRow(h,compactMode,hideAmt))}</tbody>
                           </table>
                         </div>
                       )}
@@ -2407,32 +2408,42 @@ function PortfolioApp({ syncKey, onLogout }) {
             </div>
             {/* 요약 카드 */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"8px":"12px", marginBottom:isMobile?"14px":"20px" }}>
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
-                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
-                <AnimatedNumber
-                  value={currMode==="KRW" ? totalVal : totalVal/liveUsdKrw}
-                  format={v => currMode==="KRW"
-                    ? fmtKRW(v)
-                    : "$"+(Math.round(v)).toLocaleString("en-US")}
-                  color="#f8fafc"
-                  fontSize={isMobile?"15px":"22px"}
-                />
-                {currMode==="USD"&&<div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
+              {/* 총 평가금액 */}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none" }}
+                onClick={()=>setHideAmt(h=>!h)}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+                  <div style={{ fontSize:"12px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
+                  <span style={{ fontSize:"11px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
+                </div>
+                {hideAmt
+                  ? <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber
+                      value={currMode==="KRW" ? totalVal : totalVal/liveUsdKrw}
+                      format={v => currMode==="KRW" ? fmtKRW(v) : "$"+(Math.round(v)).toLocaleString("en-US")}
+                      color="#f8fafc"
+                      fontSize={isMobile?"15px":"22px"}
+                    />
+                }
+                {!hideAmt && currMode==="USD" && <div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
               </div>
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
-                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
-                <AnimatedNumber
-                  value={currMode==="KRW" ? totalPnL : totalPnL/liveUsdKrw}
-                  format={v => {
-                    const sign = v >= 0 ? "+" : "";
-                    return currMode==="KRW"
-                      ? sign + fmtKRW(v)
-                      : (v>=0?"+":"-") + "$" + Math.abs(Math.round(v)).toLocaleString("en-US");
-                  }}
-                  color={totalPnL>=0?"#34d399":"#f87171"}
-                  fontSize={isMobile?"15px":"22px"}
-                />
+              {/* 평가 손익 */}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none" }}
+                onClick={()=>setHideAmt(h=>!h)}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+                  <div style={{ fontSize:"12px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
+                  <span style={{ fontSize:"11px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
+                </div>
+                {hideAmt
+                  ? <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber
+                      value={currMode==="KRW" ? totalPnL : totalPnL/liveUsdKrw}
+                      format={v => { const sign = v>=0?"+":""; return currMode==="KRW" ? sign+fmtKRW(v) : (v>=0?"+":"-")+"$"+Math.abs(Math.round(v)).toLocaleString("en-US"); }}
+                      color={totalPnL>=0?"#34d399":"#f87171"}
+                      fontSize={isMobile?"15px":"22px"}
+                    />
+                }
               </div>
+              {/* 총 수익률 - 항상 표시 */}
               <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
                 <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 수익률</div>
                 <AnimatedNumber
@@ -2576,11 +2587,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                       return Object.entries(groups).map(([broker,items])=>(
                         <div key={broker}>
                           <div style={{fontSize:"11px",fontWeight:700,color:"#6366f1",padding:"5px 4px",borderBottom:"1px solid rgba(99,102,241,0.2)",marginBottom:"4px"}}>🏦 {broker} ({items.length})</div>
-                          {items.map(h=>renderMobileCard(h,compactMode))}
+                          {items.map(h=>renderMobileCard(h,compactMode,hideAmt))}
                         </div>
                       ));
                     }
-                    return sorted.map(h=>renderMobileCard(h,compactMode));
+                    return sorted.map(h=>renderMobileCard(h,compactMode,hideAmt));
                   })()}
                   <div style={{fontSize:"10px",color:"#334155",textAlign:"right",marginTop:"4px",paddingBottom:"4px"}}>* USD 1달러 = {liveUsdKrw.toLocaleString()}원 (실시간)</div>
                 </div>
@@ -2602,7 +2613,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                           </div>
                           <table style={{width:"100%",borderCollapse:"collapse"}}>
                             <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
-                            <tbody>{items.map(h=>renderTableRow(h,compactMode))}</tbody>
+                            <tbody>{items.map(h=>renderTableRow(h,compactMode,hideAmt))}</tbody>
                           </table>
                         </div>
                       ));
@@ -2610,7 +2621,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                     return (
                       <table style={{width:"100%",borderCollapse:"collapse"}}>
                         <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
-                        <tbody>{sorted.map(h=>renderTableRow(h,compactMode))}</tbody>
+                        <tbody>{sorted.map(h=>renderTableRow(h,compactMode,hideAmt))}</tbody>
                       </table>
                     );
                   })()}
