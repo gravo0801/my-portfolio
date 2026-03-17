@@ -121,17 +121,20 @@ export default async function handler(req, res) {
                                  : state === 'POST' && q.postMarketPrice
                                  ? (q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100))
                                  : (q.regularMarketChangePercent ?? ((price - prev) / prev * 100));
-              // ?ㅼ젣 蹂?숆툑??吏곸젒 ?ъ슜 (怨꾩궛 ?ㅼ감 ?놁쓬)
+              // 蹂?숆툑??吏곸젒 ?ъ슜
               const displayAmt = state === 'PRE'  && q.preMarketChange  ? q.preMarketChange
                                : state === 'POST' && q.postMarketChange ? q.postMarketChange
                                : (q.regularMarketChange ?? 0);
               results[sym] = {
-                price: displayPrice,
-                regularPrice: price,
-                changePercent: displayChg,
-                changeAmount: Math.round(displayAmt * 100) / 100, // USD: ?쇳듃?⑥쐞
+                price: displayPrice,           // ?꾩옱 ?쒖떆 媛寃?(?꾨━/?좏봽??醫낃?)
+                regularPrice: price,           // ?뺢퇋??醫낃?
+                changePercent: displayChg,     // ?쒖떆 ?깅씫瑜?(?꾩씪醫낃? ?鍮?
+                changeAmount: Math.round(displayAmt * 100) / 100,
                 currency: q.currency || 'USD',
                 marketState: state,
+                // ?λ쭏媛???醫낃? 紐낆떆 (罹먯떆 ?ㅼ뿼 諛⑹?)
+                closePrice: price,
+                closePct: q.regularMarketChangePercent ?? ((price - (q.regularMarketPreviousClose||price)) / (q.regularMarketPreviousClose||price) * 100),
               };
               resolved = true;
             }
