@@ -1173,7 +1173,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",backdropFilter:"blur(4px)"}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0f172a",border:"1px solid rgba(255,255,255,0.12)",borderRadius:isMobile?"16px 16px 0 0":"16px",width:isMobile?"100%":"min(720px, 95vw)",maxHeight:isMobile?"95vh":"90vh",overflowY:"auto",padding:isMobile?"16px":"24px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0f172a",border:"1px solid rgba(255,255,255,0.12)",borderRadius:isMobile?"16px 16px 0 0":"16px",width:isMobile?"100%":"min(900px, 96vw)",maxHeight:isMobile?"95vh":"90vh",overflowY:"auto",padding:isMobile?"16px":"24px"}}>
 
         {/* 헤더 */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"18px"}}>
@@ -1276,8 +1276,8 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
                     <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주 · {h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</div>
                   </div>
                   <div style={{textAlign:"right",flexShrink:0}}>
-                    <div style={{fontSize:"16px",fontWeight:800,color:c,letterSpacing:"-0.02em"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
-                    <div style={{fontSize:"12px",color:c,opacity:0.85,marginTop:"1px"}}>{amtStr}</div>
+                    <div style={{fontSize:"17px",fontWeight:800,color:c,letterSpacing:"-0.02em"}}>{amtStr}</div>
+                    <div style={{fontSize:"11px",color:c,opacity:0.8,marginTop:"2px"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
                   </div>
                 </div>
               );
@@ -1415,27 +1415,48 @@ function AnimatedNumber({ value, format, color, fontSize, duration=800 }) {
 // ── 종목 로고 ────────────────────────────────────────────────────────────────
 // 티커 → 도메인 매핑 (Clearbit Logo API용)
 const TICKER_DOMAIN = {
-  // 미국주식
+  // 미국 주요주
   AAPL:"apple.com", MSFT:"microsoft.com", NVDA:"nvidia.com",
   GOOGL:"google.com", GOOG:"google.com", META:"meta.com",
   AMZN:"amazon.com", TSLA:"tesla.com", ORCL:"oracle.com",
   AVGO:"broadcom.com", PLTR:"palantir.com", OKLO:"oklo.com",
   VOO:"vanguard.com", SPY:"ssga.com", QQQ:"invesco.com",
-  SPYM:"proshares.com", SCHD:"schwab.com",
+  SPYM:"proshares.com", SCHD:"schwab.com", SOXL:"direxion.com",
   NFLX:"netflix.com", UBER:"uber.com", COIN:"coinbase.com",
   AMD:"amd.com", INTC:"intel.com", QCOM:"qualcomm.com",
-  JPM:"jpmorganchase.com", BAC:"bankofamerica.com", V:"visa.com",
-  MA:"mastercard.com", WMT:"walmart.com", DIS:"disney.com",
-  // 국내주식 (주요 종목)
-  "005930":"samsung.com", "000660":"skhynix.com", "035420":"naver.com",
-  "035720":"kakao.com", "051910":"lgchem.com", "006400":"samsung.com",
-  "005380":"hyundai.com", "000270":"kia.com", "012330":"hyundai.com",
-  "028260":"samsung.com", "017670":"sktelecom.com", "030200":"kt.com",
-  "096770":"skoil.com", "003550":"lgcorp.com", "034730":"skcorp.com",
-  "018260":"samsung.com", "009150":"samsung.com", "086790":"hanagroup.com",
-  "105560":"kbgroup.com", "055550":"shinhan.com",
-  // ETF
-  "069500":"kodex.com", "229200":"kodex.com", "360750":"tigeretf.com",
+  JPM:"jpmorganchase.com", BAC:"bankofamerica.com",
+  V:"visa.com", MA:"mastercard.com", WMT:"walmart.com",
+  DIS:"disney.com", COST:"costco.com", PG:"pg.com",
+  PYPL:"paypal.com", SHOP:"shopify.com", SNOW:"snowflake.com",
+  PANW:"paloaltonetworks.com", CRWD:"crowdstrike.com",
+  ASML:"asml.com", TSM:"tsmc.com", BABA:"alibaba.com",
+  // 국내 주요주 (티커 숫자)
+  "005930":"samsung.com",       // 삼성전자
+  "000660":"skhynix.com",       // SK하이닉스
+  "035420":"navercorp.com",     // NAVER
+  "035720":"kakao.com",         // 카카오
+  "051910":"lgchem.com",        // LG화학
+  "005380":"hyundai.com",       // 현대차
+  "000270":"kia.com",           // 기아
+  "012330":"mobis.co.kr",       // 현대모비스
+  "017670":"sktelecom.com",     // SK텔레콤
+  "030200":"kt.com",            // KT
+  "003550":"lg.com",            // LG
+  "086790":"hanagroup.com",     // 하나금융
+  "105560":"kbfg.com",          // KB금융
+  "055550":"shinhangroup.com",  // 신한지주
+  "066570":"lge.com",           // LG전자
+  "003490":"koreanair.com",     // 대한항공
+  "018260":"samsung.com",       // 삼성SDS
+  "096770":"skoil.com",         // SK이노베이션
+  "207940":"samsung.com",       // 삼성바이오로직스
+  "068270":"celltrion.com",     // 셀트리온
+  // 한국 ETF (삼성/미래에셋 운용사)
+  "069500":"samsungasset.com",  // KODEX 200
+  "229200":"samsungasset.com",  // KODEX 코스닥150
+  "360750":"mirae-asset.com",   // TIGER 미국S&P500
+  "133690":"mirae-asset.com",   // TIGER 미국나스닥100
+  "102110":"samsungasset.com",  // TIGER 200
 };
 
 function TickerLogo({ ticker, name, size=40 }) {
@@ -1449,15 +1470,33 @@ function TickerLogo({ ticker, name, size=40 }) {
     ? "#10b981" : "#6366f1";
   const initials = (name||ticker||"?").slice(0,2).toUpperCase();
 
+  const [googleFailed, setGoogleFailed] = useState(false);
+  // Google Favicon API as secondary fallback
+  const googleUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
+
   if (logoUrl && !imgFailed) {
     return (
-      <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",flexShrink:0,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",flexShrink:0,background:"rgba(255,255,255,0.95)",display:"flex",alignItems:"center",justifyContent:"center"}}>
         <img
           src={logoUrl}
           alt={ticker}
           width={size} height={size}
-          style={{objectFit:"contain",borderRadius:"50%"}}
+          style={{objectFit:"contain",padding:"3px",borderRadius:"50%"}}
           onError={()=>setImgFailed(true)}
+        />
+      </div>
+    );
+  }
+  // Google favicon fallback
+  if (googleUrl && !googleFailed) {
+    return (
+      <div style={{width:size,height:size,borderRadius:"50%",overflow:"hidden",flexShrink:0,background:"rgba(255,255,255,0.1)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <img
+          src={googleUrl}
+          alt={ticker}
+          width={size*0.6} height={size*0.6}
+          style={{objectFit:"contain"}}
+          onError={()=>setGoogleFailed(true)}
         />
       </div>
     );
@@ -2509,9 +2548,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주</div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}>
-                                <div style={{fontSize:isMobile?"15px":"16px",fontWeight:800,color:chgColor,letterSpacing:"-0.02em"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
-                                {amtStr && <div style={{fontSize:"12px",color:chgColor,opacity:0.85,marginTop:"1px"}}>{amtStr}</div>}
-                                <div style={{fontSize:"11px",color:"#64748b",marginTop:"1px"}}>{fmtPrice(h.price,h.cur)}</div>
+                                {amtStr && <div style={{fontSize:isMobile?"15px":"16px",fontWeight:800,color:chgColor,letterSpacing:"-0.02em"}}>{amtStr}</div>}
+                                <div style={{fontSize:"11px",color:chgColor,opacity:0.85,marginTop:"2px"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
+                                <div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>{fmtPrice(h.price,h.cur)}</div>
                               </div>
                             </div>
                           );
