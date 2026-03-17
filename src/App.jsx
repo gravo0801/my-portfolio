@@ -1431,10 +1431,17 @@ function PortfolioApp({ syncKey, onLogout }) {
       if (!c) return {};
       const parsed = JSON.parse(c);
       const isNewDay = new Date(age).toDateString() !== new Date().toDateString();
-      // 새 날짜면 변동률 0으로 초기화
       if (isNewDay) {
+        // 새 날 시작: 종가(closePrice)를 현재가로, 변동률 0으로 초기화
         const cleaned = {};
-        Object.entries(parsed).forEach(([k,v]) => { cleaned[k] = {...v, changePercent:0}; });
+        Object.entries(parsed).forEach(([k,v]) => {
+          cleaned[k] = {
+            ...v,
+            price: v.closePrice || v.regularPrice || v.price, // 종가 우선
+            changePercent: 0,
+            changeAmount: 0,
+          };
+        });
         return cleaned;
       }
       return Date.now() - age < 1800000 ? parsed : {};
@@ -1553,13 +1560,18 @@ function PortfolioApp({ syncKey, onLogout }) {
           setPrices(parsed);
           setPriceAge(age);
         } else {
-          // 날짜 바뀌었으면 캐시의 changePercent는 틀림 → 가격만 유지, 변동률 제거
+          // 새 날: 종가 기준으로 표시, 변동률 0
           if (isNewDay && parsed && typeof parsed === 'object') {
-            const priceOnly = {};
+            const dayStart = {};
             Object.entries(parsed).forEach(([k,v]) => {
-              priceOnly[k] = { ...v, changePercent: 0, chgAmt: 0 };
+              dayStart[k] = {
+                ...v,
+                price: v.closePrice || v.regularPrice || v.price,
+                changePercent: 0,
+                changeAmount: 0,
+              };
             });
-            setPrices(priceOnly);
+            setPrices(dayStart);
           }
         }
       }
