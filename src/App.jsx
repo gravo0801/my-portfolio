@@ -2942,6 +2942,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(h=><th key={h} style={S.TH}>{h}</th>)}</tr></thead>
                         <tbody>
                           {items.map(h=>(
+                             <>
                             <tr key={h.id}>
                               <td style={S.TD}>
                                 <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
@@ -2979,6 +2980,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                                  </div>
                                </td></tr>
                              )}
+                             </>
                            ))
                          }
                         </tbody>
