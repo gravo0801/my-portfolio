@@ -822,8 +822,8 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
   const portfolio = items.map(h => {
     const p   = safeP[h.ticker];
     const cur = h.market === "US" ? "USD"
-      : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") ? "USD"
-      : "KRW";
+      : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") && !/^[0-9]/.test(h.ticker) ? "USD"
+      : "KRW"; // 한국 ETF (숫자 티커) → KRW
     const price  = p?.price ?? h.avgPrice;
     const value  = price * h.quantity;
     const cost   = h.avgPrice * h.quantity;
@@ -1125,8 +1125,8 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
   const portfolio = items.map(h => {
     const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
     const cur = h.market === "US" ? "USD"
-      : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") ? "USD"
-      : "KRW";
+      : h.market === "ETF" && !h.ticker.includes(".KS") && !h.ticker.includes(".KQ") && !/^[0-9]/.test(h.ticker) ? "USD"
+      : "KRW"; // 한국 ETF (숫자 티커) → KRW
     const price  = p?.price ?? h.avgPrice;
     const value  = price * h.quantity;
     const cost   = h.avgPrice * h.quantity;
