@@ -100,11 +100,16 @@ export default async function handler(req, res) {
           'Cache-Control': 'no-cache',
         };
 
-        // 1李? v7/quote
+        // v7/quote (query1 ??query2 ?쒖꽌濡??쒕룄)
         let resolved = false;
-        try {
-          const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
-          const url_q2 = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
+        const v7urls = [
+          `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
+          `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
+        ];
+        for (const v7url of v7urls) {
+         try {
+          const url = v7url;
+          const url_q2 = v7url; // kept for compatibility
           const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
           if (r.ok) {
             const d = await r.json();
@@ -140,8 +145,10 @@ export default async function handler(req, res) {
             }
           }
         } catch {}
+        if (resolved) break;
+        } // end for v7urls
 
-        // 2李? v8/chart fallback (v7 ?ㅽ뙣 ?먮뒗 鍮?寃곌낵)
+        // 2李? v8/chart fallback (v7 ?꾩쟾 ?ㅽ뙣?쒕쭔 - pre/after ?곗씠???놁쓬 二쇱쓽)
         if (!resolved) {
           try {
             const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
