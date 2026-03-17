@@ -166,45 +166,42 @@ function isUSDST() {
 }
 
 async function fetchKospiFutures() {
-  // 코스피 야간선물 - 여러 소스 시도
-  // 1순위: Naver Finance polling API (야간선물 근월물)
-  try {
-    // 현재 분기 코드 자동 계산 (3,6,9,12월 만기)
-    const now = new Date();
-    const m = now.getMonth() + 1;
-    const y = now.getFullYear();
-    const expMonth = m <= 3 ? 3 : m <= 6 ? 6 : m <= 9 ? 9 : 12;
-    const code = `${y}${String(expMonth).padStart(2,'0')}`;
-    const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:FX_${code}&_=${Date.now()}`;
-    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}`;
-    const r = await fetch(proxy, { signal: AbortSignal.timeout(6000) });
-    if (r.ok) {
+  // 코스피200 야간선물 - Naver Finance SERVICE_ITEM 코드
+  // 근월물 코드: 101S06(6월물), 101S09(9월물), 101S12(12월물), 101S03(3월물)
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  const expMonth = m <= 3 ? '03' : m <= 6 ? '06' : m <= 9 ? '09' : '12';
+  const futureCode = `101S${expMonth}`;
+
+  // Naver Finance polling API (Vercel API Route 경유)
+  const sources = [
+    // 1순위: Vercel API Route로 서버사이드 요청
+    async () => {
+      const r = await fetch(`/api/futures?code=${futureCode}`, { signal: AbortSignal.timeout(6000), cache: 'no-store' });
+      if (!r.ok) throw new Error('Vercel futures API failed');
+      return await r.json();
+    },
+    // 2순위: allorigins 프록시
+    async () => {
+      const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${futureCode}`;
+      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}&_=${Date.now()}`;
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
       const d = await r.json();
       const item = d?.result?.areas?.[0]?.datas?.[0];
-      if (item?.nv && +item.nv > 0) {
-        const price = +item.nv;
-        const prev  = +item.sv || price;
-        const chg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-        return { price, chg, label: `코스피200선물 ${code}` };
-      }
-    }
-  } catch {}
+      if (!item?.nv) throw new Error('no data');
+      const price = parseFloat(item.nv);
+      const rf    = String(item.rf || '');
+      const crAbs = parseFloat(item.cr || 0);
+      const cvAbs = parseFloat(item.cv || 0);
+      const sign  = rf === '5' ? -1 : 1;
+      return { price, chg: sign * crAbs, chgAmt: sign * cvAbs, label: `코스피200 야간선물(${expMonth}월)` };
+    },
+  ];
 
-  // 2순위: Yahoo Finance ^KS200 (코스피200 지수 - 야간은 0이지만 참고용)
-  // 3순위: Yahoo Finance KM=F, NKD=F 시도
-  const fallbacks = ['KM%3DF', 'NK%3DF', '%5EKS200'];
-  for (const sym of fallbacks) {
+  for (const src of sources) {
     try {
-      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketPreviousClose`;
-      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&_=${Date.now()}`;
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(6000) });
-      if (!r.ok) continue;
-      const d = await r.json();
-      const q = d?.quoteResponse?.result?.[0];
-      if (!q?.regularMarketPrice) continue;
-      const price = q.regularMarketPrice;
-      const prev  = q.regularMarketPreviousClose || price;
-      return { price: Math.round(price*100)/100, chg: q.regularMarketChangePercent ?? ((price-prev)/prev*100), label: '코스피200선물' };
+      const res = await src();
+      if (res?.price > 0) return res;
     } catch { continue; }
   }
   return null;
@@ -476,15 +473,10 @@ function InfoWidget() {
   useEffect(() => { fetchWeather(); }, [customCity]);
   useEffect(() => {
     const w = setInterval(fetchWeather, 600000);
-    // FX 시장: 월~금 24시간 - 30초 갱신 (KST 기준 월 08:00 ~ 토 07:00)
+    // FX: 평일 30초, 주말 5분
     const getFxInterval = () => {
-      const day = new Date().getDay(); // 0=일, 6=토
-      if (day === 0) return 300000; // 일요일 5분
-      if (day === 6) {
-        const kst = new Date(Date.now()+9*3600000);
-        if (kst.getUTCHours() >= 7) return 300000; // 토 07시 이후 5분
-      }
-      return 30000; // 평일 30초
+      const day = new Date().getDay();
+      return (day === 0 || day === 6) ? 300000 : 30000;
     };
     let rTimer;
     const scheduleRate = () => {
@@ -512,15 +504,28 @@ function InfoWidget() {
     return Math.round(rates.KRW / rates[cur]);
   };
 
+  const [collapsed, setCollapsed] = useState(true); // 기본 접힘
+
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"5px" }}>
-      {/* 토글 버튼 */}
-      <div style={{ display:"flex", gap:"4px" }}>
-        <button style={btnStyle(mode==="weather")} onClick={()=>setMode("weather")}>🌤️ 날씨</button>
-        <button style={btnStyle(mode==="rate")}    onClick={()=>setMode("rate")}>💱 환율</button>
-        <button style={btnStyle(mode==="rate2")}   onClick={()=>{setMode("rate2");if(!Object.keys(rates).length)fetchRates();}}>🌐 통화</button>
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:"4px" }}>
+      {/* 접기/펼치기 + 탭 */}
+      <div style={{ display:"flex", gap:"4px", alignItems:"center" }}>
+        {!collapsed && <>
+          <button style={btnStyle(mode==="weather")} onClick={()=>setMode("weather")}>🌤️ 날씨</button>
+          <button style={btnStyle(mode==="rate")}    onClick={()=>setMode("rate")}>💱 환율</button>
+          <button style={btnStyle(mode==="rate2")}   onClick={()=>{setMode("rate2");if(!Object.keys(rates).length)fetchRates();}}>🌐 통화</button>
+        </>}
+        <button onClick={()=>setCollapsed(c=>!c)}
+          style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", color:"#64748b", padding:"3px 8px", borderRadius:"6px", cursor:"pointer", fontSize:"11px", fontWeight:700 }}>
+          {collapsed
+            ? `🌤️ ${weather.seoul ? weather.seoul.temp+"°" : "--"} 💱 ${rates?.KRW ? Math.round(rates.KRW).toLocaleString()+"₩" : "--"} ▾`
+            : "▴ 접기"
+          }
+        </button>
       </div>
 
+      {/* 펼쳐진 상태에서만 표시 */}
+      {!collapsed && <>
       {/* 날씨 */}
       {mode === "weather" && (
         <div style={{ display:"flex", gap:"6px", alignItems:"flex-start" }}>
@@ -616,6 +621,7 @@ function InfoWidget() {
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -2168,7 +2174,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>🌙 {kospiFutures.label||"코스피200선물"}</span>
                   <span style={{fontSize:"12px",fontWeight:700,color:"#f1f5f9"}}>{typeof price==="number"?price.toLocaleString():price}</span>
                   <span style={{fontSize:"11px",fontWeight:700,color:isUp?"#34d399":"#f87171"}}>
-                    {isUp?"+":""}{chg.toFixed(2)}%
+                    {isUp?"+":""}{kospiFutures.chgAmt ? kospiFutures.chgAmt.toFixed(2) : chg.toFixed(2)}pt
+                    <span style={{fontSize:"9px",opacity:0.8,marginLeft:"3px"}}>({isUp?"+":""}{chg.toFixed(2)}%)</span>
                   </span>
                 </div>
               );
