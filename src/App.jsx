@@ -92,7 +92,8 @@ async function fetchYahoo(ticker) {
       if (chartMeta?.regularMarketPrice) {
         const price = chartMeta.regularMarketPrice;
         const prev  = chartMeta.previousClose || chartMeta.chartPreviousClose || price;
-        return { price, changePercent: prev>0?((price-prev)/prev)*100:0, currency: chartMeta.currency||(isKR?"KRW":"USD"), marketState:"REGULAR" };
+        const chartChgAmt = price - prev;
+        return { price, changePercent: prev>0?((price-prev)/prev)*100:0, changeAmount: isKR ? Math.round(chartChgAmt) : Math.round(chartChgAmt*100)/100, currency: chartMeta.currency||(isKR?"KRW":"USD"), marketState:"REGULAR" };
       } else if (quoteRes?.regularMarketPrice) {
         const price  = quoteRes.regularMarketPrice;
         const prev   = quoteRes.regularMarketPreviousClose || price;
@@ -104,7 +105,10 @@ async function fetchYahoo(ticker) {
                      : state==="POST"&& quoteRes.postMarketPrice
                      ? (quoteRes.postMarketChangePercent??((quoteRes.postMarketPrice-prev)/prev*100))
                      : (quoteRes.regularMarketChangePercent??((price-prev)/prev*100));
-        return { price:dPrice, regularPrice:price, changePercent:dChg, currency:quoteRes.currency||"USD", marketState:state };
+        const chgAmtCalc = state==="PRE" && quoteRes.preMarketChange ? quoteRes.preMarketChange
+                        : state==="POST" && quoteRes.postMarketChange ? quoteRes.postMarketChange
+                        : (quoteRes.regularMarketChange ?? (dPrice - (quoteRes.regularMarketPreviousClose||dPrice)));
+      return { price:dPrice, regularPrice:price, changePercent:dChg, changeAmount: Math.round(chgAmtCalc*100)/100, currency:quoteRes.currency||"USD", marketState:state };
       }
     } catch { continue; }
   }
@@ -1129,7 +1133,14 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
     const pnl    = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
     // API에서 직접 받은 변동금액 사용 (계산 오차 없음)
-    const chgAmt = p?.changeAmount ?? 0;
+    // changeAmount: API 직접값 우선, 없으면 가격·변동률로 계산
+    const chgAmt = p?.changeAmount
+      ? p.changeAmount
+      : (p?.price && p?.changePercent
+          ? (cur==="KRW"
+              ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
+              : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
+          : 0);
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
@@ -1881,7 +1892,14 @@ function PortfolioApp({ syncKey, onLogout }) {
     const pnl   = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
     // API에서 직접 받은 변동금액 사용 (계산 오차 없음)
-    const chgAmt = p?.changeAmount ?? 0;
+    // changeAmount: API 직접값 우선, 없으면 가격·변동률로 계산
+    const chgAmt = p?.changeAmount
+      ? p.changeAmount
+      : (p?.price && p?.changePercent
+          ? (cur==="KRW"
+              ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
+              : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
+          : 0);
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
@@ -1961,10 +1979,15 @@ function PortfolioApp({ syncKey, onLogout }) {
       </td>
       <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>
         <div style={{fontWeight:800}}>
-          {h.chgAmt ? (h.chgAmt>=0?"+":"")+( h.cur==="USD"
-            ? "$"+Math.abs(h.chgAmt).toFixed(2)
-            : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩"
-          ) : "—"}
+          {h.chgAmt != null && h.chgAmt !== 0
+            ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
+                ? "$"+Math.abs(h.chgAmt).toFixed(2)
+                : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩")
+            : h.chgPct
+              ? (h.chgPct>=0?"+":"-")+(h.cur==="USD"
+                  ? "$"+(Math.abs(h.chgPct)/100 * h.price).toFixed(2)
+                  : Math.round(Math.abs(h.chgPct)/100 * h.price).toLocaleString()+"₩")
+              : "—"}
         </div>
         <div style={{fontSize:"11px",opacity:0.85}}>({fmtPct(h.chgPct)})</div>
         {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1.2}}>🌅프리</div>}
@@ -2045,10 +2068,15 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>현재가</div><div style={{fontSize:"13px",fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{color:h.chgPct>=0?"#34d399":"#f87171"}}>
                     <span style={{fontSize:"13px",fontWeight:800}}>
-                      {h.chgAmt ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
-                        ? "$"+Math.abs(h.chgAmt).toFixed(2)
-                        : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩"
-                      ) : "—"}
+                      {h.chgAmt != null && h.chgAmt !== 0
+                      ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
+                          ? "$"+Math.abs(h.chgAmt).toFixed(2)
+                          : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩")
+                      : h.chgPct
+                        ? (h.chgPct>=0?"+":"-")+(h.cur==="USD"
+                            ? "$"+(Math.abs(h.chgPct)/100 * h.price).toFixed(2)
+                            : Math.round(Math.abs(h.chgPct)/100 * h.price).toLocaleString()+"₩")
+                        : "—"}
                     </span>
                     <span style={{fontSize:"11px",marginLeft:"3px",opacity:0.85}}>({fmtPct(h.chgPct)})</span>
                     {h.marketState==="PRE"  && <span style={{fontSize:"9px",background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>프리</span>}
