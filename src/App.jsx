@@ -1122,7 +1122,9 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
     const cost   = h.avgPrice * h.quantity;
     const pnl    = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    const chgAmt = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    const _chgRaw = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    // KRW: 원 단위 반올림, USD: 소수점 2자리
+    const chgAmt = cur === "KRW" ? Math.round(_chgRaw) : Math.round(_chgRaw * 100) / 100;
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
@@ -1860,7 +1862,9 @@ function PortfolioApp({ syncKey, onLogout }) {
     const cost  = h.avgPrice * h.quantity;
     const pnl   = value - cost;
     const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    const chgAmt = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    const _chgRaw = p?.price && p?.changePercent ? p.price / (1 + p.changePercent/100) * (p.changePercent/100) : 0;
+    // KRW: 원 단위 반올림, USD: 소수점 2자리
+    const chgAmt = cur === "KRW" ? Math.round(_chgRaw) : Math.round(_chgRaw * 100) / 100;
     return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
   });
 
