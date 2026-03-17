@@ -30,29 +30,62 @@ export default async function handler(req, res) {
     const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
     try {
       if (isKR) {
-        // 국내주식: v8/chart (1m interval로 프리/애프터 포함 실시간)
-        const headers = {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8',
-          'Referer': 'https://finance.yahoo.com',
-        };
-        // 1m interval: 프리/정규/애프터 모두 최신 가격
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
-        const r = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
-        if (!r.ok) return;
-        const d = await r.json();
-        const m = d?.chart?.result?.[0]?.meta;
-        if (!m?.regularMarketPrice) return;
-        const price = m.regularMarketPrice;
-        const prev  = m.previousClose || m.chartPreviousClose || price;
-        const chg   = prev > 0 ? ((price - prev) / prev) * 100 : 0;
-        results[sym] = {
-          price,
-          changePercent: chg,
-          currency: m.currency || 'KRW',
-          marketState: m.currentTradingPeriod ? 'REGULAR' : 'REGULAR',
-        };
+        // 국내주식: 네이버증권 API (NXT 20시까지 포함) → Yahoo fallback
+        const ticker6 = sym.replace('.KS','').replace('.KQ','').padStart(6,'0');
+        const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
+        let krResolved = false;
+
+        try {
+          const nr = await fetch(naverUrl, {
+            headers: { 'Referer': 'https://finance.naver.com', 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(6000),
+          });
+          if (nr.ok) {
+            const nd = await nr.json();
+            // 네이버 응답 구조: result.areas[0].datas[0]
+            const item = nd?.result?.areas?.[0]?.datas?.[0];
+            if (item) {
+              const price = parseFloat(item.nv || item.sv || 0);  // nv=현재가, sv=전일종가
+              const prev  = parseFloat(item.sv || price);
+              // rf: 2=상승, 5=하락, cr=등락률(부호 없음)
+              const crAbs = parseFloat(item.cr || 0);
+              const rf    = String(item.rf || '');
+              const chg   = rf === '5' ? -crAbs : crAbs;
+              if (price > 0) {
+                results[sym] = { price, changePercent: chg, currency: 'KRW', marketState: 'REGULAR' };
+                krResolved = true;
+              }
+            }
+          }
+        } catch {}
+
+        // Fallback: Yahoo v8/chart (interval=1m)
+        if (!krResolved) {
+          try {
+            const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
+            const yr = await fetch(yUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': 'https://finance.yahoo.com',
+              },
+              signal: AbortSignal.timeout(8000),
+            });
+            if (yr.ok) {
+              const yd = await yr.json();
+              const m  = yd?.chart?.result?.[0]?.meta;
+              if (m?.regularMarketPrice) {
+                const price = m.regularMarketPrice;
+                const prev  = m.previousClose || m.chartPreviousClose || price;
+                results[sym] = {
+                  price,
+                  changePercent: prev > 0 ? ((price-prev)/prev)*100 : 0,
+                  currency: 'KRW',
+                  marketState: 'REGULAR',
+                };
+              }
+            }
+          } catch {}
+        }
       } else {
         // 미국주식/ETF: v7/quote 시도 → 실패시 v8/chart fallback
         const headers = {
