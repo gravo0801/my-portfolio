@@ -31,44 +31,72 @@ export default async function handler(req, res) {
     const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
     try {
       if (isKR) {
-        // 援?궡二쇱떇: ?ㅼ씠踰꾩쬆沅?API (NXT 20?쒓퉴吏 ?ы븿) ??Yahoo fallback
+        // 援?궡二쇱떇: ?ㅼ쨷 ?뚯뒪 (?숈떆?멸?/NXT ?ы븿)
         const ticker6 = sym.replace('.KS','').replace('.KQ','').padStart(6,'0');
-        const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
         let krResolved = false;
 
+        // ?? 1?쒖쐞: ?ㅼ씠踰?紐⑤컮??API (?숈떆?멸? ?덉긽泥닿껐媛 ?ы븿) ??
         try {
-          const nr = await fetch(naverUrl, {
-            headers: { 'Referer': 'https://finance.naver.com', 'User-Agent': 'Mozilla/5.0' },
+          const mobileUrl = `https://m.stock.naver.com/api/stock/${ticker6}/basic`;
+          const mr = await fetch(mobileUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+              'Referer': 'https://m.stock.naver.com/',
+              'Accept': 'application/json',
+            },
             signal: AbortSignal.timeout(6000),
           });
-          if (nr.ok) {
-            const nd = await nr.json();
-            // ?ㅼ씠踰??묐떟 援ъ“: result.areas[0].datas[0]
-            const item = nd?.result?.areas?.[0]?.datas?.[0];
-            if (item) {
-              const price   = parseFloat(item.nv || item.sv || 0); // nv=?꾩옱媛
-              const prev    = parseFloat(item.sv || price);           // sv=?꾩씪醫낃?
-              const rf      = String(item.rf || '');                  // 2=?곸듅, 5=?섎씫
-              const crAbs   = parseFloat(item.cr || 0);               // ?깅씫瑜?%)
-              const cvAbs   = parseFloat(item.cv || 0);               // ?깅씫???먭툑??
-              const sign    = rf === '5' ? -1 : 1;
-              const chgPct  = sign * crAbs;
-              const chgAmt  = sign * Math.round(cvAbs);               // ???⑥쐞 ?뺤닔
-              if (price > 0) {
-                results[sym] = { price, changePercent: chgPct, changeAmount: chgAmt, currency: 'KRW', marketState: 'REGULAR' };
-                krResolved = true;
-              }
+          if (mr.ok) {
+            const md = await mr.json();
+            // stockEndType: 0=?μ쨷, 1=?ν썑, 2=?숈떆?멸?, 4=?μ쟾, 5=?쒓컙??            // closePrice = ?꾩옱媛/?덉긽泥닿껐媛, compareToPreviousClosePrice = ?깅씫??            const price = parseFloat(md.closePrice?.replace(/,/g,'') || 0);
+            const chgAmt = parseFloat(md.compareToPreviousClosePrice?.replace(/,/g,'') || 0);
+            const chgPct = parseFloat(md.fluctuationsRatio || 0);
+            if (price > 0) {
+              results[sym] = {
+                price,
+                changePercent: chgPct,
+                changeAmount: Math.round(chgAmt),
+                currency: 'KRW',
+                marketState: 'REGULAR',
+              };
+              krResolved = true;
             }
           }
         } catch {}
 
-        // Fallback: Yahoo v8/chart (interval=1m)
+        // ?? 2?쒖쐞: ?ㅼ씠踰?polling API (NXT ?ы븿) ??
+        if (!krResolved) {
+          try {
+            const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
+            const nr = await fetch(naverUrl, {
+              headers: { 'Referer': 'https://finance.naver.com', 'User-Agent': 'Mozilla/5.0' },
+              signal: AbortSignal.timeout(6000),
+            });
+            if (nr.ok) {
+              const nd = await nr.json();
+              const item = nd?.result?.areas?.[0]?.datas?.[0];
+              if (item) {
+                const price  = parseFloat(item.nv || item.sv || 0);
+                const rf     = String(item.rf || '');
+                const sign   = rf === '5' ? -1 : 1;
+                const chgPct = sign * parseFloat(item.cr || 0);
+                const chgAmt = sign * Math.round(parseFloat(item.cv || 0));
+                if (price > 0) {
+                  results[sym] = { price, changePercent: chgPct, changeAmount: chgAmt, currency: 'KRW', marketState: 'REGULAR' };
+                  krResolved = true;
+                }
+              }
+            }
+          } catch {}
+        }
+
+        // ?? 3?쒖쐞: Yahoo v8/chart (interval=1m) ??
         if (!krResolved) {
           try {
             const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
             const yr = await fetch(yUrl, {
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://finance.yahoo.com',
               },
               signal: AbortSignal.timeout(8000),
