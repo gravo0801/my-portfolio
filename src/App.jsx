@@ -1173,7 +1173,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center",background:"rgba(0,0,0,0.65)",backdropFilter:"blur(4px)"}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#0f172a",border:"1px solid rgba(255,255,255,0.12)",borderRadius:isMobile?"16px 16px 0 0":"16px",width:isMobile?"100%":"560px",maxHeight:isMobile?"92vh":"88vh",overflowY:"auto",padding:"22px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#0f172a",border:"1px solid rgba(255,255,255,0.12)",borderRadius:isMobile?"16px 16px 0 0":"16px",width:isMobile?"100%":"min(720px, 95vw)",maxHeight:isMobile?"95vh":"90vh",overflowY:"auto",padding:isMobile?"16px":"24px"}}>
 
         {/* 헤더 */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"18px"}}>
@@ -1237,25 +1237,51 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
             </div>
           </div>
         )}
-
-        {/* 종목별 손익 */}
+        {/* 종목별 일일 등락 - 토스 스타일 */}
         <div style={{background:"rgba(255,255,255,0.03)",borderRadius:"12px",padding:"14px"}}>
-          <div style={{fontSize:"13px",fontWeight:700,color:"#94a3b8",marginBottom:"10px"}}>📋 종목별 손익</div>
-          <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
-            {[...portfolio].sort((a,b)=>b.pnlPct-a.pnlPct).map(h=>(
-              <div key={h.id} style={{display:"grid",gridTemplateColumns:"1fr 80px 80px",alignItems:"center",gap:"8px",padding:"8px 10px",background:"rgba(255,255,255,0.03)",borderRadius:"8px"}}>
-                <div>
-                  <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9"}}>{h.name||h.ticker}</div>
-                  <div style={{fontSize:"11px",color:"#a5b4fc",marginTop:"1px"}}>{h.ticker}</div>
-                </div>
-                <div style={{fontSize:"13px",fontWeight:700,textAlign:"right"}}>
-                  {h.cur==="KRW"?Math.round(h.price).toLocaleString("ko-KR")+"₩":"$"+h.price.toFixed(2)}
-                </div>
-                <div style={{fontSize:"13px",fontWeight:800,color:h.pnlPct>=0?"#34d399":"#f87171",textAlign:"right"}}>
-                  {h.pnlPct>=0?"+":""}{h.pnlPct.toFixed(2)}%
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
+            <div style={{fontSize:"13px",fontWeight:700,color:"#94a3b8"}}>📊 종목별 등락</div>
+            <div style={{fontSize:"11px",color:"#475569"}}>당일 기준</div>
+          </div>
+          {(()=>{
+            const totalChgKRW = portfolio.reduce((s,h) => {
+              const amt = h.chgAmt != null && h.chgAmt !== 0 ? h.chgAmt : h.chgPct ? (h.chgPct/100 * h.price) : 0;
+              return s + (h.cur==="KRW" ? amt * h.quantity : amt * h.quantity * liveUsdKrw);
+            }, 0);
+            const isUpTotal = totalChgKRW >= 0;
+            return (
+              <div style={{background:"rgba(255,255,255,0.05)",borderRadius:"10px",padding:"11px 14px",marginBottom:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:"12px",color:"#64748b",fontWeight:600}}>당일 총 손익</div>
+                <div style={{fontSize:"18px",fontWeight:800,color:isUpTotal?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>
+                  {isUpTotal?"+":""}{Math.round(totalChgKRW).toLocaleString()}₩
                 </div>
               </div>
-            ))}
+            );
+          })()}
+          <div style={{display:"flex",flexDirection:"column",gap:"2px"}}>
+            {[...portfolio].sort((a,b)=>Math.abs(b.chgPct)-Math.abs(a.chgPct)).map(h => {
+              const isUp = h.chgPct >= 0;
+              const c = isUp ? "#34d399" : "#f87171";
+              const raw = h.chgAmt != null && h.chgAmt !== 0 ? h.chgAmt : h.chgPct ? (h.chgPct/100 * h.price) : 0;
+              const amtStr = h.cur==="USD"
+                ? (raw>=0?"+":"-")+"$"+Math.abs(raw).toFixed(2)
+                : (raw>=0?"+":"-")+Math.round(Math.abs(raw)).toLocaleString()+"₩";
+              return (
+                <div key={h.id} style={{display:"flex",alignItems:"center",gap:"12px",padding:"10px 6px",borderBottom:"1px solid rgba(255,255,255,0.05)",borderRadius:"6px"}}
+                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <TickerLogo ticker={h.ticker} name={h.name} size={42}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
+                    <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주 · {h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <div style={{fontSize:"16px",fontWeight:800,color:c,letterSpacing:"-0.02em"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
+                    <div style={{fontSize:"12px",color:c,opacity:0.85,marginTop:"1px"}}>{amtStr}</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
