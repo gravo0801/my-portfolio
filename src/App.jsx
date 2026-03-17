@@ -1623,6 +1623,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [divForm, setDivForm]     = useState({ date:"", ticker:"", name:"", amount:"", currency:"KRW" });
   const [divEditTicker, setDivEditTicker] = useState(null);
   const [divInfoForm, setDivInfoForm]     = useState({ perShare:"", months:[], currency:"KRW" });
+  const [editingId2, setEditingId2] = useState(null);
+  const [editForm2, setEditForm2]   = useState({});
   const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
   const isMobile = useIsMobile();
   const saving = useRef({});
@@ -2058,6 +2060,16 @@ function PortfolioApp({ syncKey, onLogout }) {
     setHoldings(p => p.map(x => x.id === editingId ? { ...x, ...editForm, quantity:+editForm.quantity, avgPrice:+editForm.avgPrice } : x));
     setEditingId(null);
   };
+  const startEdit2 = (h) => {
+    setEditForm2({ name:h.name||"", market:h.market, quantity:String(h.quantity), avgPrice:String(h.avgPrice), taxAccount:h.taxAccount||"연금저축1(신한금융투자)", broker:h.broker||"" });
+    setEditingId2(h.id);
+  };
+  const saveEdit2 = () => {
+    if (!editForm2.quantity || !editForm2.avgPrice) return;
+    setHoldings2(p => p.map(x => x.id === editingId2 ? { ...x, ...editForm2, quantity:+editForm2.quantity, avgPrice:+editForm2.avgPrice } : x));
+    setEditingId2(null);
+  };
+
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -2901,7 +2913,27 @@ function PortfolioApp({ syncKey, onLogout }) {
                               </div>
                             ))}
                           </div>
-                        </div>
+
+                          {editingId2===h.id&&(
+                            <div style={{marginTop:"10px",background:"rgba(234,179,8,0.06)",border:"1px solid rgba(234,179,8,0.3)",borderRadius:"10px",padding:"12px"}}>
+                              <div style={{fontSize:"12px",color:"#fbbf24",fontWeight:700,marginBottom:"10px"}}>✏️ {h.ticker} 수정</div>
+                              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                                <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>종목명</div><input value={editForm2.name||""} onChange={e=>setEditForm2(p=>({...p,name:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/></div>
+                                <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수량</div><input type="number" value={editForm2.quantity||""} onChange={e=>setEditForm2(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/></div>
+                                <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm2.avgPrice||""} onChange={e=>setEditForm2(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/></div>
+                                <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계좌</div>
+                                  <select value={editForm2.taxAccount||""} onChange={e=>setEditForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px",appearance:"none"}}>
+                                    {TAX_ACCOUNTS.map(a=><option key={a} value={a} style={{background:"#1e293b"}}>{a}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                              <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
+                                <button onClick={saveEdit2} style={S.btn("#6366f1",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
+                                <button onClick={()=>setEditingId2(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 14px"})}>취소</button>
+                                <button onClick={()=>{if(window.confirm(`"${h.name||h.ticker}" 삭제?`)){setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px",marginLeft:"auto"})}>🗑️ 삭제</button>
+                              </div>
+                            </div>
+                          )}                        </div>
                       ))}
                     </div>
                   ) : (
@@ -2925,9 +2957,30 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <td style={S.TD}>{h.market==="GOLD"?h.quantity.toLocaleString()+"g":h.quantity.toLocaleString()+"주"}</td>
                               <td style={{...S.TD,fontWeight:700}}>{fmtKRW(toKRWLive(h.value,h.cur))}</td>
                               <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)}%</td>
-                              <td style={S.TD}><button onClick={()=>setHoldings2(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button></td>
-                            </tr>
-                          ))}
+                               <td style={S.TD}>
+                                 <button onClick={()=>editingId2===h.id?setEditingId2(null):startEdit2(h)} style={{background:"none",border:"1px solid rgba(234,179,8,0.4)",color:"#fbbf24",cursor:"pointer",fontSize:"11px",padding:"3px 9px",borderRadius:"5px",fontWeight:700}}>수정</button>
+                               </td>
+                             </tr>
+                             {editingId2===h.id&&(
+                               <tr key={h.id+"_e2"}><td colSpan={7} style={{padding:"0 0 10px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                                 <div style={{background:"rgba(234,179,8,0.06)",border:"1px solid rgba(234,179,8,0.3)",borderRadius:"10px",padding:"14px"}}>
+                                   <div style={{fontSize:"12px",color:"#fbbf24",fontWeight:700,marginBottom:"10px"}}>✏️ {h.ticker} 수정</div>
+                                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:"8px"}}>
+                                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>종목명</div><input value={editForm2.name||""} onChange={e=>setEditForm2(p=>({...p,name:e.target.value}))} style={S.inp}/></div>
+                                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수량</div><input type="number" value={editForm2.quantity||""} onChange={e=>setEditForm2(p=>({...p,quantity:e.target.value}))} style={S.inp}/></div>
+                                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm2.avgPrice||""} onChange={e=>setEditForm2(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
+                                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계좌</div><select value={editForm2.taxAccount||""} onChange={e=>setEditForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,appearance:"none"}}>{TAX_ACCOUNTS.map(a=><option key={a} value={a} style={{background:"#1e293b"}}>{a}</option>)}</select></div>
+                                   </div>
+                                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
+                                     <button onClick={saveEdit2} style={S.btn("#6366f1",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
+                                     <button onClick={()=>setEditingId2(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 14px"})}>취소</button>
+                                     <button onClick={()=>{if(window.confirm(`"${h.name||h.ticker}" 삭제?`)){setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px",marginLeft:"auto"})}>🗑️ 삭제</button>
+                                   </div>
+                                 </div>
+                               </td></tr>
+                             )}
+                           ))
+                         }
                         </tbody>
                       </table>
                     </div>
