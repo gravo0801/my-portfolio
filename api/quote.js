@@ -1,8 +1,8 @@
 // Vercel API Route: /api/quote
-// 서버사이드에서 Yahoo Finance 직접 조회 (CORS/캐시 문제 없음)
+// ?쒕쾭?ъ씠?쒖뿉??Yahoo Finance 吏곸젒 議고쉶 (CORS/罹먯떆 臾몄젣 ?놁쓬)
 
 export default async function handler(req, res) {
-  // CORS 헤더
+  // CORS ?ㅻ뜑
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -14,15 +14,16 @@ export default async function handler(req, res) {
 
   const fields = [
     'regularMarketPrice', 'regularMarketPreviousClose', 'regularMarketChangePercent',
-    'preMarketPrice', 'preMarketChangePercent',
-    'postMarketPrice', 'postMarketChangePercent',
+    'regularMarketChange',
+    'preMarketPrice', 'preMarketChangePercent', 'preMarketChange',
+    'postMarketPrice', 'postMarketChangePercent', 'postMarketChange',
     'currency', 'marketState'
   ].join(',');
 
   const symList = symbols.split(',').map(s => s.trim()).filter(Boolean);
   const results = {};
 
-  // 병렬 요청 시 Yahoo rate limit 방지: 10개씩 나눠서 처리
+  // 蹂묐젹 ?붿껌 ??Yahoo rate limit 諛⑹?: 10媛쒖뵫 ?섎닠??泥섎━
   const chunkSize = 10;
   for (let i = 0; i < symList.length; i += chunkSize) {
     const chunk = symList.slice(i, i + chunkSize);
@@ -30,7 +31,7 @@ export default async function handler(req, res) {
     const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
     try {
       if (isKR) {
-        // 국내주식: 네이버증권 API (NXT 20시까지 포함) → Yahoo fallback
+        // 援?궡二쇱떇: ?ㅼ씠踰꾩쬆沅?API (NXT 20?쒓퉴吏 ?ы븿) ??Yahoo fallback
         const ticker6 = sym.replace('.KS','').replace('.KQ','').padStart(6,'0');
         const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
         let krResolved = false;
@@ -42,17 +43,19 @@ export default async function handler(req, res) {
           });
           if (nr.ok) {
             const nd = await nr.json();
-            // 네이버 응답 구조: result.areas[0].datas[0]
+            // ?ㅼ씠踰??묐떟 援ъ“: result.areas[0].datas[0]
             const item = nd?.result?.areas?.[0]?.datas?.[0];
             if (item) {
-              const price = parseFloat(item.nv || item.sv || 0);  // nv=현재가, sv=전일종가
-              const prev  = parseFloat(item.sv || price);
-              // rf: 2=상승, 5=하락, cr=등락률(부호 없음)
-              const crAbs = parseFloat(item.cr || 0);
-              const rf    = String(item.rf || '');
-              const chg   = rf === '5' ? -crAbs : crAbs;
+              const price   = parseFloat(item.nv || item.sv || 0); // nv=?꾩옱媛
+              const prev    = parseFloat(item.sv || price);           // sv=?꾩씪醫낃?
+              const rf      = String(item.rf || '');                  // 2=?곸듅, 5=?섎씫
+              const crAbs   = parseFloat(item.cr || 0);               // ?깅씫瑜?%)
+              const cvAbs   = parseFloat(item.cv || 0);               // ?깅씫???먭툑??
+              const sign    = rf === '5' ? -1 : 1;
+              const chgPct  = sign * crAbs;
+              const chgAmt  = sign * Math.round(cvAbs);               // ???⑥쐞 ?뺤닔
               if (price > 0) {
-                results[sym] = { price, changePercent: chg, currency: 'KRW', marketState: 'REGULAR' };
+                results[sym] = { price, changePercent: chgPct, changeAmount: chgAmt, currency: 'KRW', marketState: 'REGULAR' };
                 krResolved = true;
               }
             }
@@ -87,7 +90,7 @@ export default async function handler(req, res) {
           } catch {}
         }
       } else {
-        // 미국주식/ETF: v7/quote 시도 → 실패시 v8/chart fallback
+        // 誘멸뎅二쇱떇/ETF: v7/quote ?쒕룄 ???ㅽ뙣??v8/chart fallback
         const headers = {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'application/json, text/plain, */*',
@@ -97,7 +100,7 @@ export default async function handler(req, res) {
           'Cache-Control': 'no-cache',
         };
 
-        // 1차: v7/quote
+        // 1李? v7/quote
         let resolved = false;
         try {
           const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
@@ -118,13 +121,24 @@ export default async function handler(req, res) {
                                  : state === 'POST' && q.postMarketPrice
                                  ? (q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100))
                                  : (q.regularMarketChangePercent ?? ((price - prev) / prev * 100));
-              results[sym] = { price: displayPrice, regularPrice: price, changePercent: displayChg, currency: q.currency || 'USD', marketState: state };
+              // ?ㅼ젣 蹂?숆툑??吏곸젒 ?ъ슜 (怨꾩궛 ?ㅼ감 ?놁쓬)
+              const displayAmt = state === 'PRE'  && q.preMarketChange  ? q.preMarketChange
+                               : state === 'POST' && q.postMarketChange ? q.postMarketChange
+                               : (q.regularMarketChange ?? 0);
+              results[sym] = {
+                price: displayPrice,
+                regularPrice: price,
+                changePercent: displayChg,
+                changeAmount: Math.round(displayAmt * 100) / 100, // USD: ?쇳듃?⑥쐞
+                currency: q.currency || 'USD',
+                marketState: state,
+              };
               resolved = true;
             }
           }
         } catch {}
 
-        // 2차: v8/chart fallback (v7 실패 또는 빈 결과)
+        // 2李? v8/chart fallback (v7 ?ㅽ뙣 ?먮뒗 鍮?寃곌낵)
         if (!resolved) {
           try {
             const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
@@ -141,9 +155,9 @@ export default async function handler(req, res) {
           } catch {}
         }
       }
-    } catch { /* 개별 종목 실패 시 스킵 */ }
+    } catch { /* 媛쒕퀎 醫낅ぉ ?ㅽ뙣 ???ㅽ궢 */ }
     }));
-    // 청크 간 50ms 대기 (rate limit 방지)
+    // 泥?겕 媛?50ms ?湲?(rate limit 諛⑹?)
     if (i + chunkSize < symList.length) {
       await new Promise(r => setTimeout(r, 50));
     }
