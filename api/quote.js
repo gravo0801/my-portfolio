@@ -118,102 +118,66 @@ export default async function handler(req, res) {
           } catch {}
         }
       } else {
-        // 誘멸뎅二쇱떇/ETF: Finnhub(?꾨━/?좏봽?? + Yahoo(?뺢퇋?? ?쇳빀
-        const FINNHUB_KEY = process.env.FINNHUB_KEY;
+        // 誘멸뎅二쇱떇/ETF: Yahoo v7/quote (?꾨━/?좏봽???ы븿) ??v8/chart fallback
         const headers = {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
           'Referer': 'https://finance.yahoo.com',
           'Cache-Control': 'no-cache',
         };
 
-        // ?꾩옱 ?쒖옣 ?곹깭 ?먮떒 (KST 湲곗?)
-        const nowKST = new Date(Date.now() + 9*3600000);
-        const kstMins = nowKST.getUTCHours()*60 + nowKST.getUTCMinutes();
-        // DST 怨꾩궛 (3??2踰덉㎏ ?쇱슂??~ 11??1踰덉㎏ ?쇱슂??
-        const yr = nowKST.getUTCFullYear();
-        const dstS = new Date(Date.UTC(yr,2,1)); dstS.setUTCDate(1+(7-dstS.getUTCDay())%7+7); dstS.setUTCHours(7);
-        const dstE = new Date(Date.UTC(yr,10,1)); dstE.setUTCDate(1+(7-dstE.getUTCDay())%7); dstE.setUTCHours(6);
-        const isDST = Date.now() >= dstS.getTime() && Date.now() < dstE.getTime();
-        const preStart = isDST ? 17*60 : 18*60;     // KST 17:00(EDT) / 18:00(EST)
-        const regStart = isDST ? 22*60+30 : 23*60+30;
-        const isPreOrAfter = (kstMins >= preStart && kstMins < regStart)
-                          || (kstMins >= (isDST?5*60:6*60) && kstMins < (isDST?9*60:10*60));
-
-        // ?? 1?쒖쐞: Finnhub (?꾨━/?좏봽?곕쭏耳??꾩슜 - ?ㅼ떆媛? ??
         let resolved = false;
-        if (FINNHUB_KEY && isPreOrAfter) {
-          try {
-            const fUrl = `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`;
-            const fr = await fetch(fUrl, { signal: AbortSignal.timeout(6000) });
-            if (fr.ok) {
-              const fd = await fr.json();
-              if (fd.c && fd.c > 0) {
-                results[sym] = {
-                  price: fd.c,
-                  regularPrice: fd.pc || fd.c,
-                  changePercent: fd.dp ?? 0,
-                  changeAmount: fd.d ? Math.round(fd.d * 100) / 100 : 0,
-                  currency: 'USD',
-                  marketState: isPreOrAfter ? 'PRE' : 'REGULAR',
-                };
-                resolved = true;
-              }
-            }
-          } catch {}
-        }
 
-        // ?? 2?쒖쐞: Yahoo v7/quote (query1 ??query2) ??
-        const v7urls = [
-          `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
-          `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
-        ];
-        for (const v7url of v7urls) {
-         if (resolved) break;
-         try {
-          const url = v7url;
-          const url_q2 = v7url;
-          const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-          if (r.ok) {
+        // Yahoo v7/quote: query1 ??query2 ?쒖꽌 (?꾨━/?좏봽??紐⑤몢 ?ы븿)
+        for (const host of ['query1', 'query2']) {
+          if (resolved) break;
+          try {
+            const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
+            const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+            if (!r.ok) continue;
             const d = await r.json();
             const q = d?.quoteResponse?.result?.[0];
-            if (q?.regularMarketPrice) {
-              const price  = q.regularMarketPrice;
-              const prev   = q.regularMarketPreviousClose || price;
-              const state  = q.marketState || 'REGULAR';
-              const displayPrice = state === 'PRE'  && q.preMarketPrice  ? q.preMarketPrice
-                                 : state === 'POST' && q.postMarketPrice ? q.postMarketPrice
-                                 : price;
-              const displayChg   = state === 'PRE'  && q.preMarketPrice
-                                 ? (q.preMarketChangePercent  ?? ((q.preMarketPrice  - prev) / prev * 100))
-                                 : state === 'POST' && q.postMarketPrice
-                                 ? (q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100))
-                                 : (q.regularMarketChangePercent ?? ((price - prev) / prev * 100));
-              // 蹂?숆툑??吏곸젒 ?ъ슜
-              const displayAmt = state === 'PRE'  && q.preMarketChange  ? q.preMarketChange
+            if (!q?.regularMarketPrice) continue;
+
+            const price  = q.regularMarketPrice;
+            const prev   = q.regularMarketPreviousClose || price;
+            const state  = q.marketState || 'REGULAR';
+
+            // ?쒖떆 媛寃? ?꾨━ > ?좏봽??> ?뺢퇋
+            const displayPrice = state === 'PRE'  && q.preMarketPrice  ? q.preMarketPrice
+                               : state === 'POST' && q.postMarketPrice ? q.postMarketPrice
+                               : price;
+            const displayChg   = state === 'PRE'  && q.preMarketPrice
+                               ? (q.preMarketChangePercent  ?? ((q.preMarketPrice  - prev) / prev * 100))
+                               : state === 'POST' && q.postMarketPrice
+                               ? (q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100))
+                               : (q.regularMarketChangePercent ?? ((price - prev) / prev * 100));
+            const displayAmt   = state === 'PRE'  && q.preMarketChange  ? q.preMarketChange
                                : state === 'POST' && q.postMarketChange ? q.postMarketChange
                                : (q.regularMarketChange ?? 0);
-              results[sym] = {
-                price: displayPrice,           // ?꾩옱 ?쒖떆 媛寃?(?꾨━/?좏봽??醫낃?)
-                regularPrice: price,           // ?뺢퇋??醫낃?
-                changePercent: displayChg,     // ?쒖떆 ?깅씫瑜?(?꾩씪醫낃? ?鍮?
-                changeAmount: Math.round(displayAmt * 100) / 100,
-                currency: q.currency || 'USD',
-                marketState: state,
-                // ?λ쭏媛???醫낃? 紐낆떆 (罹먯떆 ?ㅼ뿼 諛⑹?)
-                closePrice: price,
-                closePct: q.regularMarketChangePercent ?? ((price - (q.regularMarketPreviousClose||price)) / (q.regularMarketPreviousClose||price) * 100),
-              };
-              resolved = true;
-            }
-          }
-        } catch {}
-        if (resolved) break;
-        } // end for v7urls
 
-        // 2李? v8/chart fallback (v7 ?꾩쟾 ?ㅽ뙣?쒕쭔 - pre/after ?곗씠???놁쓬 二쇱쓽)
+            results[sym] = {
+              price: displayPrice,
+              regularPrice: price,                          // ?뺢퇋??醫낃?
+              regularChangePercent: q.regularMarketChangePercent ?? ((price-prev)/prev*100),
+              regularChangeAmount: q.regularMarketChange ?? 0,
+              changePercent: displayChg,
+              changeAmount: Math.round(displayAmt * 100) / 100,
+              // ?꾨━/?좏봽??蹂꾨룄 ???              preMarketPrice: q.preMarketPrice ?? null,
+              preMarketChange: q.preMarketChange ?? null,
+              preMarketChangePercent: q.preMarketChangePercent ?? null,
+              postMarketPrice: q.postMarketPrice ?? null,
+              postMarketChange: q.postMarketChange ?? null,
+              postMarketChangePercent: q.postMarketChangePercent ?? null,
+              currency: q.currency || 'USD',
+              marketState: state,
+              closePrice: price,
+            };
+            resolved = true;
+          } catch { continue; }
+        }
+
+        // v8/chart fallback (preMarket ?놁쓬, 理쒗썑 ?섎떒)
         if (!resolved) {
           try {
             const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
@@ -224,7 +188,14 @@ export default async function handler(req, res) {
               if (m?.regularMarketPrice) {
                 const price = m.regularMarketPrice;
                 const prev  = m.previousClose || m.chartPreviousClose || price;
-                results[sym] = { price, changePercent: prev > 0 ? ((price - prev) / prev) * 100 : 0, currency: m.currency || 'USD', marketState: 'REGULAR' };
+                results[sym] = {
+                  price, regularPrice: price,
+                  changePercent: prev > 0 ? ((price-prev)/prev)*100 : 0,
+                  changeAmount: Math.round((price-prev)*100)/100,
+                  currency: m.currency || 'USD',
+                  marketState: 'REGULAR',
+                  closePrice: price,
+                };
               }
             }
           } catch {}
