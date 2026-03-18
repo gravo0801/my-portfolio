@@ -129,15 +129,27 @@ export default async function handler(req, res) {
           'Cache-Control': 'no-cache',
         };
 
-        // ?? 1?쒖쐞: Finnhub (?꾨━/?좏봽?곕쭏耳??ы븿 ?ㅼ떆媛? ??
+        // ?꾩옱 ?쒖옣 ?곹깭 ?먮떒 (KST 湲곗?)
+        const nowKST = new Date(Date.now() + 9*3600000);
+        const kstMins = nowKST.getUTCHours()*60 + nowKST.getUTCMinutes();
+        // DST 怨꾩궛 (3??2踰덉㎏ ?쇱슂??~ 11??1踰덉㎏ ?쇱슂??
+        const yr = nowKST.getUTCFullYear();
+        const dstS = new Date(Date.UTC(yr,2,1)); dstS.setUTCDate(1+(7-dstS.getUTCDay())%7+7); dstS.setUTCHours(7);
+        const dstE = new Date(Date.UTC(yr,10,1)); dstE.setUTCDate(1+(7-dstE.getUTCDay())%7); dstE.setUTCHours(6);
+        const isDST = Date.now() >= dstS.getTime() && Date.now() < dstE.getTime();
+        const preStart = isDST ? 17*60 : 18*60;     // KST 17:00(EDT) / 18:00(EST)
+        const regStart = isDST ? 22*60+30 : 23*60+30;
+        const isPreOrAfter = (kstMins >= preStart && kstMins < regStart)
+                          || (kstMins >= (isDST?5*60:6*60) && kstMins < (isDST?9*60:10*60));
+
+        // ?? 1?쒖쐞: Finnhub (?꾨━/?좏봽?곕쭏耳??꾩슜 - ?ㅼ떆媛? ??
         let resolved = false;
-        if (FINNHUB_KEY) {
+        if (FINNHUB_KEY && isPreOrAfter) {
           try {
             const fUrl = `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`;
             const fr = await fetch(fUrl, { signal: AbortSignal.timeout(6000) });
             if (fr.ok) {
               const fd = await fr.json();
-              // fd.c = ?꾩옱媛, fd.d = ?깅씫??$), fd.dp = ?깅씫瑜?%), fd.pc = ?꾩씪醫낃?
               if (fd.c && fd.c > 0) {
                 results[sym] = {
                   price: fd.c,
@@ -145,7 +157,7 @@ export default async function handler(req, res) {
                   changePercent: fd.dp ?? 0,
                   changeAmount: fd.d ? Math.round(fd.d * 100) / 100 : 0,
                   currency: 'USD',
-                  marketState: 'REGULAR', // Finnhub????긽 理쒖떊媛 諛섑솚
+                  marketState: isPreOrAfter ? 'PRE' : 'REGULAR',
                 };
                 resolved = true;
               }
