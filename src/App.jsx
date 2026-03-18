@@ -94,7 +94,13 @@ async function fetchYahoo(ticker) {
         const price = chartMeta.regularMarketPrice;
         const prev  = chartMeta.previousClose || chartMeta.chartPreviousClose || price;
         const chartChgAmt = price - prev;
-        return { price, changePercent: prev>0?((price-prev)/prev)*100:0, changeAmount: isKR ? Math.round(chartChgAmt) : Math.round(chartChgAmt*100)/100, currency: chartMeta.currency||(isKR?"KRW":"USD"), marketState:"REGULAR" };
+        const chartChgPct = prev>0?((price-prev)/prev)*100:0;
+        return {
+          price, regularPrice: price, closePrice: price,
+          changePercent: chartChgPct, changeAmount: isKR ? Math.round(chartChgAmt) : Math.round(chartChgAmt*100)/100,
+          regularChangePercent: chartChgPct, regularChangeAmount: isKR ? Math.round(chartChgAmt) : Math.round(chartChgAmt*100)/100,
+          currency: chartMeta.currency||(isKR?"KRW":"USD"), marketState:"REGULAR",
+        };
       } else if (quoteRes?.regularMarketPrice) {
         const price  = quoteRes.regularMarketPrice;
         const prev   = quoteRes.regularMarketPreviousClose || price;
