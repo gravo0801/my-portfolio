@@ -12,8 +12,15 @@ export default async function handler(req, res) {
     'Referer': 'https://finance.naver.com',
   };
 
-  const m = new Date().getMonth() + 1;
-  const futureCode = `101S${m <= 3 ? '03' : m <= 6 ? '06' : m <= 9 ? '09' : '12'}`;
+  const _now = new Date();
+  const m = _now.getMonth() + 1;
+  const d = _now.getDate();
+  let expM;
+  if ((m===3&&d>15)||m===4||m===5||(m===6&&d<=15)) expM='06';
+  else if ((m===6&&d>15)||m===7||m===8||(m===9&&d<=15)) expM='09';
+  else if ((m===9&&d>15)||m===10||m===11||(m===12&&d<=15)) expM='12';
+  else expM='03';
+  const futureCode = `101S${expM}`;
 
   // 1순위: 네이버 polling API
   try {
