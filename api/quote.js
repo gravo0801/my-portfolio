@@ -128,74 +128,98 @@ export default async function handler(req, res) {
 
         let resolved = false;
 
-        // Yahoo v7/quote: query1 ??query2 ?쒖꽌 (?꾨━/?좏봽??紐⑤몢 ?ы븿)
+        // 1?쒖쐞: v8/chart includePrePost=true (?꾨━/?좏봽???ㅼ떆媛??ы븿)
         for (const host of ['query1', 'query2']) {
           if (resolved) break;
           try {
-            const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
-            const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+            const chartUrl = `https://${host}.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d&includePrePost=true`;
+            const r = await fetch(chartUrl, { headers, signal: AbortSignal.timeout(8000) });
             if (!r.ok) continue;
             const d = await r.json();
-            const q = d?.quoteResponse?.result?.[0];
-            if (!q?.regularMarketPrice) continue;
+            const result = d?.chart?.result?.[0];
+            const meta   = result?.meta;
+            if (!meta?.regularMarketPrice) continue;
 
-            const price  = q.regularMarketPrice;
-            const prev   = q.regularMarketPreviousClose || price;
-            const state  = q.marketState || 'REGULAR';
+            const regularPrice = meta.regularMarketPrice;
+            const prevClose    = meta.previousClose || meta.chartPreviousClose || regularPrice;
+            const timestamps   = result.timestamp || [];
+            const closes       = result.indicators?.quote?.[0]?.close || [];
 
-            // ?쒖떆 媛寃? ?꾨━ > ?좏봽??> ?뺢퇋
-            const displayPrice = state === 'PRE'  && q.preMarketPrice  ? q.preMarketPrice
-                               : state === 'POST' && q.postMarketPrice ? q.postMarketPrice
-                               : price;
-            const displayChg   = state === 'PRE'  && q.preMarketPrice
-                               ? (q.preMarketChangePercent  ?? ((q.preMarketPrice  - prev) / prev * 100))
-                               : state === 'POST' && q.postMarketPrice
-                               ? (q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100))
-                               : (q.regularMarketChangePercent ?? ((price - prev) / prev * 100));
-            const displayAmt   = state === 'PRE'  && q.preMarketChange  ? q.preMarketChange
-                               : state === 'POST' && q.postMarketChange ? q.postMarketChange
-                               : (q.regularMarketChange ?? 0);
+            // 留덉?留??좏슚 媛寃?(?꾨━/?좏봽???ы븿)
+            let lastPrice = regularPrice;
+            let lastTs = 0;
+            for (let i = closes.length - 1; i >= 0; i--) {
+              if (closes[i] != null) { lastPrice = closes[i]; lastTs = timestamps[i]*1000; break; }
+            }
+
+            // ?꾩옱 ?쒖옣 ?곹깭 ?먮떒
+            const nowMs = Date.now();
+            const nowNY = new Date(nowMs - 4*3600000); // EDT
+            const nyMins = nowNY.getUTCHours()*60 + nowNY.getUTCMinutes();
+            const isPre  = nyMins >= 4*60  && nyMins < 9*60+30;
+            const isPost = nyMins >= 16*60 && nyMins < 20*60;
+            const isReg  = nyMins >= 9*60+30 && nyMins < 16*60;
+            const state  = isPre ? 'PRE' : isPost ? 'POST' : isReg ? 'REGULAR' : 'CLOSED';
+
+            // ?쒖떆 媛寃?            const displayPrice = (isPre || isPost) && lastTs > 0 ? lastPrice : regularPrice;
+            const displayChg   = prevClose > 0 ? ((displayPrice - prevClose) / prevClose) * 100 : 0;
+            const displayAmt   = Math.round((displayPrice - prevClose) * 100) / 100;
+
+            // ?뺢퇋???깅씫
+            const regChg    = prevClose > 0 ? ((regularPrice - prevClose) / prevClose) * 100 : 0;
+            const regChgAmt = Math.round((regularPrice - prevClose) * 100) / 100;
 
             results[sym] = {
               price: displayPrice,
-              regularPrice: price,                          // ?뺢퇋??醫낃?
-              regularChangePercent: q.regularMarketChangePercent ?? ((price-prev)/prev*100),
-              regularChangeAmount: q.regularMarketChange ?? 0,
+              regularPrice,
+              regularChangePercent: regChg,
+              regularChangeAmount: regChgAmt,
               changePercent: displayChg,
-              changeAmount: Math.round(displayAmt * 100) / 100,
-              // ?꾨━/?좏봽??蹂꾨룄 ???              preMarketPrice: q.preMarketPrice ?? null,
-              preMarketChange: q.preMarketChange ?? null,
-              preMarketChangePercent: q.preMarketChangePercent ?? null,
-              postMarketPrice: q.postMarketPrice ?? null,
-              postMarketChange: q.postMarketChange ?? null,
-              postMarketChangePercent: q.postMarketChangePercent ?? null,
-              currency: q.currency || 'USD',
+              changeAmount: displayAmt,
+              preMarketPrice:          isPre  ? displayPrice : null,
+              preMarketChangePercent:  isPre  ? displayChg   : null,
+              preMarketChange:         isPre  ? displayAmt   : null,
+              postMarketPrice:         isPost ? displayPrice : null,
+              postMarketChangePercent: isPost ? displayChg   : null,
+              postMarketChange:        isPost ? displayAmt   : null,
+              currency: meta.currency || 'USD',
               marketState: state,
-              closePrice: price,
+              closePrice: regularPrice,
             };
             resolved = true;
           } catch { continue; }
         }
 
-        // v8/chart fallback (preMarket ?놁쓬, 理쒗썑 ?섎떒)
+        // 2?쒖쐞: v7/quote fallback
         if (!resolved) {
           try {
-            const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`;
-            const r2 = await fetch(url2, { headers, signal: AbortSignal.timeout(8000) });
-            if (r2.ok) {
-              const d2 = await r2.json();
-              const m = d2?.chart?.result?.[0]?.meta;
-              if (m?.regularMarketPrice) {
-                const price = m.regularMarketPrice;
-                const prev  = m.previousClose || m.chartPreviousClose || price;
+            const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`;
+            const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+            if (r.ok) {
+              const d = await r.json();
+              const q = d?.quoteResponse?.result?.[0];
+              if (q?.regularMarketPrice) {
+                const price = q.regularMarketPrice;
+                const prev  = q.regularMarketPreviousClose || price;
+                const state = q.marketState || 'REGULAR';
+                const dPrice = state==='PRE' && q.preMarketPrice ? q.preMarketPrice
+                             : state==='POST'&& q.postMarketPrice? q.postMarketPrice : price;
+                const dChg = state==='PRE' && q.preMarketPrice
+                           ? (q.preMarketChangePercent ?? ((q.preMarketPrice-prev)/prev*100))
+                           : state==='POST'&& q.postMarketPrice
+                           ? (q.postMarketChangePercent ?? ((q.postMarketPrice-prev)/prev*100))
+                           : (q.regularMarketChangePercent ?? ((price-prev)/prev*100));
                 results[sym] = {
-                  price, regularPrice: price,
-                  changePercent: prev > 0 ? ((price-prev)/prev)*100 : 0,
-                  changeAmount: Math.round((price-prev)*100)/100,
-                  currency: m.currency || 'USD',
-                  marketState: 'REGULAR',
-                  closePrice: price,
+                  price: dPrice, regularPrice: price,
+                  changePercent: dChg,
+                  changeAmount: Math.round((dPrice-prev)*100)/100,
+                  preMarketPrice: q.preMarketPrice ?? null,
+                  preMarketChangePercent: q.preMarketChangePercent ?? null,
+                  postMarketPrice: q.postMarketPrice ?? null,
+                  postMarketChangePercent: q.postMarketChangePercent ?? null,
+                  currency: q.currency||'USD', marketState: state, closePrice: price,
                 };
+                resolved = true;
               }
             }
           } catch {}
