@@ -90,7 +90,12 @@ export default async function handler(req, res) {
               const chgAmt  = parseFloat((md.compareToPreviousClosePrice||'').replace(/,/g,'') || 0);
               const chgPct  = parseFloat(md.fluctuationsRatio || 0);
               if (price > 0) {
-                results[sym] = { price, changePercent: chgPct, changeAmount: Math.round(chgAmt), currency: 'KRW', marketState: 'REGULAR' };
+                results[sym] = {
+                  price, regularPrice: price, closePrice: price,
+                  changePercent: chgPct, changeAmount: Math.round(chgAmt),
+                  regularChangePercent: chgPct, regularChangeAmount: Math.round(chgAmt),
+                  currency: 'KRW', marketState: 'REGULAR',
+                };
                 krDone = true;
               }
             }
@@ -108,7 +113,14 @@ export default async function handler(req, res) {
                 if (item?.nv) {
                   const price  = parseFloat(item.nv);
                   const sign   = String(item.rf) === '5' ? -1 : 1;
-                  results[sym] = { price, changePercent: sign*parseFloat(item.cr||0), changeAmount: sign*Math.round(parseFloat(item.cv||0)), currency:'KRW', marketState:'REGULAR' };
+                  const krChgPct = sign*parseFloat(item.cr||0);
+                  const krChgAmt = sign*Math.round(parseFloat(item.cv||0));
+                  results[sym] = {
+                    price, regularPrice: price, closePrice: price,
+                    changePercent: krChgPct, changeAmount: krChgAmt,
+                    regularChangePercent: krChgPct, regularChangeAmount: krChgAmt,
+                    currency:'KRW', marketState:'REGULAR',
+                  };
                   krDone = true;
                 }
               }
@@ -123,7 +135,14 @@ export default async function handler(req, res) {
               if (m?.regularMarketPrice) {
                 const price = m.regularMarketPrice;
                 const prev  = m.previousClose || m.chartPreviousClose || price;
-                results[sym] = { price, changePercent: prev>0?((price-prev)/prev)*100:0, changeAmount: Math.round(price-prev), currency:'KRW', marketState:'REGULAR' };
+                const yrChgPct = prev>0?((price-prev)/prev)*100:0;
+                const yrChgAmt = Math.round(price-prev);
+                results[sym] = {
+                  price, regularPrice: price, closePrice: price,
+                  changePercent: yrChgPct, changeAmount: yrChgAmt,
+                  regularChangePercent: yrChgPct, regularChangeAmount: yrChgAmt,
+                  currency:'KRW', marketState:'REGULAR',
+                };
               }
             }
           }
