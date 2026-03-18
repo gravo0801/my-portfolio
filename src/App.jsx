@@ -1633,7 +1633,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [sortBy, setSortBy]   = useState("default");
   const [compactMode, setCompactMode] = useState(false);
   const [hideAmt, setHideAmt] = useState(false);
-  const [kospiFutures, setKospiFutures] = useState(null);
+
   const [bgTheme, setBgTheme] = useState(() => {
     try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
   });
@@ -1792,13 +1792,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     return () => clearInterval(id);
   }, []);
 
-  // 코스피 야간선물 15초 갱신
-  useEffect(() => {
-    const load = () => fetchKospiFutures().then(d => { if (d) setKospiFutures(d); });
-    load();
-    const timer = setInterval(load, 15000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   const saveData = useCallback((path, data, key) => {
     if (!loaded) return;
@@ -2194,21 +2188,26 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
         {!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}
       </td>
-      <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>
-        <div style={{fontWeight:800}}>
-          {h.chgAmt != null && h.chgAmt !== 0
-            ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
-                ? "$"+Math.abs(h.chgAmt).toFixed(2)
-                : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩")
-            : h.chgPct
-              ? (h.chgPct>=0?"+":"-")+(h.cur==="USD"
-                  ? "$"+(Math.abs(h.chgPct)/100 * h.price).toFixed(2)
-                  : Math.round(Math.abs(h.chgPct)/100 * h.price).toLocaleString()+"₩")
-              : "—"}
+      <td style={{...S.TD,fontWeight:700}}>
+        {/* 일변동: 정규장 종가 기준 등락 */}
+        <div style={{fontWeight:800,color:( h.regChgPct??h.chgPct)>=0?"#34d399":"#f87171"}}>
+          {(()=>{
+            const amt = h.regChgAmt||h.chgAmt;
+            const pct = h.regChgPct??h.chgPct;
+            const amtStr = amt
+              ? (amt>=0?"+":"-")+(h.cur==="USD" ? "$"+Math.abs(amt).toFixed(2) : Math.round(Math.abs(amt)).toLocaleString()+"₩")
+              : pct ? (pct>=0?"+":"-")+(h.cur==="USD" ? "$"+(Math.abs(pct)/100*( h.regPrice||h.price)).toFixed(2) : Math.round(Math.abs(pct)/100*(h.regPrice||h.price)).toLocaleString()+"₩") : "—";
+            return amtStr;
+          })()}
         </div>
-        <div style={{fontSize:"11px",opacity:0.85}}>({fmtPct(h.chgPct)})</div>
-        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1.2}}>🌅프리</div>}
-        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1.2}}>🌙애프터</div>}
+        <div style={{fontSize:"11px",opacity:0.85,color:(h.regChgPct??h.chgPct)>=0?"#34d399":"#f87171"}}>({fmtPct(h.regChgPct??h.chgPct)})</div>
+        {/* 프리/애프터: 별도 변동 표시 */}
+        {h.marketState==="PRE" && h.preMarketChangePercent!=null && (
+          <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,lineHeight:1.4}}>🌅{h.preMarketChangePercent>=0?"+":""}{h.preMarketChangePercent.toFixed(2)}%</div>
+        )}
+        {h.marketState==="POST" && h.postMarketChangePercent!=null && (
+          <div style={{fontSize:"9px",color:"#c084fc",fontWeight:700,lineHeight:1.4}}>🌙{h.postMarketChangePercent>=0?"+":""}{h.postMarketChangePercent.toFixed(2)}%</div>
+        )}
       </td>
       <td style={S.TD}>{h.quantity.toLocaleString()}</td>
       <td style={{...S.TD,fontWeight:700}}>{hide ? <span style={{color:"#334155",letterSpacing:"0.05em"}}>●●●</span> : currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
@@ -2301,22 +2300,23 @@ function PortfolioApp({ syncKey, onLogout }) {
                 )}
                 {!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}
               </div>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{color:h.chgPct>=0?"#34d399":"#f87171"}}>
-                    <span style={{fontSize:"13px",fontWeight:800}}>
-                      {h.chgAmt != null && h.chgAmt !== 0
-                      ? (h.chgAmt>=0?"+":"-")+(h.cur==="USD"
-                          ? "$"+Math.abs(h.chgAmt).toFixed(2)
-                          : Math.round(Math.abs(h.chgAmt)).toLocaleString()+"₩")
-                      : h.chgPct
-                        ? (h.chgPct>=0?"+":"-")+(h.cur==="USD"
-                            ? "$"+(Math.abs(h.chgPct)/100 * h.price).toFixed(2)
-                            : Math.round(Math.abs(h.chgPct)/100 * h.price).toLocaleString()+"₩")
-                        : "—"}
-                    </span>
-                    <span style={{fontSize:"11px",marginLeft:"3px",opacity:0.85}}>({fmtPct(h.chgPct)})</span>
-                    {h.marketState==="PRE"  && <span style={{fontSize:"9px",background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>프리</span>}
-                    {h.marketState==="POST" && <span style={{fontSize:"9px",background:"rgba(167,139,250,0.2)",color:"#a78bfa",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>애프터</span>}
-                  </div></div>
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
+                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동(종가기준)</div>
+                <div style={{color:(h.regChgPct??h.chgPct)>=0?"#34d399":"#f87171"}}>
+                  <span style={{fontSize:"13px",fontWeight:800}}>
+                    {(()=>{
+                      const amt=h.regChgAmt||h.chgAmt;
+                      const pct=h.regChgPct??h.chgPct;
+                      if(amt) return (amt>=0?"+":"-")+(h.cur==="USD"?"$"+Math.abs(amt).toFixed(2):Math.round(Math.abs(amt)).toLocaleString()+"₩");
+                      if(pct) return (pct>=0?"+":"-")+(h.cur==="USD"?"$"+(Math.abs(pct)/100*(h.regPrice||h.price)).toFixed(2):Math.round(Math.abs(pct)/100*(h.regPrice||h.price)).toLocaleString()+"₩");
+                      return "—";
+                    })()}
+                  </span>
+                  <span style={{fontSize:"11px",marginLeft:"3px",opacity:0.85}}>({fmtPct(h.regChgPct??h.chgPct)})</span>
+                  {h.marketState==="PRE"  && h.preMarketChangePercent!=null  && <span style={{fontSize:"9px",background:"rgba(251,191,36,0.2)",color:"#fbbf24",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>🌅{(h.preMarketChangePercent>=0?"+":"")+h.preMarketChangePercent.toFixed(2)}%</span>}
+                  {h.marketState==="POST" && h.postMarketChangePercent!=null && <span style={{fontSize:"9px",background:"rgba(167,139,250,0.2)",color:"#a78bfa",padding:"1px 5px",borderRadius:"4px",marginLeft:"4px",fontWeight:700}}>🌙{(h.postMarketChangePercent>=0?"+":"")+h.postMarketChangePercent.toFixed(2)}%</span>}
+                </div>
+              </div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>손익률</div><div style={{fontSize:"13px",fontWeight:700,color:h.pnlPct>=0?"#34d399":"#f87171"}}>{fmtPct(h.pnlPct)}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>수량</div><div style={{fontSize:"13px",fontWeight:700}}>{h.quantity.toLocaleString()}</div></div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px",gridColumn:"2/-1"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>평가금액</div><div style={{fontSize:"13px",fontWeight:700}}>{currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</div></div>
@@ -2438,24 +2438,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <span style={{color:"rgba(255,255,255,0.08)",fontSize:"16px",userSelect:"none"}}>|</span>
             <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
             {/* 코스피 야간선물 */}
-            {kospiFutures && kospiFutures.price && kospiFutures.price > 100 && kospiFutures.price < 1000 && (()=>{
-              const kst = new Date(Date.now()+9*3600000);
-              const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
-              const isNight = mins>=15*60+30 || mins<9*60; // 정규장 외 시간
-              if (!isNight) return null;
-              const { price, chg } = kospiFutures;
-              const isUp = chg >= 0;
-              return (
-                <div style={{display:"flex",alignItems:"center",gap:"6px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"3px 10px"}}>
-                  <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>🌙 {kospiFutures.label||"코스피200선물"}</span>
-                  <span style={{fontSize:"12px",fontWeight:700,color:"#f1f5f9"}}>{typeof price==="number"?price.toLocaleString():price}</span>
-                  <span style={{fontSize:"11px",fontWeight:700,color:isUp?"#34d399":"#f87171"}}>
-                    {isUp?"+":""}{kospiFutures.chgAmt ? kospiFutures.chgAmt.toFixed(2) : chg.toFixed(2)}pt
-                    <span style={{fontSize:"9px",opacity:0.8,marginLeft:"3px"}}>({isUp?"+":""}{chg.toFixed(2)}%)</span>
-                  </span>
-                </div>
-              );
-            })()}
+            
             <span style={{marginLeft:"auto",fontSize:"10px",color:"#374151",display:"flex",alignItems:"center",gap:"6px"}}>
               {loading&&<span style={{color:"#6366f1",fontWeight:600}}>↻ 조회중</span>}
               {!loading&&(lastUpdated||priceAge>0)&&<span style={{color:"#4b5563"}}>{lastUpdated||new Date(priceAge).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>}
