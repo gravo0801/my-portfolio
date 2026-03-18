@@ -211,16 +211,21 @@ async function fetchKospiFutures() {
   return null;
 }
 
-async function fetchHistory(ticker, market) {
+async function fetchHistory(ticker, market, range="3mo") {
   const isKR = market === "KR" || market === "ISA";
   const isETFKR = market === "ETF" && /^[0-9]/.test(ticker);
   const isCrypto = market === "CRYPTO";
   const isGold = market === "GOLD";
 
+  // range → interval 매핑
+  const intervalMap = { "1d":"5m", "1wk":"15m", "1mo":"1d", "3mo":"1d", "6mo":"1d", "1y":"1wk" };
+  const interval = intervalMap[range] || "1d";
+
   if (isCrypto) {
     try {
       const id = CRYPTO_IDS[ticker.toUpperCase()] || ticker.toLowerCase();
-      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=30&interval=daily`, { signal: AbortSignal.timeout(8000) });
+      const days = range==="1d"?"1":range==="1wk"?"7":range==="1mo"?"30":range==="6mo"?"180":range==="1y"?"365":"90";
+      const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`);
       const d = await r.json();
       return (d.prices||[]).map(([ts, price]) => ({
         date: new Date(ts).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}),
@@ -229,25 +234,30 @@ async function fetchHistory(ticker, market) {
     } catch { return []; }
   }
 
-  if (isGold) {
-    // 금 현물 3개월 차트: GC=F (금 선물 근월물)
-    ticker = "GC%3DF";
-  }
+  if (isGold) ticker = "GC%3DF";
 
-  // 티커 정규화
   let tk = ticker;
   if ((isKR || isETFKR) && !tk.includes(".")) tk += ".KS";
 
-  const url1 = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
-  const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${tk}?interval=1d&range=3mo`;
+  // 1순위: Vercel API (/api/history)
+  try {
+    const r = await fetch(`/api/history?symbol=${encodeURIComponent(tk)}&range=${range}&interval=${interval}`, {
+      signal: AbortSignal.timeout(10000), cache: "no-store",
+    });
+    if (r.ok) {
+      const d = await r.json();
+      if (d?.data?.length >= 2) return d.data;
+    }
+  } catch {}
 
+  // 2순위: 프록시 fallback
+  const url1 = `https://query1.finance.yahoo.com/v8/finance/chart/${tk}?interval=${interval}&range=${range}`;
+  const url2 = `https://query2.finance.yahoo.com/v8/finance/chart/${tk}?interval=${interval}&range=${range}`;
   const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url1)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url1+"&_="+Date.now())}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url2+"&_="+Date.now())}`,
     `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url1)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url2)}`,
   ];
-
   for (const url of proxies) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -261,7 +271,7 @@ async function fetchHistory(ticker, market) {
         date: new Date(ts * 1000).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}),
         price: closes[i] ? Math.round(closes[i]*100)/100 : null,
       })).filter(d => d.price !== null);
-      if (data.length > 0) return data;
+      if (data.length >= 2) return data;
     } catch { continue; }
   }
   return [];
@@ -649,28 +659,29 @@ function StockDetail({ holding, price, onClose, isMobile }) {
   const [history, setHistory]   = useState([]);
   const [info, setInfo]         = useState({});
   const [loading, setLoading]   = useState(true);
-  const [range, setRange]       = useState("3mo");
+  const [chartRange, setChartRange] = useState("3mo");
+
+  useEffect(() => {
+    const key = holding.ticker + "_" + chartRange;
+    if (_chartCache[key]) {
+      setHistory(_chartCache[key]);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      fetchHistory(holding.ticker, holding.market, chartRange).then(h => {
+        _chartCache[key] = h;
+        setHistory(h);
+        setLoading(false);
+      });
+    }
+  }, [holding.ticker, chartRange]);
 
   useEffect(() => {
     const key = holding.ticker;
-    // 캐시 있으면 즉시 표시
-    if (_chartCache[key] && _infoCache[key]) {
-      setHistory(_chartCache[key]);
-      setInfo(_infoCache[key]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    // 캐시 없으면 병렬로 fetch
-    Promise.all([
-      _chartCache[key] ? Promise.resolve(_chartCache[key]) : fetchHistory(holding.ticker, holding.market),
-      _infoCache[key]  ? Promise.resolve(_infoCache[key])  : fetchStockInfo(holding.ticker, holding.market),
-    ]).then(([h, i]) => {
-      _chartCache[key] = h;
-      _infoCache[key]  = i;
-      setHistory(h);
+    if (_infoCache[key]) { setInfo(_infoCache[key]); return; }
+    fetchStockInfo(holding.ticker, holding.market).then(i => {
+      _infoCache[key] = i;
       setInfo(i);
-      setLoading(false);
     });
   }, [holding.ticker]);
 
@@ -752,7 +763,17 @@ function StockDetail({ holding, price, onClose, isMobile }) {
 
         {/* 주가 차트 */}
         <div style={{ background:"rgba(255,255,255,0.03)", borderRadius:"12px", padding:"14px", marginBottom:"16px" }}>
-          <div style={{ fontSize:"13px", fontWeight:700, color:"#94a3b8", marginBottom:"10px" }}>📈 최근 3개월 주가 추이</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+            <div style={{fontSize:"13px",fontWeight:700,color:"#94a3b8"}}>📈 주가 추이</div>
+            <div style={{display:"flex",gap:"4px"}}>
+              {[["1d","1일"],["1wk","1주"],["1mo","1개월"],["3mo","3개월"],["6mo","6개월"],["1y","1년"]].map(([r,l])=>(
+                <button key={r} onClick={()=>setChartRange(r)}
+                  style={{background:chartRange===r?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.05)",border:chartRange===r?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",color:chartRange===r?"#a5b4fc":"#64748b",padding:"3px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
           {loading ? (
             <div style={{ textAlign:"center", padding:"30px", color:"#475569", fontSize:"13px" }}>차트 불러오는 중...</div>
           ) : history.length < 2 ? (
@@ -1996,8 +2017,8 @@ function PortfolioApp({ syncKey, onLogout }) {
       const nyseReg  = mins>=(isDST?22*60+30:23*60+30) || mins<(isDST?5*60:6*60);
       const nysePre  = mins>=(isDST?17*60+30:18*60) && mins<(isDST?22*60+30:23*60+30);
       const nyseAfter= mins>=(isDST?5*60:6*60) && mins<(isDST?9*60:10*60);
-      if (kospi || nyseReg)        return 5000;   // 정규장(국내/미국): 5초
-      if (nysePre || nyseAfter)    return 10000;  // 프리/애프터: 10초
+      if (kospi || nyseReg)        return 5000;   // 정규장: 5초
+      if (nysePre || nyseAfter)    return 15000;  // 프리/애프터: 15초 (Finnhub rate limit 고려)
       return 60000;
     };
 
