@@ -909,14 +909,17 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
 
   const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0)).slice(-14);
 
-  // 계좌별 그룹
+  // 계좌별 그룹 - 일반종합계좌 / ISA / 절세계좌
+  const isa_items   = portfolio.filter(h => h.market === "ISA");
+  const gen_items   = portfolio.filter(h => h.market !== "ISA");
   const ACCOUNT_GROUPS = [
-    { key:"p1", title:"포트폴리오1", subtitle:"주식·코인·금현물", color:"#6366f1", items: portfolio },
-    { key:"연금저축1(신한금융투자)", title:"연금저축1", subtitle:"신한금융투자", color:"#06b6d4",
+    { key:"일반종합계좌", title:"일반종합계좌", subtitle:"주식·코인·금현물", color:"#6366f1", items: gen_items },
+    { key:"ISA계좌", title:"ISA 계좌", subtitle:"중개형 ISA", color:"#06b6d4", items: isa_items },
+    { key:"연금저축1(신한금융투자)", title:"연금저축1", subtitle:"신한금융투자", color:"#10b981",
       items: portfolio2.filter(h=>h.taxAccount==="연금저축1(신한금융투자)") },
-    { key:"연금저축2(미래에셋증권)", title:"연금저축2", subtitle:"미래에셋증권", color:"#10b981",
+    { key:"연금저축2(미래에셋증권)", title:"연금저축2", subtitle:"미래에셋증권", color:"#f59e0b",
       items: portfolio2.filter(h=>h.taxAccount==="연금저축2(미래에셋증권)") },
-    { key:"IRP(미래에셋증권)", title:"IRP", subtitle:"미래에셋증권", color:"#f59e0b",
+    { key:"IRP(미래에셋증권)", title:"IRP", subtitle:"미래에셋증권", color:"#a855f7",
       items: portfolio2.filter(h=>h.taxAccount==="IRP(미래에셋증권)") },
   ].filter(g => g.items.length > 0);
 
@@ -1202,26 +1205,6 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
             </div>
           ))}
         </div>
-
-        {/* 수익률 추이 차트 */}
-        {snap.length >= 2 && (
-          <div style={{background:"rgba(255,255,255,0.03)",borderRadius:"12px",padding:"14px",marginBottom:"14px"}}>
-            <div style={{fontSize:"13px",fontWeight:700,color:"#94a3b8",marginBottom:"10px"}}>📈 수익률 추이</div>
-            <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
-              {[0.25,0.5,0.75].map(r=>(
-                <line key={r} x1={pad.l} y1={pad.t+(H-pad.t-pad.b)*r} x2={W-pad.r} y2={pad.t+(H-pad.t-pad.b)*r} stroke="rgba(255,255,255,0.05)" strokeWidth="1"/>
-              ))}
-              <polyline points={pts} fill="none" stroke={isUp?"#34d399":"#f87171"} strokeWidth="2" strokeLinejoin="round"/>
-              {snap.length > 0 && (()=>{
-                const lx = pad.l + (W-pad.l-pad.r);
-                const ly = pad.t + (1-(snap[snap.length-1].returnRate-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
-                return <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r="3" fill={isUp?"#34d399":"#f87171"}/>;
-              })()}
-              <text x={pad.l+2} y={pad.t+10} fontSize="9" fill="#64748b">{maxP.toFixed(1)}%</text>
-              <text x={pad.l+2} y={H-pad.b-2} fontSize="9" fill="#64748b">{minP.toFixed(1)}%</text>
-            </svg>
-          </div>
-        )}
 
         {/* 자산 배분 */}
         {pieData.length > 0 && (
@@ -1576,18 +1559,20 @@ function PortfolioApp({ syncKey, onLogout }) {
       const parsed = JSON.parse(c);
       const isNewDay = new Date(age).toDateString() !== new Date().toDateString();
       if (isNewDay) {
-        // 새 날 시작: 종가(closePrice)를 현재가로, 변동률 0으로 초기화
+        // 새 날: 전일 종가로 설정, 변동률 0으로 초기화 (오늘 장 열리면 갱신됨)
         const cleaned = {};
         Object.entries(parsed).forEach(([k,v]) => {
           cleaned[k] = {
             ...v,
-            price: v.closePrice || v.regularPrice || v.price, // 종가 우선
+            price: v.closePrice || v.regularPrice || v.price,
             changePercent: 0,
             changeAmount: 0,
           };
         });
         return cleaned;
       }
+      // 같은 날 - 캐시의 등락폭 그대로 사용 (장마감 후에도 유지)
+      return parsed;
       return Date.now() - age < 1800000 ? parsed : {};
     } catch { return {}; }
   });
@@ -1719,6 +1704,10 @@ function PortfolioApp({ syncKey, onLogout }) {
               };
             });
             setPrices(dayStart);
+          } else if (!isNewDay && parsed) {
+            // 같은 날: 등락폭 포함 캐시 그대로 사용
+            setPrices(parsed);
+            setPriceAge(age);
           }
         }
       }
@@ -1955,10 +1944,17 @@ function PortfolioApp({ syncKey, onLogout }) {
     setPrices(prev => {
       const merged = { ...prev, ...next };
       try {
-        // 캐시에는 가격/통화만 저장 (변동률은 항상 fresh fetch 필요)
+        // 캐시에 가격+당일 등락폭 저장 (장마감 후에도 표시 유지)
         const cacheOnly = {};
         Object.entries(merged).forEach(([k,v]) => {
-          cacheOnly[k] = { price: v.price, regularPrice: v.regularPrice, currency: v.currency };
+          cacheOnly[k] = {
+            price: v.price,
+            regularPrice: v.regularPrice,
+            currency: v.currency,
+            changePercent: v.changePercent ?? 0,
+            changeAmount: v.changeAmount ?? 0,
+            closePrice: v.closePrice || v.regularPrice || v.price,
+          };
         });
         localStorage.setItem("pm_prices_cache", JSON.stringify(cacheOnly));
         localStorage.setItem("pm_prices_age", String(Date.now()));
