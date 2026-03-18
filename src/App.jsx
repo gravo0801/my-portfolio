@@ -416,16 +416,25 @@ function InfoWidget() {
     // 1순위: Yahoo Finance 실시간 환율 (장중 실시간 반영)
     const yahooSymbols = ["KRW=X","JPY=X","EURUSD=X","CNY=X","GBPUSD=X","AUDUSD=X","SGD=X","HKD=X","CHF=X","CAD=X"];
     const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${yahooSymbols.join(",")}&fields=regularMarketPrice,currency`;
+    // allorigins 캐시 방지를 위해 timestamp 추가
+    const _t = Date.now();
     const proxies = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl.replace("query1","query2"))}`,
+      `/api/rates`,  // Vercel API (1순위, 캐시 없음)
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl+"&_="+_t)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl.replace("query1","query2")+"&_="+_t)}`,
     ];
 
     for (const proxy of proxies) {
       try {
-        const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
+        const r = await fetch(proxy, { signal: AbortSignal.timeout(7000), cache: 'no-store' });
         if (!r.ok) continue;
         const d = await r.json();
+        // Vercel /api/rates 는 { rates: {KRW, JPY, ...} } 형식으로 직접 반환
+        if (d?.rates?.KRW > 900) {
+          setRates(d.rates);
+          setRLoading(false);
+          return;
+        }
         const quotes = d?.quoteResponse?.result || [];
         if (!quotes.length) continue;
 
@@ -1726,6 +1735,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
     const fetchRate = async () => {
       const apis = [
+        async () => { const r = await fetch("/api/rates", { signal: AbortSignal.timeout(6000), cache:"no-store" }); const d = await r.json(); return d?.rates?.KRW; },
         async () => { const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
         async () => { const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
         async () => {
