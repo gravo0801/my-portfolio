@@ -185,42 +185,70 @@ function isUSDST() {
 }
 
 async function fetchKospiFutures() {
-  // 코스피200 야간선물 - Naver Finance SERVICE_ITEM 코드
-  // 근월물 코드: 101S06(6월물), 101S09(9월물), 101S12(12월물), 101S03(3월물)
   const now = new Date();
   const m = now.getMonth() + 1;
   const expMonth = m <= 3 ? '03' : m <= 6 ? '06' : m <= 9 ? '09' : '12';
   const futureCode = `101S${expMonth}`;
+  const _t = Date.now();
 
-  // Naver Finance polling API (Vercel API Route 경유)
+  // 브라우저에서 직접 요청 (서버 차단 우회)
   const sources = [
-    // 1순위: Vercel API Route로 서버사이드 요청
+    // 1순위: 네이버 모바일 API (브라우저 직접)
     async () => {
-      const r = await fetch(`/api/futures?code=${futureCode}`, { signal: AbortSignal.timeout(6000), cache: 'no-store' });
-      if (!r.ok) throw new Error('Vercel futures API failed');
-      return await r.json();
+      const r = await fetch(`https://m.stock.naver.com/api/stock/${futureCode}/basic`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!r.ok) throw new Error('naver mobile failed');
+      const d = await r.json();
+      const price = parseFloat((d.closePrice||'').replace(/,/g,'') || 0);
+      if (price < 100 || price > 1000) throw new Error('invalid price');
+      const chgAmt = parseFloat((d.compareToPreviousClosePrice||'').replace(/,/g,'') || 0);
+      const chgPct = parseFloat(d.fluctuationsRatio || 0);
+      return { price, chg: chgPct, chgAmt, label: `코스피200 야간선물(${expMonth}월)` };
     },
-    // 2순위: allorigins 프록시
+    // 2순위: 네이버 polling API (브라우저 직접)
+    async () => {
+      const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${futureCode}&_=${_t}`;
+      const r = await fetch(naverUrl, {
+        headers: { 'Referer': 'https://finance.naver.com' },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!r.ok) throw new Error('naver polling failed');
+      const d = await r.json();
+      const item = d?.result?.areas?.[0]?.datas?.[0];
+      if (!item?.nv) throw new Error('no data');
+      const price = parseFloat(item.nv);
+      if (price < 100 || price > 1000) throw new Error('invalid price');
+      const sign = String(item.rf) === '5' ? -1 : 1;
+      return { price, chg: sign * parseFloat(item.cr||0), chgAmt: sign * parseFloat(item.cv||0), label: `코스피200 야간선물(${expMonth}월)` };
+    },
+    // 3순위: allorigins 프록시
     async () => {
       const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${futureCode}`;
-      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}&_=${Date.now()}`;
+      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}&_=${_t}`;
       const r = await fetch(proxy, { signal: AbortSignal.timeout(7000) });
       const d = await r.json();
       const item = d?.result?.areas?.[0]?.datas?.[0];
       if (!item?.nv) throw new Error('no data');
       const price = parseFloat(item.nv);
-      const rf    = String(item.rf || '');
-      const crAbs = parseFloat(item.cr || 0);
-      const cvAbs = parseFloat(item.cv || 0);
-      const sign  = rf === '5' ? -1 : 1;
-      return { price, chg: sign * crAbs, chgAmt: sign * cvAbs, label: `코스피200 야간선물(${expMonth}월)` };
+      if (price < 100 || price > 1000) throw new Error('invalid price');
+      const sign = String(item.rf) === '5' ? -1 : 1;
+      return { price, chg: sign * parseFloat(item.cr||0), chgAmt: sign * parseFloat(item.cv||0), label: `코스피200 야간선물(${expMonth}월)` };
+    },
+    // 4순위: Vercel API (혹시 살아있을 때)
+    async () => {
+      const r = await fetch(`/api/futures?code=${futureCode}`, { signal: AbortSignal.timeout(6000), cache: 'no-store' });
+      if (!r.ok) throw new Error('vercel failed');
+      const d = await r.json();
+      if (!d.price || d.price < 100 || d.price > 1000) throw new Error('invalid');
+      return d;
     },
   ];
 
   for (const src of sources) {
     try {
       const res = await src();
-      if (res?.price > 0) return res;
+      if (res?.price > 100) return res;
     } catch { continue; }
   }
   return null;
