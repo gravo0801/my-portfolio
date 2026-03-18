@@ -2433,7 +2433,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <span style={{color:"rgba(255,255,255,0.08)",fontSize:"16px",userSelect:"none"}}>|</span>
             <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
             {/* 코스피 야간선물 */}
-            {kospiFutures && kospiFutures.price && kospiFutures.price > 100 && kospiFutures.price < 800 && (()=>{
+            {kospiFutures && kospiFutures.price && kospiFutures.price > 100 && kospiFutures.price < 1000 && (()=>{
               const kst = new Date(Date.now()+9*3600000);
               const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
               const isNight = mins>=15*60+30 || mins<9*60; // 정규장 외 시간
