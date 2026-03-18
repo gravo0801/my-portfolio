@@ -2053,7 +2053,17 @@ function PortfolioApp({ syncKey, onLogout }) {
               ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
               : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
           : 0);
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
+    const prePrice  = p?.preMarketPrice  ?? null;
+    const preChgPct = p?.preMarketChangePercent ?? null;
+    const preChgAmt = p?.preMarketChange  ?? null;
+    const postPrice  = p?.postMarketPrice  ?? null;
+    const postChgPct = p?.postMarketChangePercent ?? null;
+    const postChgAmt = p?.postMarketChange  ?? null;
+    const regPrice  = p?.regularPrice ?? price;
+    const regChgPct = p?.regularChangePercent ?? 0;
+    const regChgAmt = p?.regularChangeAmount ?? 0;
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState,
+      prePrice, preChgPct, preChgAmt, postPrice, postChgPct, postChgAmt, regPrice, regChgPct, regChgAmt };
   });
 
   const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
@@ -2135,9 +2145,26 @@ function PortfolioApp({ syncKey, onLogout }) {
         </div>
       </td>
       <td style={S.TD}>
-        <div style={{fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>
-        {h.marketState==="PRE"  && <div style={{fontSize:"9px",color:"#fbbf24",fontWeight:700,marginTop:"2px"}}>🌅 프리장</div>}
-        {h.marketState==="POST" && <div style={{fontSize:"9px",color:"#a78bfa",fontWeight:700,marginTop:"2px"}}>🌙 애프터</div>}
+        {/* 현재가: PRE/POST면 종가 + 별도 표시 */}
+        <div style={{fontWeight:700}}>
+          {h.marketState==="PRE"||h.marketState==="POST" ? fmtPrice(h.regPrice||h.price,h.cur) : fmtPrice(h.price,h.cur)}
+        </div>
+        {h.marketState==="PRE" && h.prePrice && (
+          <div style={{fontSize:"10px",color:"#fbbf24",marginTop:"2px",fontWeight:700}}>
+            🌅 {fmtPrice(h.prePrice,h.cur)}
+            <span style={{color:h.preChgPct>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
+              {h.preChgPct!=null?(h.preChgPct>=0?"+":"")+h.preChgPct.toFixed(2)+"%":""}
+            </span>
+          </div>
+        )}
+        {h.marketState==="POST" && h.postPrice && (
+          <div style={{fontSize:"10px",color:"#a78bfa",marginTop:"2px",fontWeight:700}}>
+            🌙 {fmtPrice(h.postPrice,h.cur)}
+            <span style={{color:h.postChgPct>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
+              {h.postChgPct!=null?(h.postChgPct>=0?"+":"")+h.postChgPct.toFixed(2)+"%":""}
+            </span>
+          </div>
+        )}
         {!h.hasLive&&<div style={{fontSize:"11px",color:"#475569"}}>매수가 기준</div>}
       </td>
       <td style={{...S.TD,color:h.chgPct>=0?"#34d399":"#f87171",fontWeight:700}}>
@@ -2228,7 +2255,25 @@ function PortfolioApp({ syncKey, onLogout }) {
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
-        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>현재가</div><div style={{fontSize:"13px",fontWeight:700}}>{fmtPrice(h.price,h.cur)}</div>{!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}</div>
+        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
+                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>
+                  {h.marketState==="PRE"?"종가":"현재가"}
+                </div>
+                <div style={{fontSize:"13px",fontWeight:700}}>
+                  {h.marketState==="PRE"||h.marketState==="POST" ? fmtPrice(h.regPrice||h.price,h.cur) : fmtPrice(h.price,h.cur)}
+                </div>
+                {h.marketState==="PRE" && h.prePrice && (
+                  <div style={{fontSize:"10px",color:"#fbbf24",fontWeight:700,marginTop:"2px"}}>
+                    🌅{fmtPrice(h.prePrice,h.cur)} {h.preChgPct!=null?(h.preChgPct>=0?"+":"")+h.preChgPct.toFixed(2)+"%":""}
+                  </div>
+                )}
+                {h.marketState==="POST" && h.postPrice && (
+                  <div style={{fontSize:"10px",color:"#a78bfa",fontWeight:700,marginTop:"2px"}}>
+                    🌙{fmtPrice(h.postPrice,h.cur)} {h.postChgPct!=null?(h.postChgPct>=0?"+":"")+h.postChgPct.toFixed(2)+"%":""}
+                  </div>
+                )}
+                {!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}
+              </div>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>일변동</div><div style={{color:h.chgPct>=0?"#34d399":"#f87171"}}>
                     <span style={{fontSize:"13px",fontWeight:800}}>
                       {h.chgAmt != null && h.chgAmt !== 0
