@@ -118,7 +118,8 @@ export default async function handler(req, res) {
           } catch {}
         }
       } else {
-        // 誘멸뎅二쇱떇/ETF: v7/quote ?쒕룄 ???ㅽ뙣??v8/chart fallback
+        // 誘멸뎅二쇱떇/ETF: Finnhub(?꾨━/?좏봽?? + Yahoo(?뺢퇋?? ?쇳빀
+        const FINNHUB_KEY = process.env.FINNHUB_KEY;
         const headers = {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'application/json, text/plain, */*',
@@ -128,16 +129,40 @@ export default async function handler(req, res) {
           'Cache-Control': 'no-cache',
         };
 
-        // v7/quote (query1 ??query2 ?쒖꽌濡??쒕룄)
+        // ?? 1?쒖쐞: Finnhub (?꾨━/?좏봽?곕쭏耳??ы븿 ?ㅼ떆媛? ??
         let resolved = false;
+        if (FINNHUB_KEY) {
+          try {
+            const fUrl = `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`;
+            const fr = await fetch(fUrl, { signal: AbortSignal.timeout(6000) });
+            if (fr.ok) {
+              const fd = await fr.json();
+              // fd.c = ?꾩옱媛, fd.d = ?깅씫??$), fd.dp = ?깅씫瑜?%), fd.pc = ?꾩씪醫낃?
+              if (fd.c && fd.c > 0) {
+                results[sym] = {
+                  price: fd.c,
+                  regularPrice: fd.pc || fd.c,
+                  changePercent: fd.dp ?? 0,
+                  changeAmount: fd.d ? Math.round(fd.d * 100) / 100 : 0,
+                  currency: 'USD',
+                  marketState: 'REGULAR', // Finnhub????긽 理쒖떊媛 諛섑솚
+                };
+                resolved = true;
+              }
+            }
+          } catch {}
+        }
+
+        // ?? 2?쒖쐞: Yahoo v7/quote (query1 ??query2) ??
         const v7urls = [
           `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
           `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}`,
         ];
         for (const v7url of v7urls) {
+         if (resolved) break;
          try {
           const url = v7url;
-          const url_q2 = v7url; // kept for compatibility
+          const url_q2 = v7url;
           const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
           if (r.ok) {
             const d = await r.json();
