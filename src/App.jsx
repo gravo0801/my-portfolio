@@ -38,6 +38,57 @@ let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 // Vercel API Route 사용 가능 여부 체크
 let _useVercelApi = true;
 
+// 국내주식 전용: 브라우저에서 allorigins → 네이버 직접 호출
+async function fetchKRStock(ticker) {
+  const ticker6 = ticker.replace('.KS','').replace('.KQ','').padStart(6,'0');
+  const _t = Date.now();
+
+  // 1순위: allorigins → 네이버 모바일 API
+  try {
+    const naverMobileUrl = `https://m.stock.naver.com/api/stock/${ticker6}/basic`;
+    const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverMobileUrl)}&_=${_t}`;
+    const r = await fetch(proxy1, { signal: AbortSignal.timeout(7000) });
+    if (r.ok) {
+      const d = await r.json();
+      const price  = parseFloat((d.closePrice||'').replace(/,/g,'') || 0);
+      const chgAmt = parseFloat((d.compareToPreviousClosePrice||'').replace(/,/g,'') || 0);
+      const chgPct = parseFloat(d.fluctuationsRatio || 0);
+      if (price > 0) {
+        return { price, regularPrice: price, closePrice: price,
+          changePercent: chgPct, changeAmount: Math.round(chgAmt),
+          regularChangePercent: chgPct, regularChangeAmount: Math.round(chgAmt),
+          currency: 'KRW', marketState: 'REGULAR' };
+      }
+    }
+  } catch {}
+
+  // 2순위: allorigins → 네이버 polling API
+  try {
+    const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
+    const proxy2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}&_=${_t}`;
+    const r = await fetch(proxy2, { signal: AbortSignal.timeout(7000) });
+    if (r.ok) {
+      const d = await r.json();
+      const item = d?.result?.areas?.[0]?.datas?.[0];
+      if (item?.nv) {
+        const price = parseFloat(item.nv);
+        const sign  = String(item.rf) === '5' ? -1 : 1;
+        const chgPct = sign * parseFloat(item.cr||0);
+        const chgAmt = sign * Math.round(parseFloat(item.cv||0));
+        if (price > 0) {
+          return { price, regularPrice: price, closePrice: price,
+            changePercent: chgPct, changeAmount: chgAmt,
+            regularChangePercent: chgPct, regularChangeAmount: chgAmt,
+            currency: 'KRW', marketState: 'REGULAR' };
+        }
+      }
+    }
+  } catch {}
+
+  // 3순위: Yahoo v8/chart (fallback)
+  return await fetchYahoo(ticker);
+}
+
 async function fetchViaVercel(tickers) {
   // tickers: string[] → { ticker: result } 반환
   const syms = tickers.join(',');
@@ -1878,6 +1929,14 @@ function PortfolioApp({ syncKey, onLogout }) {
             }
           });
           console.log(`[시세] Vercel API ${hit}/${tickers.length}개 성공`);
+          // KR 종목 중 데이터 없는 것 → 별도로 allorigins 직접 호출
+          const missingKR = krTickers.filter(tk => !batchRes[tk]);
+          if (missingKR.length > 0) {
+            await Promise.all(missingKR.map(async tk => {
+              const r = await fetchKRStock(tk);
+              if (r) { next[tk] = r; next[tk.replace(".KS","").replace(".KQ","")] = r; }
+            }));
+          }
           chunks.length = 0; // 배치 성공 → 아래 fallback 루프 스킵
         } catch(e) {
           console.warn('[시세] Vercel API 실패 → 2분 후 재시도:', e.message);
@@ -1889,7 +1948,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       // 2순위: Vercel 실패 시 개별 병렬 조회
       if (!_useVercelApi) {
         await Promise.all(krTickers.map(async tk => {
-          const r = await fetchYahoo(tk);
+          const r = await fetchKRStock(tk);
           if (r) { next[tk] = r; next[tk.replace(".KS","").replace(".KQ","")] = r; }
         }));
         await Promise.all(usTickers.map(async tk => {
