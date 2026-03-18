@@ -71,14 +71,15 @@ async function fetchYahoo(ticker) {
   const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`;
   const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&fields=${fields}`;
 
+  const ts2 = Date.now();
   const proxies = isKR ? [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl+"&_="+_t)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl.replace("query1","query2")+"&_="+_t)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl+"&_="+ts2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(chartUrl.replace("query1","query2")+"&_="+ts2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(chartUrl+"&_="+ts2)}`,
   ] : [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl+"&_="+_t)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl.replace("query1","query2")+"&_="+_t)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl+"&_="+ts2)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(quoteUrl.replace("query1","query2")+"&_="+ts2)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(quoteUrl+"&_="+ts2)}`,
   ];
 
   for (const url of proxies) {
@@ -108,7 +109,21 @@ async function fetchYahoo(ticker) {
         const chgAmtCalc = state==="PRE" && quoteRes.preMarketChange ? quoteRes.preMarketChange
                         : state==="POST" && quoteRes.postMarketChange ? quoteRes.postMarketChange
                         : (quoteRes.regularMarketChange ?? (dPrice - (quoteRes.regularMarketPreviousClose||dPrice)));
-      return { price:dPrice, regularPrice:price, changePercent:dChg, changeAmount: Math.round(chgAmtCalc*100)/100, currency:quoteRes.currency||"USD", marketState:state };
+      return {
+        price: dPrice,
+        regularPrice: price,
+        changePercent: dChg,
+        changeAmount: Math.round(chgAmtCalc*100)/100,
+        currency: quoteRes.currency||"USD",
+        marketState: state,
+        closePrice: price,
+        preMarketPrice: quoteRes.preMarketPrice ?? null,
+        preMarketChange: quoteRes.preMarketChange ?? null,
+        preMarketChangePercent: quoteRes.preMarketChangePercent ?? null,
+        postMarketPrice: quoteRes.postMarketPrice ?? null,
+        postMarketChange: quoteRes.postMarketChange ?? null,
+        postMarketChangePercent: quoteRes.postMarketChangePercent ?? null,
+      };
       }
     } catch { continue; }
   }
@@ -1975,6 +1990,13 @@ function PortfolioApp({ syncKey, onLogout }) {
             changePercent: v.changePercent ?? 0,
             changeAmount: v.changeAmount ?? 0,
             closePrice: v.closePrice || v.regularPrice || v.price,
+            marketState: v.marketState || 'REGULAR',
+            preMarketPrice: v.preMarketPrice ?? null,
+            preMarketChange: v.preMarketChange ?? null,
+            preMarketChangePercent: v.preMarketChangePercent ?? null,
+            postMarketPrice: v.postMarketPrice ?? null,
+            postMarketChange: v.postMarketChange ?? null,
+            postMarketChangePercent: v.postMarketChangePercent ?? null,
           };
         });
         localStorage.setItem("pm_prices_cache", JSON.stringify(cacheOnly));
