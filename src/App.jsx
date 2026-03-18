@@ -2532,10 +2532,39 @@ function PortfolioApp({ syncKey, onLogout }) {
                 allP.forEach(h=>{ const k=h.broker||h.taxAccount||"미지정"; if(!map[k])map[k]=[]; map[k].push(h); });
                 return Object.entries(map).sort().map(([k,items])=>({ key:k, label:"🏦 "+k, sub:"", color:"#818cf8", items }));
               }
-              // market
+              // market (국내ETF = 숫자 티커, 해외ETF = 영문 티커)
+              const isKrETF = h => h.market==="ETF" && /^[0-9]/.test(h.ticker);
+              const isUsETF = h => h.market==="ETF" && !/^[0-9]/.test(h.ticker);
+              // 해외주식: 같은 티커 통합 (여러 계좌에 분산된 경우)
+              const rawOverseas = allP.filter(h => h.market==="US" || isUsETF(h));
+              const tickerMap = {};
+              rawOverseas.forEach(h => {
+                if (!tickerMap[h.ticker]) {
+                  tickerMap[h.ticker] = { ...h, _ids: [h.id] };
+                } else {
+                  const m = tickerMap[h.ticker];
+                  const totalQty  = m.quantity + h.quantity;
+                  const totalCost = m.avgPrice * m.quantity + h.avgPrice * h.quantity;
+                  const newAvg    = totalCost / totalQty;
+                  // 통합된 종목의 평가금액/손익 재계산
+                  const price     = m.price; // 시세는 동일
+                  tickerMap[h.ticker] = {
+                    ...m,
+                    quantity: totalQty,
+                    avgPrice: Math.round(newAvg * 100) / 100,
+                    value: price * totalQty,
+                    cost: totalCost,
+                    pnl: price * totalQty - totalCost,
+                    pnlPct: totalCost > 0 ? ((price * totalQty - totalCost) / totalCost) * 100 : 0,
+                    _ids: [...(m._ids||[h.id]), h.id],
+                    _merged: true,
+                  };
+                }
+              });
+              const overseasMerged = Object.values(tickerMap);
               return [
-                { key:"domestic", label:"🇰🇷 국내 주식", sub:"KR · ISA · 금현물", color:"#6366f1", items: allP.filter(h=>h.market==="KR"||h.market==="ISA"||h.market==="GOLD") },
-                { key:"overseas", label:"🌎 해외 주식", sub:"미국 · ETF", color:"#10b981", items: allP.filter(h=>h.market==="US"||h.market==="ETF") },
+                { key:"domestic", label:"🇰🇷 국내 주식", sub:"KR · ISA · 국내ETF · 금현물", color:"#6366f1", items: allP.filter(h=>h.market==="KR"||h.market==="ISA"||h.market==="GOLD"||isKrETF(h)) },
+                { key:"overseas", label:"🌎 해외 주식", sub:"미국 · 해외ETF", color:"#10b981", items: overseasMerged },
                 { key:"crypto",   label:"🪙 암호화폐", sub:"BTC · ETH 등", color:"#a855f7", items: allP.filter(h=>h.market==="CRYPTO") },
               ].filter(g=>g.items.length>0);
             };
@@ -2584,7 +2613,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               <div style={{flex:1,minWidth:0}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
-                                <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주</div>
+                                <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
                               </div>
                               <div style={{textAlign:"right",flexShrink:0}}>
                                 {amtStr && <div style={{fontSize:isMobile?"15px":"16px",fontWeight:800,color:chgColor,letterSpacing:"-0.02em"}}>{amtStr}</div>}
