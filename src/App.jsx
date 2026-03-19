@@ -38,37 +38,54 @@ let _bestProxy = parseInt(localStorage.getItem("pm_best_proxy")||"0");
 // Vercel API Route 사용 가능 여부 체크
 let _useVercelApi = true;
 
+// 현재 시간 기준 실시간 장 상태 계산 (캐시된 marketState 무시)
+function getLiveMarketState(market, fallback) {
+  const kst = new Date(Date.now() + 9*3600000);
+  const mins = kst.getUTCHours()*60 + kst.getUTCMinutes();
+  if (market === 'KR' || market === 'ISA') {
+    if (mins >= 8*60 && mins < 9*60) return 'PRE';
+    if (mins >= 9*60 && mins < 15*60+30) return 'REGULAR';
+    if (mins >= 15*60+30 && mins < 20*60) return 'POST';
+    return 'CLOSED';
+  }
+  // US: DST 반영
+  const isDST = isUSDST();
+  const preStart  = isDST ? 17*60 : 18*60;
+  const regStart  = isDST ? 22*60+30 : 23*60+30;
+  const regEnd    = isDST ? 5*60 : 6*60;
+  const afterEnd  = isDST ? 9*60 : 10*60;
+  const isReg     = mins >= regStart || mins < regEnd;
+  const isPre     = !isReg && mins >= preStart && mins < regStart;
+  const isAfter   = !isReg && mins >= regEnd && mins < afterEnd;
+  if (isReg)   return 'REGULAR';
+  if (isPre)   return 'PRE';
+  if (isAfter) return 'POST';
+  return 'CLOSED';
+}
+
 // 국내주식 전용: 브라우저에서 allorigins → 네이버 직접 호출
 async function fetchKRStock(ticker) {
   const ticker6 = ticker.replace('.KS','').replace('.KQ','').padStart(6,'0');
   const _t = Date.now();
 
-  // 1순위: allorigins → 네이버 모바일 API
-  try {
-    const naverMobileUrl = `https://m.stock.naver.com/api/stock/${ticker6}/basic`;
-    const proxy1 = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverMobileUrl)}&_=${_t}`;
-    const r = await fetch(proxy1, { signal: AbortSignal.timeout(7000) });
-    if (r.ok) {
-      const d = await r.json();
-      const price  = parseFloat((d.closePrice||'').replace(/,/g,'') || 0);
-      const chgAmt = parseFloat((d.compareToPreviousClosePrice||'').replace(/,/g,'') || 0);
-      const chgPct = parseFloat(d.fluctuationsRatio || 0);
-      if (price > 0) {
-        return { price, regularPrice: price, closePrice: price,
-          changePercent: chgPct, changeAmount: Math.round(chgAmt),
-          regularChangePercent: chgPct, regularChangeAmount: Math.round(chgAmt),
-          currency: 'KRW', marketState: 'REGULAR' };
-      }
-    }
-  } catch {}
+  const proxies = [
+    `https://api.allorigins.win/raw?url=`,
+    `https://api.codetabs.com/v1/proxy?quest=`,
+  ];
 
-  // 2순위: allorigins → 네이버 polling API
-  try {
-    const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
-    const proxy2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(naverUrl)}&_=${_t}`;
-    const r = await fetch(proxy2, { signal: AbortSignal.timeout(7000) });
-    if (r.ok) {
-      const d = await r.json();
+  // 1순위: 프록시 → 네이버 polling API (실시간 동시호가 포함)
+  const naverUrl = `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`;
+  for (const proxy of proxies) {
+    try {
+      const url = proxy.includes('allorigins')
+        ? `${proxy}${encodeURIComponent(naverUrl)}&_=${_t}`
+        : `${proxy}${encodeURIComponent(naverUrl)}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const text = await r.text();
+      // allorigins가 가끔 HTML 반환 - JSON인지 확인
+      if (!text.startsWith('{')) continue;
+      const d = JSON.parse(text);
       const item = d?.result?.areas?.[0]?.datas?.[0];
       if (item?.nv) {
         const price = parseFloat(item.nv);
@@ -82,10 +99,34 @@ async function fetchKRStock(ticker) {
             currency: 'KRW', marketState: 'REGULAR' };
         }
       }
-    }
-  } catch {}
+    } catch { continue; }
+  }
 
-  // 3순위: Yahoo v8/chart (fallback)
+  // 2순위: 프록시 → 네이버 모바일 API
+  const naverMobileUrl = `https://m.stock.naver.com/api/stock/${ticker6}/basic`;
+  for (const proxy of proxies) {
+    try {
+      const url = proxy.includes('allorigins')
+        ? `${proxy}${encodeURIComponent(naverMobileUrl)}&_=${_t}`
+        : `${proxy}${encodeURIComponent(naverMobileUrl)}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const text = await r.text();
+      if (!text.startsWith('{')) continue;
+      const d = JSON.parse(text);
+      const price  = parseFloat((d.closePrice||'').replace(/,/g,'') || 0);
+      const chgAmt = parseFloat((d.compareToPreviousClosePrice||'').replace(/[+,]/g,'') || 0);
+      const chgPct = parseFloat(d.fluctuationsRatio || 0);
+      if (price > 0) {
+        return { price, regularPrice: price, closePrice: price,
+          changePercent: chgPct, changeAmount: Math.round(chgAmt),
+          regularChangePercent: chgPct, regularChangeAmount: Math.round(chgAmt),
+          currency: 'KRW', marketState: 'REGULAR' };
+      }
+    } catch { continue; }
+  }
+
+  // 3순위: Yahoo v8/chart (최후 수단)
   return await fetchYahoo(ticker);
 }
 
@@ -1251,7 +1292,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
               ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
               : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
           : 0);
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState };
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: getLiveMarketState("KR", p?.marketState) };
   });
 
   const totalVal  = portfolio.reduce((s, h) => s + toKRWL(h.value, h.cur), 0);
@@ -1657,7 +1698,8 @@ function PortfolioApp({ syncKey, onLogout }) {
       const parsed = JSON.parse(c);
       const isNewDay = new Date(age).toDateString() !== new Date().toDateString();
       if (isNewDay) {
-        // 새 날: 전일 종가로 설정, 변동률 0으로 초기화 (오늘 장 열리면 갱신됨)
+        // 새 날: 종가로 설정, changePercent=0 (오늘 아직 장 안 열림)
+        // 단, regularChangePercent는 유지 (전일 종가 기준 등락 표시)
         const cleaned = {};
         Object.entries(parsed).forEach(([k,v]) => {
           cleaned[k] = {
@@ -1665,11 +1707,14 @@ function PortfolioApp({ syncKey, onLogout }) {
             price: v.closePrice || v.regularPrice || v.price,
             changePercent: 0,
             changeAmount: 0,
+            // 전일 등락폭은 유지 (일변동 컬럼에 표시)
+            regularChangePercent: v.regularChangePercent ?? v.changePercent ?? 0,
+            regularChangeAmount: v.regularChangeAmount ?? v.changeAmount ?? 0,
           };
         });
         return cleaned;
       }
-      // 같은 날 - 캐시의 등락폭 그대로 사용 (장마감 후에도 유지)
+      // 같은 날 - 캐시 그대로
       return parsed;
       return Date.now() - age < 1800000 ? parsed : {};
     } catch { return {}; }
@@ -1799,11 +1844,13 @@ function PortfolioApp({ syncKey, onLogout }) {
                 price: v.closePrice || v.regularPrice || v.price,
                 changePercent: 0,
                 changeAmount: 0,
+                regularChangePercent: v.regularChangePercent ?? v.changePercent ?? 0,
+                regularChangeAmount: v.regularChangeAmount ?? v.changeAmount ?? 0,
               };
             });
             setPrices(dayStart);
+            setPriceAge(age);
           } else if (!isNewDay && parsed) {
-            // 같은 날: 등락폭 포함 캐시 그대로 사용
             setPrices(parsed);
             setPriceAge(age);
           }
@@ -2053,6 +2100,8 @@ function PortfolioApp({ syncKey, onLogout }) {
             currency: v.currency,
             changePercent: v.changePercent ?? 0,
             changeAmount: v.changeAmount ?? 0,
+            regularChangePercent: v.regularChangePercent ?? v.changePercent ?? 0,
+            regularChangeAmount: v.regularChangeAmount ?? v.changeAmount ?? 0,
             closePrice: v.closePrice || v.regularPrice || v.price,
             marketState: v.marketState || 'REGULAR',
             preMarketPrice: v.preMarketPrice ?? null,
@@ -2139,17 +2188,18 @@ function PortfolioApp({ syncKey, onLogout }) {
               ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
               : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
           : 0);
-    const prePrice  = p?.preMarketPrice  ?? null;
-    const preChgPct = p?.preMarketChangePercent ?? null;
-    const preChgAmt = p?.preMarketChange  ?? null;
-    const postPrice  = p?.postMarketPrice  ?? null;
-    const postChgPct = p?.postMarketChangePercent ?? null;
-    const postChgAmt = p?.postMarketChange  ?? null;
     const regPrice  = p?.regularPrice ?? price;
     const regChgPct = p?.regularChangePercent ?? 0;
     const regChgAmt = p?.regularChangeAmount ?? 0;
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: p?.marketState,
-      prePrice, preChgPct, preChgAmt, postPrice, postChgPct, postChgAmt, regPrice, regChgPct, regChgAmt };
+    // preMarket/postMarket - 현재 장 상태 기준으로만 유효
+    const liveState = getLiveMarketState(h.market, p?.marketState);
+    const preMarketPrice = liveState==='PRE'  ? (p?.preMarketPrice  ?? null) : null;
+    const preMarketChangePercent = liveState==='PRE'  ? (p?.preMarketChangePercent  ?? null) : null;
+    const postMarketPrice = liveState==='POST' ? (p?.postMarketPrice ?? null) : null;
+    const postMarketChangePercent = liveState==='POST' ? (p?.postMarketChangePercent ?? null) : null;
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p,
+      marketState: liveState, regPrice, regChgPct, regChgAmt,
+      preMarketPrice, preMarketChangePercent, postMarketPrice, postMarketChangePercent };
   });
 
   const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
@@ -2235,19 +2285,19 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{fontWeight:700}}>
           {h.marketState==="PRE"||h.marketState==="POST" ? fmtPrice(h.regPrice||h.price,h.cur) : fmtPrice(h.price,h.cur)}
         </div>
-        {h.marketState==="PRE" && h.prePrice && (
+        {h.marketState==="PRE" && h.preMarketPrice && (
           <div style={{fontSize:"10px",color:"#fbbf24",marginTop:"2px",fontWeight:700}}>
-            🌅 {fmtPrice(h.prePrice,h.cur)}
-            <span style={{color:h.preChgPct>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
-              {h.preChgPct!=null?(h.preChgPct>=0?"+":"")+h.preChgPct.toFixed(2)+"%":""}
+            🌅 {fmtPrice(h.preMarketPrice,h.cur)}
+            <span style={{color:(h.preMarketChangePercent??0)>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
+              {h.preMarketChangePercent!=null?(h.preMarketChangePercent>=0?"+":"")+h.preMarketChangePercent.toFixed(2)+"%":""}
             </span>
           </div>
         )}
-        {h.marketState==="POST" && h.postPrice && (
+        {h.marketState==="POST" && h.postMarketPrice && (
           <div style={{fontSize:"10px",color:"#a78bfa",marginTop:"2px",fontWeight:700}}>
-            🌙 {fmtPrice(h.postPrice,h.cur)}
-            <span style={{color:h.postChgPct>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
-              {h.postChgPct!=null?(h.postChgPct>=0?"+":"")+h.postChgPct.toFixed(2)+"%":""}
+            🌙 {fmtPrice(h.postMarketPrice,h.cur)}
+            <span style={{color:(h.postMarketChangePercent??0)>=0?"#34d399":"#f87171",marginLeft:"3px"}}>
+              {h.postMarketChangePercent!=null?(h.postMarketChangePercent>=0?"+":"")+h.postMarketChangePercent.toFixed(2)+"%":""}
             </span>
           </div>
         )}
@@ -2353,14 +2403,14 @@ function PortfolioApp({ syncKey, onLogout }) {
                 <div style={{fontSize:"13px",fontWeight:700}}>
                   {h.marketState==="PRE"||h.marketState==="POST" ? fmtPrice(h.regPrice||h.price,h.cur) : fmtPrice(h.price,h.cur)}
                 </div>
-                {h.marketState==="PRE" && h.prePrice && (
+                {h.marketState==="PRE" && h.preMarketPrice && (
                   <div style={{fontSize:"10px",color:"#fbbf24",fontWeight:700,marginTop:"2px"}}>
-                    🌅{fmtPrice(h.prePrice,h.cur)} {h.preChgPct!=null?(h.preChgPct>=0?"+":"")+h.preChgPct.toFixed(2)+"%":""}
+                    🌅{fmtPrice(h.preMarketPrice,h.cur)} {h.preMarketChangePercent!=null?(h.preMarketChangePercent>=0?"+":"")+h.preMarketChangePercent.toFixed(2)+"%":""}
                   </div>
                 )}
-                {h.marketState==="POST" && h.postPrice && (
+                {h.marketState==="POST" && h.postMarketPrice && (
                   <div style={{fontSize:"10px",color:"#a78bfa",fontWeight:700,marginTop:"2px"}}>
-                    🌙{fmtPrice(h.postPrice,h.cur)} {h.postChgPct!=null?(h.postChgPct>=0?"+":"")+h.postChgPct.toFixed(2)+"%":""}
+                    🌙{fmtPrice(h.postMarketPrice,h.cur)} {h.postMarketChangePercent!=null?(h.postMarketChangePercent>=0?"+":"")+h.postMarketChangePercent.toFixed(2)+"%":""}
                   </div>
                 )}
                 {!h.hasLive&&<div style={{fontSize:"10px",color:"#475569"}}>매수가기준</div>}
