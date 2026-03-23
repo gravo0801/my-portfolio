@@ -1034,6 +1034,7 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
 
 // ── 전체 현황 Overview ────────────────────────────────────────────────────────
 function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: rawPrices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock }) {
+  const [ovCurrMode, setOvCurrMode] = useState("KRW");
   const prices = rawPrices || {};
   const [viewMode, setViewMode] = useState("account"); // account | broker | region
   const toKRWL = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
@@ -1106,12 +1107,23 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
           <div>
             <div style={{fontSize:"13px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"4px"}}>전체 포트폴리오</div>
-            <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>
-              <AnimatedNumber value={totalVal} format={v=>fmtK(v)} color="#f8fafc" fontSize={isMobile?"24px":"30px"}/>
+            <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}}>
+              <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>
+                <AnimatedNumber
+                  value={ovCurrMode==="USD" ? totalVal/liveUsdKrw : totalVal}
+                  format={v=>ovCurrMode==="USD"
+                    ? "$"+(Math.round(v)).toLocaleString("en-US")
+                    : Math.round(v).toLocaleString("ko-KR")+"₩"}
+                  color="#f8fafc" fontSize={isMobile?"24px":"30px"}/>
+              </div>
+              <div style={{display:"flex",background:"rgba(255,255,255,0.08)",borderRadius:"8px",padding:"2px",gap:"2px"}}>
+                <button onClick={()=>setOvCurrMode("KRW")} style={{padding:"3px 8px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"11px",fontWeight:700,background:ovCurrMode==="KRW"?"rgba(99,102,241,0.5)":"transparent",color:ovCurrMode==="KRW"?"#c7d2fe":"#64748b"}}>₩</button>
+                <button onClick={()=>setOvCurrMode("USD")} style={{padding:"3px 8px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"11px",fontWeight:700,background:ovCurrMode==="USD"?"rgba(16,185,129,0.4)":"transparent",color:ovCurrMode==="USD"?"#6ee7b7":"#64748b"}}>$</button>
+              </div>
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:"10px",marginTop:"5px",flexWrap:"wrap"}}>
+            <div style={{display:"flex",alignItems:"center",gap:"10px",marginTop:"2px",flexWrap:"wrap"}}>
               <span style={{fontSize:"15px",fontWeight:700,color:totalRet>=0?"#34d399":"#f87171"}}>{fmtP(totalRet)}</span>
-              <span style={{fontSize:"13px",color:"#64748b"}}>{totalRet>=0?"+":""}{fmtK(Math.abs(totalPnL))}</span>
+              <span style={{fontSize:"13px",color:totalPnL>=0?"#34d399":"#f87171"}}>{totalPnL>=0?"+":""}{fmtK(Math.abs(totalPnL))}</span>
               <span style={{fontSize:"12px",color:"#475569"}}>{allItems.length}종목</span>
             </div>
           </div>
@@ -2140,6 +2152,28 @@ function PortfolioApp({ syncKey, onLogout }) {
     });
     setLoading(false);
   }, [holdings, holdings2, watchlist, alerts, toast, syncKey, liveUsdKrw]);
+
+  // 스냅샷 저장: 가격 갱신 후 30초 간격으로 기록
+  const snapshotsRef = useRef(snapshots);
+  useEffect(() => { snapshotsRef.current = snapshots; }, [snapshots]);
+
+  useEffect(() => {
+    if (!loaded || totalVal <= 0) return;
+    const now2 = Date.now();
+    const lastSnap = snapshotsRef.current.length
+      ? Math.max(...snapshotsRef.current.map(s=>s.id||0)) : 0;
+    if (now2 - lastSnap < 30000) return; // 30초 이내 중복 방지
+    const snap = {
+      id: now2,
+      label: new Date(now2+9*3600000).toISOString().slice(5,16).replace('T',' '),
+      returnRate: Math.round(totalRet*100)/100,
+      totalValue: Math.round(totalVal),
+    };
+    const newSnaps = [...snapshotsRef.current, snap]
+      .sort((a,b)=>(a.id||0)-(b.id||0)).slice(-200);
+    setSnapshots(newSnaps);
+    dbSet(`users/${syncKey}/snapshots`, newSnaps);
+  }, [priceAge]); // priceAge가 바뀔때마다(=가격갱신마다) 체크
 
   useEffect(() => {
     if (!loaded || (!holdings.length && !holdings2.length)) return;
@@ -3262,7 +3296,15 @@ function PortfolioApp({ syncKey, onLogout }) {
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:11}} interval="preserveStartEnd"/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd"
+                      tickFormatter={v=>{
+                        if(!v) return "";
+                        // "03/16 14:30" 형식에서 기간에 따라 표시
+                        const parts=v.split(" ");
+                        if(chartPeriod==="7d"||chartPeriod==="all") return parts[1]||v; // HH:MM
+                        return parts[0]||v; // MM/DD
+                      }}
+                    />
                     <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"}/>
                     <Tooltip {...TT} formatter={v=>[v.toFixed(2)+"%","수익률"]}/>
                     <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={false} activeDot={{r:5,fill:"#6366f1"}}/>
@@ -3289,7 +3331,15 @@ function PortfolioApp({ syncKey, onLogout }) {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:11}} interval="preserveStartEnd"/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd"
+                      tickFormatter={v=>{
+                        if(!v) return "";
+                        // "03/16 14:30" 형식에서 기간에 따라 표시
+                        const parts=v.split(" ");
+                        if(chartPeriod==="7d"||chartPeriod==="all") return parts[1]||v; // HH:MM
+                        return parts[0]||v; // MM/DD
+                      }}
+                    />
                     <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"}/>
                     <Tooltip {...TT} formatter={v=>[fmtKRW(v),"총 자산"]}/>
                     <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
