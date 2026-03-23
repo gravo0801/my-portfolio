@@ -1106,7 +1106,9 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
           <div>
             <div style={{fontSize:"13px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"4px"}}>전체 포트폴리오</div>
-            <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>{fmtK(totalVal)}</div>
+            <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>
+              <AnimatedNumber value={totalVal} format={v=>fmtK(v)} color="#f8fafc" fontSize={isMobile?"24px":"30px"}/>
+            </div>
             <div style={{display:"flex",alignItems:"center",gap:"10px",marginTop:"5px",flexWrap:"wrap"}}>
               <span style={{fontSize:"15px",fontWeight:700,color:totalRet>=0?"#34d399":"#f87171"}}>{fmtP(totalRet)}</span>
               <span style={{fontSize:"13px",color:"#64748b"}}>{totalRet>=0?"+":""}{fmtK(Math.abs(totalPnL))}</span>
@@ -1268,7 +1270,7 @@ function ContribProgressBar({ taxAccounts, holdings2, prices, liveUsdKrw, contri
 }
 
 // ── 계좌 상세 모달 ────────────────────────────────────────────────────────────
-function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liveUsdKrw, isISA }) {
+function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liveUsdKrw, isISA, onEdit }) {
   const toKRWL = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
   const fmtK = (v) => Math.round(v).toLocaleString("ko-KR") + "₩";
   const fmtP = (n) => (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
@@ -1736,6 +1738,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [compactMode, setCompactMode] = useState(false);
   const [hideAmt, setHideAmt] = useState(false);
 
+  const [chartPeriod, setChartPeriod] = useState("all");
   const [bgTheme, setBgTheme] = useState(() => {
     try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
   });
@@ -2214,6 +2217,13 @@ function PortfolioApp({ syncKey, onLogout }) {
   })).filter(d => d.value > 0);
 
   const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0)).slice(-30);
+  const filteredSnaps = (() => {
+    if (chartPeriod === "all") return snapshotList;
+    const days = parseInt(chartPeriod);
+    const cutoff = Date.now() - days * 86400000;
+    const f = snapshotList.filter(s => (s.id||0) >= cutoff);
+    return f.length >= 2 ? f : snapshotList.slice(-Math.min(10, snapshotList.length));
+  })();
   const tradePnLData = trades.map(t => ({
     name: `${t.date} ${t.ticker}`, ticker: t.ticker, type: t.type,
     pnl: t.type === "sell" ? (t.price * t.quantity - (t.fee||0)) : -(t.price * t.quantity + (t.fee||0)),
@@ -2776,12 +2786,14 @@ function PortfolioApp({ syncKey, onLogout }) {
                           const chgAmtVal = h.chgAmt != null && h.chgAmt !== 0 ? h.chgAmt : h.chgPct ? (h.chgPct/100 * h.price) : 0;
                           const amtStr = chgAmtVal ? (chgAmtVal>=0?"+":"-")+(h.cur==="USD" ? "$"+Math.abs(chgAmtVal).toFixed(2) : Math.round(Math.abs(chgAmtVal)).toLocaleString()+"₩") : null;
                           return (
-                            <div key={h.id} onClick={()=>setSelectedStock(h)}
-                              style={{display:"flex",alignItems:"center",gap:"12px",padding:"9px 6px",borderBottom:"1px solid rgba(255,255,255,0.05)",cursor:"pointer",borderRadius:"6px",transition:"background 0.15s"}}
+                            <div key={h.id}
+                              style={{display:"flex",alignItems:"center",gap:"12px",padding:"9px 6px",borderBottom:"1px solid rgba(255,255,255,0.05)",borderRadius:"6px",transition:"background 0.15s"}}
                               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
                               onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                              <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
-                              <div style={{flex:1,minWidth:0}}>
+                              <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
+                                <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
+                              </div>
+                              <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
                               </div>
@@ -2790,6 +2802,12 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 <div style={{fontSize:"11px",color:chgColor,opacity:0.85,marginTop:"2px"}}>{isUp?"+":""}{h.chgPct.toFixed(2)}%</div>
                                 <div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>{fmtPrice(h.price,h.cur)}</div>
                               </div>
+                              {!h._merged && h.id && (
+                                <button onClick={e=>{e.stopPropagation();startEdit(holdings.find(x=>x.id===h.id)||h);setTab("portfolio");setOverviewTab("all");}}
+                                  style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"10px",padding:"2px 7px",borderRadius:"5px",fontWeight:700,flexShrink:0}}>
+                                  수정
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -3224,16 +3242,25 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div style={{display:"flex",flexDirection:"column",gap:"20px"}}>
 
             <div style={S.card}>
-              <div style={{fontSize:"17px",fontWeight:800,marginBottom:"4px",letterSpacing:"-0.03em"}}>📈 수익률 변화</div>
-              <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>새로고침할 때마다 자동 기록 (최근 30회)</div>
-              {snapshotList.length<2 ? (
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px",flexWrap:"wrap",gap:"8px"}}>
+              <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.03em"}}>📈 수익률 변화</div>
+              <div style={{display:"flex",gap:"4px"}}>
+                {[["7d","1주"],["30d","1달"],["90d","3달"],["180d","6달"],["365d","1년"],["all","전체"]].map(([k,l])=>(
+                  <button key={k} onClick={()=>setChartPeriod(k)} style={{background:chartPeriod===k?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.05)",border:chartPeriod===k?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",color:chartPeriod===k?"#a5b4fc":"#64748b",padding:"3px 8px",borderRadius:"5px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+              <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>새로고침할 때마다 자동 기록 (최근 {filteredSnaps.length}회)</div>
+              {filteredSnaps.length<2 ? (
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}>
                   <div style={{fontSize:"28px",marginBottom:"10px"}}>📊</div>
                   <div>종목 추가 후 새로고침을 2번 이상 누르면 그래프가 그려집니다</div>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={snapshotList} margin={{top:5,right:10,left:0,bottom:5}}>
+                  <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
                     <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:11}} interval="preserveStartEnd"/>
                     <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"}/>
@@ -3247,14 +3274,14 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={S.card}>
               <div style={{fontSize:"17px",fontWeight:800,marginBottom:"4px",letterSpacing:"-0.03em"}}>💰 자산 총액 변화</div>
               <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>KRW 환산 기준 (최근 30회)</div>
-              {snapshotList.length<2 ? (
+              {filteredSnaps.length<2 ? (
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}>
                   <div style={{fontSize:"28px",marginBottom:"10px"}}>💰</div>
                   <div>종목 추가 후 새로고침을 2번 이상 누르면 그래프가 그려집니다</div>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={snapshotList} margin={{top:5,right:10,left:0,bottom:5}}>
+                  <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
                     <defs>
                       <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -3498,6 +3525,26 @@ function PortfolioApp({ syncKey, onLogout }) {
                           }} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
                             {isEditing?"✕ 닫기":"✏️ 편집"}
                           </button>
+                          {(h.market==="US"||h.market==="ETF")&&!isEditing&&(
+                            <button onClick={async()=>{
+                              const FKEY=process.env.FINNHUB_KEY||"d6t3stpr01qoqois4rv0d6t3stpr01qoqois4rvg";
+                              try{
+                                const r=await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${h.ticker}&metric=all&token=${FKEY}`,{signal:AbortSignal.timeout(6000)});
+                                const d=await r.json();
+                                const annual=d?.metric?.dividendAnnualPerShare;
+                                if(annual&&annual>0){
+                                  const monthlyMap={1:[3,6,9,12],4:[1,4,7,10],2:[2,5,8,11],3:[3,6,9,12]};
+                                  setDivEditTicker(h.ticker);
+                                  setDivInfoForm({perShare:String(Math.round(annual/4*100)/100),months:[3,6,9,12],currency:"USD"});
+                                  alert(`📊 ${h.ticker} 연간배당 $${annual} → 분기 $${Math.round(annual/4*100)/100} 로 자동입력됨. 지급월 확인 후 저장하세요.`);
+                                }else{
+                                  alert(`${h.ticker} 배당 데이터 없음`);
+                                }
+                              }catch(e){alert("조회 실패");}
+                            }} style={{background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.35)",color:"#fbbf24",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
+                              🔍 자동조회
+                            </button>
+                          )}
                         </div>
                       </div>
                       {isEditing&&(
@@ -3805,6 +3852,13 @@ function PortfolioApp({ syncKey, onLogout }) {
           onClose={()=>setSelectedAccount(null)}
           isMobile={isMobile}
           liveUsdKrw={liveUsdKrw}
+          onEdit={h=>{
+            // P1 종목인지 P2 종목인지 판단
+            const isP2 = holdings2.some(x=>x.id===h.id);
+            if(isP2){ startEdit2(h); setMainTab("p2"); setTab("portfolio"); }
+            else { startEdit(holdings.find(x=>x.id===h.id)||h); setMainTab("p1"); setTab("portfolio"); setOverviewTab("all"); }
+            setSelectedAccount(null);
+          }}
         />
       )}
       {showContrib && (
