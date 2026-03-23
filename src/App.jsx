@@ -3527,20 +3527,36 @@ function PortfolioApp({ syncKey, onLogout }) {
                           </button>
                           {(h.market==="US"||h.market==="ETF")&&!isEditing&&(
                             <button onClick={async()=>{
-                              const FKEY=process.env.FINNHUB_KEY||"d6t3stpr01qoqois4rv0d6t3stpr01qoqois4rvg";
-                              try{
-                                const r=await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${h.ticker}&metric=all&token=${FKEY}`,{signal:AbortSignal.timeout(6000)});
+                              let annual=0, cycle=4, divMonths=[3,6,9,12], currency="USD";
+                              // 1순위: Yahoo Finance quoteSummary (가장 정확)
+                              try {
+                                const _t=Date.now();
+                                const yUrl=`https://query1.finance.yahoo.com/v11/finance/quoteSummary/${h.ticker}?modules=summaryDetail,calendarEvents`;
+                                const proxy=`https://api.allorigins.win/raw?url=${encodeURIComponent(yUrl)}&_=${_t}`;
+                                const r=await fetch(proxy,{signal:AbortSignal.timeout(8000)});
                                 const d=await r.json();
-                                const annual=d?.metric?.dividendAnnualPerShare;
-                                if(annual&&annual>0){
-                                  const monthlyMap={1:[3,6,9,12],4:[1,4,7,10],2:[2,5,8,11],3:[3,6,9,12]};
-                                  setDivEditTicker(h.ticker);
-                                  setDivInfoForm({perShare:String(Math.round(annual/4*100)/100),months:[3,6,9,12],currency:"USD"});
-                                  alert(`📊 ${h.ticker} 연간배당 $${annual} → 분기 $${Math.round(annual/4*100)/100} 로 자동입력됨. 지급월 확인 후 저장하세요.`);
-                                }else{
-                                  alert(`${h.ticker} 배당 데이터 없음`);
-                                }
-                              }catch(e){alert("조회 실패");}
+                                const sd=d?.quoteSummary?.result?.[0]?.summaryDetail;
+                                const rate=sd?.dividendRate?.raw||sd?.trailingAnnualDividendRate?.raw||0;
+                                if(rate>0){annual=rate;}
+                              }catch{}
+                              // 2순위: Finnhub
+                              if(!annual){
+                                try{
+                                  const FKEY="d6t3stpr01qoqois4rv0d6t3stpr01qoqois4rvg";
+                                  const r=await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${h.ticker}&metric=all&token=${FKEY}`,{signal:AbortSignal.timeout(6000)});
+                                  const d=await r.json();
+                                  const m=d?.metric;
+                                  annual=m?.dividendAnnualPerShareTTM||m?.dividendPerShareAnnual||m?.dividendAnnualPerShare||0;
+                                }catch{}
+                              }
+                              if(annual&&annual>0){
+                                const perShare=Math.round(annual/cycle*100)/100;
+                                setDivEditTicker(h.ticker);
+                                setDivInfoForm({perShare:String(perShare),months:divMonths,currency});
+                                alert(`📊 ${h.ticker}\n연간 배당: $${annual}\n1회 지급액: $${perShare} (분기배당 기준)\n\n지급월·횟수 확인 후 저장하세요.`);
+                              }else{
+                                alert(`${h.ticker} 배당 데이터를 찾지 못했어요.\n직접 입력해 주세요.`);
+                              }
                             }} style={{background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.35)",color:"#fbbf24",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
                               🔍 자동조회
                             </button>
