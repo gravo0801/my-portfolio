@@ -1733,7 +1733,7 @@ export default function App() {
 }
 
 function PortfolioApp({ syncKey, onLogout }) {
-  const [tab, setTab]             = useState("overview");
+  const [tab, setTab]             = useState("portfolio");
   const [holdings, setHoldings]   = useState([]);
   const [trades, setTrades]       = useState([]);
   const [alerts, setAlerts]       = useState([]);
@@ -2555,7 +2555,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
 
   const FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif";
-  const tabs = [["overview","🏠 전체현황"],["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
+  const tabs = [["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
   const TT = { contentStyle:{ background:"#1e293b", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"10px", fontSize:"13px", fontFamily:FONT } };
 
   // 포트폴리오2 계산
@@ -2730,19 +2730,21 @@ function PortfolioApp({ syncKey, onLogout }) {
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
           {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3 (ISA)"]].map(([id,label])=>(
-            <button key={id} onClick={()=>{setMainTab(id);setTab(id==="overview"?"overview":"portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+            <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
               {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":"P3 ISA"):label}
             </button>
           ))}
         </div>
-        {/* 서브 탭 */}
-        <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
-          {(mainTab==="p1"?tabs:mainTab==="p2"?[["overview","🏠 전체현황"],["portfolio","📊 보유종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]:[["overview","🏠 전체현황"],["portfolio","📊 ISA 종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile ? label.split(" ")[1]||label : label}
-            </button>
-          ))}
-        </div>
+        {/* 서브 탭: 전체현황 탭에서는 숨김, P1/P2/P3 동일하게 통일 */}
+        {mainTab !== "overview" && (
+          <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
+            {tabs.map(([id, label]) => (
+              <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+                {isMobile ? label.split(" ")[1]||label : label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:"1200px", margin:"0 auto" }}>
@@ -2767,17 +2769,23 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab === "portfolio" && mainTab === "p1" && (
           <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
-          {/* ── 뷰 선택 탭 ── */}
-          <div style={{display:"flex",gap:"4px",marginBottom:"14px",flexWrap:"wrap"}}>
-            {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
-              <button key={id} onClick={()=>setOverviewTab(id)} style={{
-                background:overviewTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)",
-                border:overviewTab===id?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",
-                color:overviewTab===id?"#c7d2fe":"#64748b",
-                padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer",
-                fontSize:isMobile?"12px":"13px", fontWeight:overviewTab===id?800:500, letterSpacing:"-0.01em",
-              }}>{isMobile?label.split(" ")[1]:label}</button>
-            ))}
+          {/* ── 뷰 선택 + 통화 전환 한 줄 정렬 ── */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
+            <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
+              {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
+                <button key={id} onClick={()=>setOverviewTab(id)} style={{
+                  background:overviewTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)",
+                  border:overviewTab===id?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",
+                  color:overviewTab===id?"#c7d2fe":"#64748b",
+                  padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer",
+                  fontSize:isMobile?"12px":"13px", fontWeight:overviewTab===id?800:500, letterSpacing:"-0.01em",
+                }}>{isMobile?label.split(" ")[1]:label}</button>
+              ))}
+            </div>
+            <div style={{display:"flex",background:"rgba(255,255,255,0.06)",borderRadius:"10px",padding:"3px",gap:"2px",flexShrink:0}}>
+              <button onClick={()=>setCurrMode("KRW")} style={{padding:"5px 14px",borderRadius:"8px",border:"none",cursor:"pointer",fontSize:"13px",fontWeight:700,background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent",color:currMode==="KRW"?"#c7d2fe":"#64748b"}}>₩ 원화</button>
+              <button onClick={()=>setCurrMode("USD")} style={{padding:"5px 14px",borderRadius:"8px",border:"none",cursor:"pointer",fontSize:"13px",fontWeight:700,background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent",color:currMode==="USD"?"#6ee7b7":"#64748b"}}>$ 달러</button>
+            </div>
           </div>
 
           {/* ── 증권사별 / 국내해외별 테이블 뷰 ── */}
@@ -2901,13 +2909,6 @@ function PortfolioApp({ syncKey, onLogout }) {
           {/* ── 전체 뷰 (기존 포트폴리오 화면) ── */}
           {overviewTab==="all" && (
             <div>
-            {/* 통화 전환 버튼 */}
-            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
-              <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
-                <button onClick={()=>setCurrMode("KRW")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent", color:currMode==="KRW"?"#c7d2fe":"#64748b" }}>₩ 원화</button>
-                <button onClick={()=>setCurrMode("USD")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent", color:currMode==="USD"?"#6ee7b7":"#64748b" }}>$ 달러</button>
-              </div>
-            </div>
             {/* 요약 카드 */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"5px":"12px", marginBottom:isMobile?"8px":"20px" }}>
               {/* 총 평가금액 */}
