@@ -3571,7 +3571,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
 
         {/* ── DIVIDEND ── */}
-        {tab==="dividend"&&(
+        {tab==="dividend"&&mainTab==="p1"&&(
           <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
 
             {/* 금융종합소득 경고 배너 */}
@@ -3590,8 +3590,9 @@ function PortfolioApp({ syncKey, onLogout }) {
               const curMonth = now.getMonth()+1;
               const allHoldings = [...holdings]; // P1만 - 금융종합소득과세 관리용
 
-              // 예상 연간 배당금 계산
+              // 예상 연간 배당금 계산 (일반계좌만)
               let expectedAnnual = 0;
+              let isaAnnual = 0;
               allHoldings.forEach(h => {
                 const di = divInfo[h.ticker];
                 if (!di || !di.perShare) return;
@@ -3601,7 +3602,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const rawM = di.months||[];
                 const divMonths = Array.isArray(rawM) ? rawM : Object.values(rawM);
                 const annualRaw = ps*(divMonths.length||1);
-                expectedAnnual += (isUSD ? annualRaw*liveUsdKrw : annualRaw) * qty;
+                const annualKRW = (isUSD ? annualRaw*liveUsdKrw : annualRaw) * qty;
+                if (h.market === "ISA") isaAnnual += annualKRW;
+                else expectedAnnual += annualKRW;
               });
 
               // 올해 실수령 배당금
@@ -3630,6 +3633,19 @@ function PortfolioApp({ syncKey, onLogout }) {
                     </div>
                   ))}
                 </div>
+                {/* ISA 계좌 배당 별도 표시 */}
+                {isaAnnual > 0 && (
+                  <div style={{background:"rgba(6,182,212,0.07)",border:"1px solid rgba(6,182,212,0.2)",borderRadius:"12px",padding:"14px",marginTop:"4px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
+                    <div>
+                      <div style={{fontSize:"11px",color:"#06b6d4",fontWeight:700,marginBottom:"4px"}}>💧 ISA 계좌 배당 (비과세 한도 내)</div>
+                      <div style={{fontSize:"20px",fontWeight:800,color:"#06b6d4",letterSpacing:"-0.04em"}}>{Math.round(isaAnnual).toLocaleString()}₩/년</div>
+                      <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>월평균 {Math.round(isaAnnual/12).toLocaleString()}₩ · 금융소득 합산 제외</div>
+                    </div>
+                    <div style={{fontSize:"11px",color:"#475569",lineHeight:1.6,textAlign:"right"}}>
+                      ISA 비과세 한도<br/>서민형 400만원 · 일반형 200만원/년
+                    </div>
+                  </div>
+                )}
               );
             })()}
 
@@ -3697,8 +3713,12 @@ function PortfolioApp({ syncKey, onLogout }) {
             {/* ── 종목별 배당 정보 ── */}
             <div style={S.card}>
               <div style={{fontSize:"15px",fontWeight:800,marginBottom:"14px",letterSpacing:"-0.02em"}}>🏷️ 종목별 배당 정보</div>
+              {/* 일반계좌 */}
+              {[...holdings].filter(h=>h.market!=="CRYPTO"&&h.market!=="ISA").length>0&&(
+                <div style={{fontSize:"12px",fontWeight:700,color:"#64748b",marginBottom:"6px",paddingLeft:"4px"}}>📁 일반계좌 (금융소득 합산)</div>
+              )}
               <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-                {[...holdings].filter(h=>h.market!=="CRYPTO").map(h=>{
+                {[...holdings].filter(h=>h.market!=="CRYPTO"&&h.market!=="ISA").map(h=>{
                   const di = divInfo[h.ticker]||{};
                   const isEditing = divEditTicker===h.ticker;
                   const rawCM=di.months||[]; const cm=Array.isArray(rawCM)?rawCM:Object.values(rawCM);
@@ -3835,8 +3855,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                     </div>
                   );
                 })}
-                {[...holdings,...holdings2].filter(h=>h.market!=="CRYPTO").length===0&&(
-                  <div style={{textAlign:"center",padding:"32px",color:"#475569"}}>보유종목을 먼저 추가해주세요</div>
+                {[...holdings].filter(h=>h.market!=="CRYPTO"&&h.market!=="ISA").length===0&&(
+                  <div style={{textAlign:"center",padding:"32px",color:"#475569"}}>일반계좌 배당 종목 없음</div>
                 )}
               </div>
             </div>
