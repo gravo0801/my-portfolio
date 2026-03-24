@@ -126,7 +126,41 @@ async function fetchKRStock(ticker) {
     } catch { continue; }
   }
 
-  // 3순위: Yahoo v8/chart (최후 수단)
+  // 3순위: Yahoo v8/chart includePrePost (프리/애프터 포함)
+  try {
+    const _t2 = Date.now();
+    for (const host of ['query1', 'query2']) {
+      const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d&includePrePost=true`;
+      const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}&_=${_t2}`;
+      try {
+        const r = await fetch(proxied, { signal: AbortSignal.timeout(9000) });
+        if (!r.ok) continue;
+        const text = await r.text();
+        if (!text.startsWith('{')) continue;
+        const d = JSON.parse(text);
+        const result = d?.chart?.result?.[0];
+        const meta = result?.meta;
+        if (!meta?.regularMarketPrice) continue;
+        const regularPrice = meta.regularMarketPrice;
+        const prevClose = meta.previousClose || meta.chartPreviousClose || regularPrice;
+        const timestamps = result.timestamp || [];
+        const closes = result.indicators?.quote?.[0]?.close || [];
+        const kstM = (new Date(Date.now()+9*3600000)).getUTCHours()*60+(new Date(Date.now()+9*3600000)).getUTCMinutes();
+        const isPreKR=kstM>=8*60&&kstM<9*60, isPostKR=kstM>=15*60+30&&kstM<20*60;
+        let lastPrice=regularPrice, lastTs=0;
+        for(let i=closes.length-1;i>=0;i--){ if(closes[i]!=null){lastPrice=closes[i];lastTs=timestamps[i]*1000;break;} }
+        const useExt=(isPreKR||isPostKR)&&lastTs>Date.now()-3600000;
+        const dPrice=useExt?lastPrice:regularPrice;
+        const dChg=prevClose>0?((dPrice-prevClose)/prevClose)*100:0;
+        const dAmt=Math.round(dPrice-prevClose);
+        const regChg=prevClose>0?((regularPrice-prevClose)/prevClose)*100:0;
+        return { price:dPrice, regularPrice, closePrice:regularPrice,
+          changePercent:dChg, changeAmount:dAmt,
+          regularChangePercent:regChg, regularChangeAmount:Math.round(regularPrice-prevClose),
+          currency:'KRW', marketState:isPreKR?'PRE':isPostKR?'POST':'REGULAR' };
+      } catch { continue; }
+    }
+  } catch {}
   return await fetchYahoo(ticker);
 }
 
