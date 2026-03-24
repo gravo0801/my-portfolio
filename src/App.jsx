@@ -3161,30 +3161,6 @@ function PortfolioApp({ syncKey, onLogout }) {
 
           return (<>
 
-          {/* P3 전체현황 (포트폴리오 탭 상단에 통합) */}
-          {tab === "portfolio" && false &&  && (
-            <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
-              <div style={{background:"rgba(6,182,212,0.08)",border:"1px solid rgba(6,182,212,0.2)",borderRadius:"14px",padding:"18px"}}>
-                <div style={{fontSize:"13px",color:"#06b6d4",fontWeight:700,marginBottom:"4px"}}>💧 ISA계좌 · 비과세 한도 내 운용</div>
-                <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>
-                  <AnimatedNumber value={isaTotal} format={v=>Math.round(v).toLocaleString("ko-KR")+"₩"} color="#f8fafc" fontSize={isMobile?"24px":"30px"}/>
-                </div>
-                <div style={{display:"flex",gap:"12px",marginTop:"6px",flexWrap:"wrap"}}>
-                  <span style={{fontSize:"15px",fontWeight:700,color:isaRet>=0?"#34d399":"#f87171"}}>{isaRet>=0?"+":""}{isaRet.toFixed(2)}%</span>
-                  <span style={{fontSize:"13px",color:isaRet>=0?"#34d399":"#f87171"}}>{isaPnL>=0?"+":""}{Math.round(isaPnL).toLocaleString()}₩</span>
-                  <span style={{fontSize:"12px",color:"#475569"}}>{isaHoldings.length}종목</span>
-                </div>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"10px"}}>
-                {[["총 평가금액",Math.round(isaTotal).toLocaleString()+"₩","#f8fafc"],["평가 손익",(isaPnL>=0?"+":"")+Math.round(isaPnL).toLocaleString()+"₩",isaPnL>=0?"#34d399":"#f87171"],["총 수익률",(isaRet>=0?"+":"")+isaRet.toFixed(2)+"%",isaRet>=0?"#34d399":"#f87171"]].map(([l,v,c])=>(
-                  <div key={l} style={{...S.card,background:"rgba(6,182,212,0.07)",borderColor:"rgba(6,182,212,0.2)"}}>
-                    <div style={{fontSize:"11px",color:"#64748b",marginBottom:"4px",fontWeight:700}}>{l}</div>
-                    <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:c}}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* P3 보유종목 */}
           {tab === "portfolio" && (
