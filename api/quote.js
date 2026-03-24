@@ -75,170 +75,69 @@ export default async function handler(req, res) {
       const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
       try {
         if (isKR) {
-          // ── 국내주식: 네이버 모바일 API ──
-          const ticker6 = sym.replace('.KS','').replace('.KQ','').padStart(6,'0');
-          let krDone = false;
+        // 국내주식: Yahoo v8/chart + includePrePost=true
+        // 프리장(08:00~09:00) / 정규장 / NXT애프터(15:30~20:00) 모두 커버
+        let krDone = false;
 
+        for (const host of ['query1', 'query2']) {
+          if (krDone) break;
           try {
-            const mr = await fetch(`https://m.stock.naver.com/api/stock/${ticker6}/basic`, {
-              headers: { 'User-Agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15', 'Referer':'https://m.stock.naver.com/' },
-              signal: AbortSignal.timeout(6000),
+            const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d&includePrePost=true`;
+            const r = await fetch(url, {
+              headers: {
+                ...headers,
+                ...(cookie ? { 'Cookie': cookie } : {}),
+              },
+              signal: AbortSignal.timeout(8000),
             });
-            if (mr.ok) {
-              const md = await mr.json();
-              const price   = parseFloat((md.closePrice||'').replace(/,/g,'') || 0);
-              const chgAmt  = parseFloat((md.compareToPreviousClosePrice||'').replace(/,/g,'') || 0);
-              const chgPct  = parseFloat(md.fluctuationsRatio || 0);
-              if (price > 0) {
-                results[sym] = {
-                  price, regularPrice: price, closePrice: price,
-                  changePercent: chgPct, changeAmount: Math.round(chgAmt),
-                  regularChangePercent: chgPct, regularChangeAmount: Math.round(chgAmt),
-                  currency: 'KRW', marketState: 'REGULAR',
-                };
-                krDone = true;
+            if (!r.ok) continue;
+            const d = await r.json();
+            const result = d?.chart?.result?.[0];
+            const meta   = result?.meta;
+            if (!meta?.regularMarketPrice) continue;
+
+            const regularPrice = meta.regularMarketPrice;
+            const prevClose    = meta.previousClose || meta.chartPreviousClose || regularPrice;
+            const timestamps   = result.timestamp || [];
+            const closes       = result.indicators?.quote?.[0]?.close || [];
+
+            // 현재 KST 시간 기반 장 상태
+            const nowKST = new Date(Date.now() + 9 * 3600000);
+            const kstM   = nowKST.getUTCHours() * 60 + nowKST.getUTCMinutes();
+            const isPreKR  = kstM >= 8*60   && kstM < 9*60;
+            const isRegKR  = kstM >= 9*60   && kstM < 15*60+30;
+            const isPostKR = kstM >= 15*60+30 && kstM < 20*60;
+            const stateKR  = isPreKR ? 'PRE' : isRegKR ? 'REGULAR' : isPostKR ? 'POST' : 'CLOSED';
+
+            // 마지막 유효 가격 (프리/애프터 포함)
+            let lastPrice = regularPrice;
+            let lastTs    = 0;
+            for (let i = closes.length - 1; i >= 0; i--) {
+              if (closes[i] != null) {
+                lastPrice = closes[i];
+                lastTs    = (timestamps[i] || 0) * 1000;
+                break;
               }
             }
-          } catch {}
 
-          if (!krDone) {
-            try {
-              const nr = await fetch(`https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}`, {
-                headers: { 'Referer':'https://finance.naver.com', 'User-Agent':'Mozilla/5.0' },
-                signal: AbortSignal.timeout(6000),
-              });
-              if (nr.ok) {
-                const nd = await nr.json();
-                const item = nd?.result?.areas?.[0]?.datas?.[0];
-                if (item?.nv) {
-                  const price  = parseFloat(item.nv);
-                  const sign   = String(item.rf) === '5' ? -1 : 1;
-                  const krChgPct = sign*parseFloat(item.cr||0);
-                  const krChgAmt = sign*Math.round(parseFloat(item.cv||0));
-                  results[sym] = {
-                    price, regularPrice: price, closePrice: price,
-                    changePercent: krChgPct, changeAmount: krChgAmt,
-                    regularChangePercent: krChgPct, regularChangeAmount: krChgAmt,
-                    currency:'KRW', marketState:'REGULAR',
-                  };
-                  krDone = true;
-                }
-              }
-            } catch {}
-          }
+            // 프리/애프터 시간이면 마지막 봉 가격 사용 (1시간 이내)
+            const useExtended = (isPreKR || isPostKR) && lastTs > Date.now() - 3600000;
+            const displayPrice = useExtended ? lastPrice : regularPrice;
+            const displayChg   = prevClose > 0 ? ((displayPrice - prevClose) / prevClose) * 100 : 0;
+            const displayAmt   = Math.round(displayPrice - prevClose);
 
-          if (!krDone) {
-            const yr = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`, { headers, signal: AbortSignal.timeout(8000) });
-            if (yr.ok) {
-              const yd = await yr.json();
-              const m = yd?.chart?.result?.[0]?.meta;
-              if (m?.regularMarketPrice) {
-                const price = m.regularMarketPrice;
-                const prev  = m.previousClose || m.chartPreviousClose || price;
-                const yrChgPct = prev>0?((price-prev)/prev)*100:0;
-                const yrChgAmt = Math.round(price-prev);
-                results[sym] = {
-                  price, regularPrice: price, closePrice: price,
-                  changePercent: yrChgPct, changeAmount: yrChgAmt,
-                  regularChangePercent: yrChgPct, regularChangeAmount: yrChgAmt,
-                  currency:'KRW', marketState:'REGULAR',
-                };
-              }
-            }
-          }
+            const regChg = prevClose > 0 ? ((regularPrice - prevClose) / prevClose) * 100 : 0;
+            const regAmt = Math.round(regularPrice - prevClose);
 
-        } else {
-          // ── 미국주식: Yahoo v7/quote + crumb ──
-          let done = false;
-
-          // 1순위: v7/quote with crumb (프리/애프터 포함)
-          for (const host of ['query1','query2']) {
-            if (done) break;
-            try {
-              const crumbParam = crumb ? `&crumb=${encodeURIComponent(crumb)}` : '';
-              const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${sym}&fields=${fields}${crumbParam}`;
-              const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-              if (!r.ok) continue;
-              const d = await r.json();
-              const q = d?.quoteResponse?.result?.[0];
-              if (!q?.regularMarketPrice) continue;
-
-              const price = q.regularMarketPrice;
-              const prev  = q.regularMarketPreviousClose || price;
-              const state = q.marketState || 'REGULAR';
-              const dPrice = state==='PRE'  && q.preMarketPrice  ? q.preMarketPrice
-                           : state==='POST' && q.postMarketPrice ? q.postMarketPrice : price;
-              const dChg   = state==='PRE'  && q.preMarketPrice
-                           ? (q.preMarketChangePercent  ?? ((q.preMarketPrice -prev)/prev*100))
-                           : state==='POST' && q.postMarketPrice
-                           ? (q.postMarketChangePercent ?? ((q.postMarketPrice-prev)/prev*100))
-                           : (q.regularMarketChangePercent ?? ((price-prev)/prev*100));
-              const dAmt   = state==='PRE'  && q.preMarketChange  ? q.preMarketChange
-                           : state==='POST' && q.postMarketChange ? q.postMarketChange
-                           : (q.regularMarketChange ?? 0);
-
-              results[sym] = {
-                price: dPrice, regularPrice: price,
-                changePercent: dChg, changeAmount: Math.round(dAmt*100)/100,
-                regularChangePercent: q.regularMarketChangePercent ?? ((price-prev)/prev*100),
-                regularChangeAmount: q.regularMarketChange ?? 0,
-                preMarketPrice: q.preMarketPrice ?? null,
-                preMarketChangePercent: q.preMarketChangePercent ?? null,
-                preMarketChange: q.preMarketChange ?? null,
-                postMarketPrice: q.postMarketPrice ?? null,
-                postMarketChangePercent: q.postMarketChangePercent ?? null,
-                postMarketChange: q.postMarketChange ?? null,
-                currency: q.currency||'USD', marketState: state, closePrice: price,
-              };
-              done = true;
-            } catch { continue; }
-          }
-
-          // 2순위: v8/chart includePrePost fallback
-          if (!done) {
-            try {
-              const url2 = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d&includePrePost=true`;
-              const r2 = await fetch(url2, { headers, signal: AbortSignal.timeout(8000) });
-              if (r2.ok) {
-                const d2 = await r2.json();
-                const result = d2?.chart?.result?.[0];
-                const m = result?.meta;
-                if (m?.regularMarketPrice) {
-                  const regularPrice = m.regularMarketPrice;
-                  const prevClose    = m.previousClose || m.chartPreviousClose || regularPrice;
-                  const timestamps   = result.timestamp || [];
-                  const closes       = result.indicators?.quote?.[0]?.close || [];
-                  let lastPrice = regularPrice, lastTs = 0;
-                  for (let i = closes.length-1; i >= 0; i--) {
-                    if (closes[i] != null) { lastPrice = closes[i]; lastTs = timestamps[i]*1000; break; }
-                  }
-                  const nowNY = new Date(Date.now() - 4*3600000);
-                  const nyM = nowNY.getUTCHours()*60+nowNY.getUTCMinutes();
-                  const isPre  = nyM >= 4*60   && nyM < 9*60+30;
-                  const isPost = nyM >= 16*60  && nyM < 20*60;
-                  const state  = isPre?'PRE':isPost?'POST':nyM>=9*60+30&&nyM<16*60?'REGULAR':'CLOSED';
-                  const dispPrice = (isPre||isPost)&&lastTs>Date.now()-3600000 ? lastPrice : regularPrice;
-                  const dChg  = prevClose>0?((dispPrice-prevClose)/prevClose)*100:0;
-                  results[sym] = {
-                    price: dispPrice, regularPrice, closePrice: regularPrice,
-                    changePercent: dChg, changeAmount: Math.round((dispPrice-prevClose)*100)/100,
-                    regularChangePercent: prevClose>0?((regularPrice-prevClose)/prevClose)*100:0,
-                    regularChangeAmount: Math.round((regularPrice-prevClose)*100)/100,
-                    preMarketPrice: isPre?dispPrice:null,
-                    preMarketChangePercent: isPre?dChg:null,
-                    postMarketPrice: isPost?dispPrice:null,
-                    postMarketChangePercent: isPost?dChg:null,
-                    currency: m.currency||'USD', marketState: state,
-                  };
-                }
-              }
-            } catch {}
-          }
+            results[sym] = {
+              price:   displayPrice,
+              regularPrice, closePrice: regularPrice,
+              changePercent: displayChg, changeAmount: displayAmt,
+              regularChangePercent: regChg, regularChangeAmount: regAmt,
+              currency: 'KRW', marketState: stateKR,
+            };
+            krDone = true;
+          } catch { continue; }
         }
-      } catch {}
-    }));
-    if (ci + chunkSize < symList.length) await new Promise(r => setTimeout(r, 50));
-  }
 
-  res.status(200).json({ results, ts: Date.now() });
-}
+
