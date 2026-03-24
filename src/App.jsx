@@ -3619,37 +3619,34 @@ function PortfolioApp({ syncKey, onLogout }) {
                 const d=new Date(r.date);
                 return d.getFullYear()===curYear && d.getMonth()+1===curMonth;
               }).reduce((s,r)=>s+(r.currency==="USD"?+r.amount*liveUsdKrw:+r.amount),0);
-
               return (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px"}}>
-                  {[
-                    ["예상 연간 배당", Math.round(expectedAnnual).toLocaleString("ko-KR")+"₩"+(expectedAnnual>=20000000?" ⚠️":""), expectedAnnual>=20000000?"#f87171":"#f59e0b"],
-                    ["예상 월 평균",   Math.round(expectedAnnual/12).toLocaleString("ko-KR")+"₩", "#34d399"],
-                    ["올해 수령액",    Math.round(thisYearDiv).toLocaleString("ko-KR")+"₩", "#a5b4fc"],
-                  ].map(([label,val,color])=>(
-                    <div key={label} style={{...S.card,background:"rgba(245,158,11,0.07)",borderColor:"rgba(245,158,11,0.2)"}}>
-                      <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</div>
-                      <div style={{fontSize:isMobile?"16px":"22px",fontWeight:800,color,letterSpacing:"-0.04em"}}>{val}</div>
-                    </div>
-                  ))}
-                </div>
-                {/* ISA 계좌 배당 별도 표시 */}
-                {isaAnnual > 0 && (
-                  <div style={{background:"rgba(6,182,212,0.07)",border:"1px solid rgba(6,182,212,0.2)",borderRadius:"12px",padding:"14px",marginTop:"4px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
-                    <div>
-                      <div style={{fontSize:"11px",color:"#06b6d4",fontWeight:700,marginBottom:"4px"}}>💧 ISA 계좌 배당 (비과세 한도 내)</div>
-                      <div style={{fontSize:"20px",fontWeight:800,color:"#06b6d4",letterSpacing:"-0.04em"}}>{Math.round(isaAnnual).toLocaleString()}₩/년</div>
-                      <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>월평균 {Math.round(isaAnnual/12).toLocaleString()}₩ · 금융소득 합산 제외</div>
-                    </div>
-                    <div style={{fontSize:"11px",color:"#475569",lineHeight:1.6,textAlign:"right"}}>
-                      ISA 비과세 한도<br/>서민형 400만원 · 일반형 200만원/년
-                    </div>
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px"}}>
+                    {[
+                      ["예상 연간 배당", Math.round(expectedAnnual).toLocaleString("ko-KR")+"₩"+(expectedAnnual>=20000000?" ⚠️":""), expectedAnnual>=20000000?"#f87171":"#f59e0b"],
+                      ["예상 월 평균",   Math.round(expectedAnnual/12).toLocaleString("ko-KR")+"₩", "#34d399"],
+                      ["올해 수령액",    Math.round(thisYearDiv).toLocaleString("ko-KR")+"₩", "#a5b4fc"],
+                    ].map(([label,val,color])=>(
+                      <div key={label} style={{...S.card,background:"rgba(245,158,11,0.07)",borderColor:"rgba(245,158,11,0.2)"}}>
+                        <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</div>
+                        <div style={{fontSize:isMobile?"16px":"22px",fontWeight:800,color,letterSpacing:"-0.04em"}}>{val}</div>
+                      </div>
+                    ))}
                   </div>
-                )}
+                  {isaAnnual > 0 && (
+                    <div style={{background:"rgba(6,182,212,0.07)",border:"1px solid rgba(6,182,212,0.2)",borderRadius:"12px",padding:"14px",marginTop:"8px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
+                      <div>
+                        <div style={{fontSize:"11px",color:"#06b6d4",fontWeight:700,marginBottom:"4px"}}>💧 ISA 계좌 배당 (비과세 한도 내)</div>
+                        <div style={{fontSize:"20px",fontWeight:800,color:"#06b6d4",letterSpacing:"-0.04em"}}>{Math.round(isaAnnual).toLocaleString()}₩/년</div>
+                        <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>월평균 {Math.round(isaAnnual/12).toLocaleString()}₩</div>
+                      </div>
+                      <div style={{fontSize:"11px",color:"#475569",lineHeight:1.6,textAlign:"right"}}>ISA 비과세 한도<br/>서민형 400만원 · 일반형 200만원/년</div>
+                    </div>
+                  )}
+                </>
               );
             })()}
 
-            {/* ── 월별 배당금 바 차트 ── */}
             {(()=>{
               const now = new Date();
               const curYear = now.getFullYear();
