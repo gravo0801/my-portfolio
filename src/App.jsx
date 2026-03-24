@@ -3320,7 +3320,29 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab === "dividend" && mainTab === "p2" && (
           <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
             <div style={S.card}>
-              <div style={{fontSize:"15px",fontWeight:800,marginBottom:"14px",letterSpacing:"-0.02em"}}>🏷️ 절세계좌 배당 정보</div>
+              {/* P2 배당 요약 */}
+            {(()=>{
+              const total2Annual = holdings2.filter(h=>h.market!=="CRYPTO").reduce((s,h)=>{
+                const di=divInfo[h.ticker]||{};
+                const ps=+di.perShare||0, qty=+h.quantity;
+                const rawM=di.months||[], months=Array.isArray(rawM)?rawM:Object.values(rawM);
+                const annual=ps*(months.length||1);
+                return s + annual*(di.currency==="USD"?liveUsdKrw:1)*qty;
+              },0);
+              return (
+                <div style={{background:"rgba(234,179,8,0.08)",border:"1px solid rgba(234,179,8,0.2)",borderRadius:"12px",padding:"14px",marginBottom:"16px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
+                  <div>
+                    <div style={{fontSize:"12px",color:"#64748b",fontWeight:700,marginBottom:"4px"}}>💛 절세계좌 예상 연간 배당</div>
+                    <div style={{fontSize:"22px",fontWeight:800,color:"#fbbf24",letterSpacing:"-0.04em"}}>{Math.round(total2Annual).toLocaleString()}₩</div>
+                    <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>금융종합소득 비과세 · 월평균 {Math.round(total2Annual/12).toLocaleString()}₩</div>
+                  </div>
+                  <div style={{fontSize:"11px",color:"#475569",textAlign:"right",lineHeight:1.6}}>
+                    연금저축·IRP 배당은<br/>과세이연 또는 저율과세 적용
+                  </div>
+                </div>
+              );
+            })()}
+            <div style={{fontSize:"15px",fontWeight:800,marginBottom:"14px",letterSpacing:"-0.02em"}}>🏷️ 절세계좌 배당 정보</div>
               <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
                 {holdings2.filter(h=>h.market!=="CRYPTO").map(h=>{
                   const di = divInfo[h.ticker]||{};
@@ -3552,12 +3574,21 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab==="dividend"&&(
           <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
 
-            {/* ── 요약 카드 ── */}
+            {/* 금융종합소득 경고 배너 */}
+            <div style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:"12px",padding:"12px 16px",display:"flex",alignItems:"center",gap:"10px"}}>
+              <span style={{fontSize:"20px"}}>⚠️</span>
+              <div>
+                <div style={{fontSize:"13px",fontWeight:700,color:"#fca5a5"}}>금융종합소득 관리 (포트폴리오1 전용)</div>
+                <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"2px"}}>연간 금융소득 2,000만원 초과 시 종합소득세 대상 · 포트폴리오2(절세계좌) 배당은 별도 탭에서 관리</div>
+              </div>
+            </div>
+
+          {/* ── 요약 카드 ── */}
             {(()=>{
               const now = new Date();
               const curYear = now.getFullYear();
               const curMonth = now.getMonth()+1;
-              const allHoldings = [...holdings, ...holdings2];
+              const allHoldings = [...holdings]; // P1만 - 금융종합소득과세 관리용
 
               // 예상 연간 배당금 계산
               let expectedAnnual = 0;
@@ -3589,7 +3620,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               return (
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px"}}>
                   {[
-                    ["예상 연간 배당", Math.round(expectedAnnual).toLocaleString("ko-KR")+"₩", "#f59e0b"],
+                    ["예상 연간 배당", Math.round(expectedAnnual).toLocaleString("ko-KR")+"₩"+(expectedAnnual>=20000000?" ⚠️":""), expectedAnnual>=20000000?"#f87171":"#f59e0b"],
                     ["예상 월 평균",   Math.round(expectedAnnual/12).toLocaleString("ko-KR")+"₩", "#34d399"],
                     ["올해 수령액",    Math.round(thisYearDiv).toLocaleString("ko-KR")+"₩", "#a5b4fc"],
                   ].map(([label,val,color])=>(
@@ -3667,7 +3698,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={S.card}>
               <div style={{fontSize:"15px",fontWeight:800,marginBottom:"14px",letterSpacing:"-0.02em"}}>🏷️ 종목별 배당 정보</div>
               <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-                {[...holdings,...holdings2].filter(h=>h.market!=="CRYPTO").map(h=>{
+                {[...holdings].filter(h=>h.market!=="CRYPTO").map(h=>{
                   const di = divInfo[h.ticker]||{};
                   const isEditing = divEditTicker===h.ticker;
                   const rawCM=di.months||[]; const cm=Array.isArray(rawCM)?rawCM:Object.values(rawCM);
@@ -3830,7 +3861,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         setDivForm(p=>({...p,ticker:e.target.value,name:h?.name||""}));
                       }} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}>
                         <option value="">종목 선택</option>
-                        {[...new Map([...holdings,...holdings2].filter(h=>h.market!=="CRYPTO").map(h=>[h.ticker,h])).values()].map(h=>(
+                        {[...new Map([...holdings].filter(h=>h.market!=="CRYPTO").map(h=>[h.ticker,h])).values()].map(h=>(
                           <option key={h.ticker} value={h.ticker}>{h.name||h.ticker}</option>
                         ))}
                         <option value="기타">기타</option>
