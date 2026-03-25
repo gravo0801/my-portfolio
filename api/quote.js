@@ -140,4 +140,92 @@ export default async function handler(req, res) {
           } catch { continue; }
         }
 
+        } else {
+          // ── 미국주식 / ETF / 암호화폐 ──
+          // v7/quote: 프리·정규·애프터 가격 모두 한 번에 수신
+          let usDone = false;
+          for (const host of ['query1', 'query2']) {
+            if (usDone) break;
+            try {
+              const url = `https://${host}.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(sym)}&fields=${fields}${crumb ? `&crumb=${encodeURIComponent(crumb)}` : ''}`;
+              const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+              if (!r.ok) continue;
+              const d = await r.json();
+              const q = d?.quoteResponse?.result?.[0];
+              if (!q?.regularMarketPrice) continue;
 
+              const price    = q.regularMarketPrice;
+              const prev     = q.regularMarketPreviousClose || price;
+              const state    = q.marketState || 'REGULAR';
+              const regChgPct = q.regularMarketChangePercent ?? ((price - prev) / prev * 100);
+              const regChgAmt = q.regularMarketChange ?? (price - prev);
+
+              // 프리/애프터 가격 우선 적용
+              let displayPrice = price;
+              let displayChgPct = regChgPct;
+              let displayChgAmt = regChgAmt;
+              if (state === 'PRE' && q.preMarketPrice) {
+                displayPrice   = q.preMarketPrice;
+                displayChgPct  = q.preMarketChangePercent ?? ((q.preMarketPrice - prev) / prev * 100);
+                displayChgAmt  = q.preMarketChange ?? (q.preMarketPrice - prev);
+              } else if (state === 'POST' && q.postMarketPrice) {
+                displayPrice   = q.postMarketPrice;
+                displayChgPct  = q.postMarketChangePercent ?? ((q.postMarketPrice - prev) / prev * 100);
+                displayChgAmt  = q.postMarketChange ?? (q.postMarketPrice - prev);
+              }
+
+              results[sym] = {
+                price: displayPrice,
+                regularPrice: price,
+                closePrice: price,
+                changePercent: displayChgPct,
+                changeAmount: Math.round(displayChgAmt * 100) / 100,
+                regularChangePercent: regChgPct,
+                regularChangeAmount: Math.round(regChgAmt * 100) / 100,
+                currency: q.currency || 'USD',
+                marketState: state,
+                preMarketPrice: q.preMarketPrice ?? null,
+                preMarketChange: q.preMarketChange ?? null,
+                preMarketChangePercent: q.preMarketChangePercent ?? null,
+                postMarketPrice: q.postMarketPrice ?? null,
+                postMarketChange: q.postMarketChange ?? null,
+                postMarketChangePercent: q.postMarketChangePercent ?? null,
+              };
+              usDone = true;
+            } catch { continue; }
+          }
+
+          // v7 실패 시 v8/chart 폴백
+          if (!usDone) {
+            try {
+              const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d&includePrePost=true${crumb ? `&crumb=${encodeURIComponent(crumb)}` : ''}`;
+              const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+              if (r.ok) {
+                const d = await r.json();
+                const meta = d?.chart?.result?.[0]?.meta;
+                if (meta?.regularMarketPrice) {
+                  const price = meta.regularMarketPrice;
+                  const prev  = meta.previousClose || meta.chartPreviousClose || price;
+                  results[sym] = {
+                    price, regularPrice: price, closePrice: price,
+                    changePercent: prev > 0 ? ((price - prev) / prev * 100) : 0,
+                    changeAmount: Math.round((price - prev) * 100) / 100,
+                    regularChangePercent: prev > 0 ? ((price - prev) / prev * 100) : 0,
+                    regularChangeAmount: Math.round((price - prev) * 100) / 100,
+                    currency: meta.currency || 'USD',
+                    marketState: 'REGULAR',
+                  };
+                }
+              }
+            } catch {}
+          }
+        }
+
+      } catch (e) {
+        console.error(`[quote] ${sym} error:`, e.message);
+      }
+    }));
+  }
+
+  res.status(200).json({ results, ts: Date.now() });
+}
