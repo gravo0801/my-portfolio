@@ -2292,13 +2292,13 @@ function PortfolioApp({ syncKey, onLogout }) {
     value: Math.round(portfolio.filter(h => h.market === k).reduce((s, h) => s + toKRWLive(h.value, h.cur), 0)),
   })).filter(d => d.value > 0);
 
-  const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0)).slice(-30);
+  const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0));
   const filteredSnaps = (() => {
     if (chartPeriod === "all") return snapshotList;
     const days = parseInt(chartPeriod);
     const cutoff = Date.now() - days * 86400000;
     const f = snapshotList.filter(s => (s.id||0) >= cutoff);
-    return f.length >= 2 ? f : snapshotList.slice(-Math.min(10, snapshotList.length));
+    return f.length >= 2 ? f : snapshotList.slice(-Math.min(20, snapshotList.length));
   })();
   const tradePnLData = trades.map(t => ({
     name: `${t.date} ${t.ticker}`, ticker: t.ticker, type: t.type,
@@ -2555,7 +2555,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
 
   const FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif";
-  const tabs = [["overview","🏠 전체현황"],["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
+  const tabs = [["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
   const TT = { contentStyle:{ background:"#1e293b", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"10px", fontSize:"13px", fontFamily:FONT } };
 
   // 포트폴리오2 계산
@@ -2730,19 +2730,21 @@ function PortfolioApp({ syncKey, onLogout }) {
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
           {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3 (ISA)"]].map(([id,label])=>(
-            <button key={id} onClick={()=>{setMainTab(id);setTab(id==="overview"?"overview":"portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+            <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
               {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":"P3 ISA"):label}
             </button>
           ))}
         </div>
-        {/* 서브 탭 */}
-        <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
-          {(mainTab==="p1"?tabs:mainTab==="p2"?[["overview","🏠 전체현황"],["portfolio","📊 보유종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]:[["overview","🏠 전체현황"],["portfolio","📊 ISA 종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]).map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile ? label.split(" ")[1]||label : label}
-            </button>
-          ))}
-        </div>
+        {/* 서브 탭: 전체현황에서는 숨김, P1/P2/P3 동일 */}
+        {mainTab !== "overview" && (
+          <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
+            {tabs.map(([id, label]) => (
+              <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+                {isMobile ? label.split(" ")[1]||label : label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:"1200px", margin:"0 auto" }}>
@@ -2767,7 +2769,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab === "portfolio" && mainTab === "p1" && (
           <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
-          {/* ── 뷰 선택 탭 + 통화 전환 한 줄 정렬 ── */}
+          {/* ── 뷰 선택 + 통화 전환 한 줄 정렬 ── */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
             <div style={{display:"flex",gap:"4px",flexWrap:"wrap"}}>
               {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
@@ -2780,7 +2782,6 @@ function PortfolioApp({ syncKey, onLogout }) {
                 }}>{isMobile?label.split(" ")[1]:label}</button>
               ))}
             </div>
-            {/* 통화 전환 — 전체 탭일 때만 표시 */}
             {overviewTab==="all" && (
               <div style={{display:"flex",background:"rgba(255,255,255,0.06)",borderRadius:"10px",padding:"3px",gap:"2px",flexShrink:0}}>
                 <button onClick={()=>setCurrMode("KRW")} style={{padding:"5px 14px",borderRadius:"8px",border:"none",cursor:"pointer",fontSize:"13px",fontWeight:700,background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent",color:currMode==="KRW"?"#c7d2fe":"#64748b"}}>₩ 원화</button>
@@ -2907,7 +2908,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             );
           })()}
 
-          {/* ── 전체 뷰 (기존 포트폴리오 화면) ── */}
+          {/* ── 전체 뷰 ── */}
           {overviewTab==="all" && (
             <div>
             {/* 요약 카드 */}
@@ -3168,7 +3169,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           {tab === "portfolio" && (
             <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
 
-            {/* ① P3 요약 카드 — 최상단 */}
+            {/* ① 요약 카드 — 최상단 */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"5px":"12px"}}>
               <div style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",cursor:"pointer",userSelect:"none"}} onClick={()=>setHideAmt(h=>!h)}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
@@ -3663,35 +3664,45 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>새로고침마다 자동 기록 · {filteredSnaps.length}개 데이터</div>
               {filteredSnaps.length<2?(
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>📊</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
-              ):(
-                <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd" tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return(chartPeriod==="7d"||chartPeriod==="all")?p[1]||v:p[0]||v;}}/>
-                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"}/>
-                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]}/>
-                    <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={false} activeDot={{r:5,fill:"#6366f1"}}/>
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
+              ):(()=>{
+                const n=filteredSnaps.length;
+                const tickInterval=Math.max(1,Math.floor(n/(isMobile?4:6)));
+                const xFmt=v=>{if(!v)return"";const p=v.split(" ");return chartPeriod==="7d"?p[1]||v:p[0]||v;};
+                return(
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+                      <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={tickInterval} tickFormatter={xFmt}/>
+                      <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"} domain={["auto","auto"]}/>
+                      <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]} labelFormatter={v=>v}/>
+                      <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={n<=60} activeDot={{r:5,fill:"#6366f1"}}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              })()}
             </div>
             <div style={S.card}>
               <div style={{fontSize:"17px",fontWeight:800,marginBottom:"4px",letterSpacing:"-0.03em"}}>💰 자산 총액 변화</div>
               <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>KRW 환산 기준</div>
               {filteredSnaps.length<2?(
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>💰</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
-              ):(
-                <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
-                    <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd" tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return(chartPeriod==="7d"||chartPeriod==="all")?p[1]||v:p[0]||v;}}/>
-                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"}/>
-                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]}/>
-                    <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+              ):(()=>{
+                const n=filteredSnaps.length;
+                const tickInterval=Math.max(1,Math.floor(n/(isMobile?4:6)));
+                const xFmt=v=>{if(!v)return"";const p=v.split(" ");return chartPeriod==="7d"?p[1]||v:p[0]||v;};
+                return(
+                  <ResponsiveContainer width="100%" height={240}>
+                    <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
+                      <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+                      <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={tickInterval} tickFormatter={xFmt}/>
+                      <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"} domain={["auto","auto"]}/>
+                      <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]} labelFormatter={v=>v}/>
+                      <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                );
+              })()}
             </div>
           </div>
         )}
