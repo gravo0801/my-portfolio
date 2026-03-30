@@ -2771,7 +2771,7 @@ function PortfolioApp({ syncKey, onLogout }) {
           <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
           {/* ── 뷰선택 + 통화 + 요약접기 한 줄 ── */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px",flexWrap:"wrap",gap:"6px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px",flexWrap:"wrap",gap:"6px"}}>
             <div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
               {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
                 <button key={id} onClick={()=>setOverviewTab(id)} style={{
@@ -2916,7 +2916,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
           {/* ── 전체 뷰 ── */}
           {overviewTab==="all" && (
-            <div>
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
             {summaryOpen && (<>
             {/* 요약 카드 */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"5px":"12px", marginBottom:isMobile?"8px":"20px" }}>
@@ -3010,11 +3010,11 @@ function PortfolioApp({ syncKey, onLogout }) {
             )}
 
             </>)}
-
-            {/* ── 보유 종목 ── */}
-            <div style={{...S.card, padding:isMobile?"8px":"12px", minHeight:"50vh"}}>
+            {/* ── 보유 종목 (페이지 하단까지 확장) ── */}
+            <div style={{...S.card, padding:isMobile?"8px":"12px", flex:1,
+              minHeight: isMobile ? "calc(100vh - 200px)" : "calc(100vh - 220px)"}}>
               {/* 헤더 + 컨트롤 */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"10px", gap:"6px", flexWrap:"wrap" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"8px", gap:"6px", flexWrap:"wrap" }}>
                 <div>
                   <div style={{ fontSize:"14px", fontWeight:800, letterSpacing:"-0.03em" }}>보유 종목
                     <span style={{ fontSize:"12px", fontWeight:500, color:"#64748b", marginLeft:"8px" }}>{portfolio.length}종목</span>
@@ -3089,7 +3089,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div>종목을 추가하면 실시간 시세를 조회합니다</div>
                 </div>
               ) : isMobile ? (
-                <div style={{display:"flex",flexDirection:"column",gap:compactMode?"4px":"8px",maxHeight:"calc(100vh - 100px)",overflowY:"auto",paddingRight:"2px"}}>
+                <div style={{display:"flex",flexDirection:"column",gap:compactMode?"4px":"8px",paddingRight:"2px"}}>
                   {(()=>{
                     let sorted=[...portfolio];
                     if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
@@ -3110,7 +3110,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div style={{fontSize:"10px",color:"#334155",textAlign:"right",marginTop:"4px",paddingBottom:"4px"}}>* USD 1달러 = {liveUsdKrw.toLocaleString()}원 (실시간)</div>
                 </div>
               ) : (
-                <div style={{overflowY:"auto",maxHeight:compactMode?"600px":"480px"}}>
+                <div style={{overflowY:"auto",maxHeight:compactMode?"calc(100vh - 270px)":"calc(100vh - 260px)"}}>
                   {(()=>{
                     let sorted=[...portfolio];
                     if(sortBy==="pnl_desc") sorted.sort((a,b)=>b.pnlPct-a.pnlPct);
@@ -3176,8 +3176,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
           {/* P3 보유종목 */}
           {tab === "portfolio" && (
-            <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-            {/* P3 요약 토글 */}
+            <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
             <div style={{display:"flex",justifyContent:"flex-end"}}>
               <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
                 {summaryOpen?"▴ 접기":"▾ 요약"}
@@ -3185,7 +3184,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             </div>
             {summaryOpen && (<>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
-              {[["총 평가금액",{v:Math.round(isaTotal).toLocaleString()+"₩",c:"#f8fafc"}],["평가 손익",{v:(isaPnL>=0?"+":"")+Math.round(isaPnL).toLocaleString()+"₩",c:isaPnL>=0?"#34d399":"#f87171"}],["총 수익률",{v:(isaRet>=0?"+":"")+isaRet.toFixed(2)+"%",c:isaRet>=0?"#34d399":"#f87171"}]].map(([l,{v,c}])=>(
+              {[["총 평가금액",Math.round(isaTotal).toLocaleString()+"₩","#f8fafc"],["평가 손익",(isaPnL>=0?"+":"")+Math.round(isaPnL).toLocaleString()+"₩",isaPnL>=0?"#34d399":"#f87171"],["총 수익률",(isaRet>=0?"+":"")+isaRet.toFixed(2)+"%",isaRet>=0?"#34d399":"#f87171"]].map(([l,v,c])=>(
                 <div key={l} style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",padding:isMobile?"8px 10px":"10px 14px"}}>
                   <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
                   <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:c,letterSpacing:"-0.03em"}}>{v}</div>
@@ -3390,8 +3389,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div style={{display:"flex",alignItems:"center",gap:"12px",minWidth:0}}>
                     <div style={{background:t.type==="buy"?"rgba(6,182,212,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${t.type==="buy"?"rgba(6,182,212,0.45)":"rgba(239,68,68,0.45)"}`,color:t.type==="buy"?"#67e8f9":"#fca5a5",padding:"4px 12px",borderRadius:"20px",fontSize:"13px",fontWeight:800,flexShrink:0}}>{t.type==="buy"?"매수":"매도"}</div>
                     <div>
-                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const h=isaHoldings.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#475569",fontWeight:400,fontSize:"11px",marginLeft:"6px"}}>{t.ticker} · {t.date}</span></div>
-                      {(()=>{const p=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];if(!p||!t.price)return null;const diff=p.price-t.price;const pct=(diff/t.price)*100;return(<div style={{fontSize:"11px",marginTop:"2px",color:diff>=0?"#34d399":"#f87171",fontWeight:700}}>{diff>=0?"▲":"▼"}{Math.abs(diff)>=1?Math.round(Math.abs(diff)).toLocaleString():Math.abs(diff).toFixed(2)}₩ ({diff>=0?"+":""}{pct.toFixed(1)}%)</div>);})()}
+                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const h=isaHoldings.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker} · {t.date}</span></div>
+                      {(()=>{const p=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];if(!p||!t.price)return null;const d=p.price-t.price,pct=(d/t.price)*100;return(<span style={{fontSize:"11px",color:d>=0?"#34d399":"#f87171",fontWeight:700}}>{d>=0?"▲":"▼"}{Math.abs(d)>=1?Math.round(Math.abs(d)).toLocaleString():Math.abs(d).toFixed(2)}₩ ({d>=0?"+":""}{pct.toFixed(1)}%)</span>);})()}
                     </div>
                   </div>
                   <div style={{textAlign:"right",flexShrink:0}}>
@@ -3483,8 +3482,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
         {/* ── PORTFOLIO 2 (절세계좌) ── */}
                 {tab === "portfolio" && mainTab === "p2" && (
-          <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-            {/* P2 요약 토글 */}
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
             <div style={{display:"flex",justifyContent:"flex-end"}}>
               <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
                 {summaryOpen?"▴ 접기":"▾ 요약"}
@@ -3492,7 +3490,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             </div>
             {summaryOpen && (<>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
-              {[["총 평가금액",{v:Math.round(total2Val).toLocaleString()+"₩",c:"#f8fafc"}],["평가 손익",{v:(total2PnL>=0?"+":"")+Math.round(total2PnL).toLocaleString()+"₩",c:total2PnL>=0?"#34d399":"#f87171"}],["총 수익률",{v:(total2Ret>=0?"+":"")+total2Ret.toFixed(2)+"%",c:total2Ret>=0?"#34d399":"#f87171"}]].map(([l,{v,c}])=>(
+              {[["총 평가금액",Math.round(total2Val).toLocaleString()+"₩","#f8fafc"],["평가 손익",(total2PnL>=0?"+":"")+Math.round(total2PnL).toLocaleString()+"₩",total2PnL>=0?"#34d399":"#f87171"],["총 수익률",(total2Ret>=0?"+":"")+total2Ret.toFixed(2)+"%",total2Ret>=0?"#34d399":"#f87171"]].map(([l,v,c])=>(
                 <div key={l} style={{...S.card,background:"rgba(234,179,8,0.09)",borderColor:"rgba(234,179,8,0.22)",padding:isMobile?"8px 10px":"10px 14px"}}>
                   <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</div>
                   <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:c,letterSpacing:"-0.03em"}}>{v}</div>
@@ -3722,8 +3720,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div style={{display:"flex",alignItems:"center",gap:"14px",minWidth:0}}>
                     <div style={{background:t.type==="buy"?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${t.type==="buy"?"rgba(99,102,241,0.45)":"rgba(239,68,68,0.45)"}`,color:t.type==="buy"?"#c7d2fe":"#fca5a5",padding:"5px 14px",borderRadius:"20px",fontSize:"14px",fontWeight:800,flexShrink:0}}>{t.type==="buy"?"매수":"매도"}</div>
                     <div>
-                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const allH=[...holdings,...holdings2];const h=allH.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#475569",fontWeight:400,fontSize:"11px",marginLeft:"6px"}}>{t.ticker} · {t.date}</span></div>
-                      {(()=>{const tk=t.ticker;const p=prices[tk]||prices[tk+".KS"]||prices[tk+".KQ"];if(!p||!t.price)return null;const diff=p.price-t.price;const pct=(diff/t.price)*100;return(<div style={{fontSize:"11px",marginTop:"2px",color:diff>=0?"#34d399":"#f87171",fontWeight:700}}>{diff>=0?"▲":"▼"}{Math.abs(diff)>=1?Math.round(Math.abs(diff)).toLocaleString():Math.abs(diff).toFixed(2)}₩ ({diff>=0?"+":""}{pct.toFixed(1)}%)</div>);})()}
+                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const all=[...holdings,...holdings2];const h=all.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker} · {t.date}</span></div>
+                      {(()=>{const tk=t.ticker;const p=prices[tk]||prices[tk+".KS"]||prices[tk+".KQ"];if(!p||!t.price)return null;const d=p.price-t.price,pct=(d/t.price)*100;return(<span style={{fontSize:"11px",color:d>=0?"#34d399":"#f87171",fontWeight:700}}>{d>=0?"▲":"▼"}{Math.abs(d)>=1?Math.round(Math.abs(d)).toLocaleString():Math.abs(d).toFixed(2)}₩ ({d>=0?"+":""}{pct.toFixed(1)}%)</span>);})()}
                       {t.note&&<div style={{fontSize:"11px",color:"#64748b",marginTop:"1px"}}>{t.note}</div>}
                     </div>
                   </div>
