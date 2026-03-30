@@ -1792,7 +1792,6 @@ function PortfolioApp({ syncKey, onLogout }) {
     try { return localStorage.getItem("pm_bg_image") || ""; } catch { return ""; }
   });
   const [groupBy, setGroupBy] = useState("none");
-  const [summaryOpen, setSummaryOpen] = useState(false); // 요약 기본 접힘
   const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -2293,13 +2292,13 @@ function PortfolioApp({ syncKey, onLogout }) {
     value: Math.round(portfolio.filter(h => h.market === k).reduce((s, h) => s + toKRWLive(h.value, h.cur), 0)),
   })).filter(d => d.value > 0);
 
-  const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0));
+  const snapshotList = [...snapshots].sort((a,b) => (a.id||0)-(b.id||0)).slice(-30);
   const filteredSnaps = (() => {
     if (chartPeriod === "all") return snapshotList;
     const days = parseInt(chartPeriod);
     const cutoff = Date.now() - days * 86400000;
-    // 해당 기간 데이터만 반환 — 부족해도 fallback 없음 (차트에서 안내)
-    return snapshotList.filter(s => (s.id||0) >= cutoff);
+    const f = snapshotList.filter(s => (s.id||0) >= cutoff);
+    return f.length >= 2 ? f : snapshotList.slice(-Math.min(10, snapshotList.length));
   })();
   const tradePnLData = trades.map(t => ({
     name: `${t.date} ${t.ticker}`, ticker: t.ticker, type: t.type,
@@ -2332,7 +2331,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
-    setTrades(p => [...p, { id: Date.now(), ...tForm, quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
+    setTrades(p => [...p, { id: Date.now(), ...tForm, portfolio: "p1", quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
     setTForm({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"" }); setShowForm(null);
   };
   const addH2 = () => {
@@ -2471,7 +2470,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         <div style={{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"}} onClick={()=>setSelectedStock(h)} onTouchStart={()=>{if(!_chartCache[h.ticker]){fetchHistory(h.ticker,h.market).then(d=>{_chartCache[h.ticker]=d});fetchStockInfo(h.ticker,h.market).then(d=>{_infoCache[h.ticker]=d});}}}>
           <div style={{width:"8px",height:"8px",borderRadius:"2px",background:MARKET_COLOR[h.market],flexShrink:0}}/>
           <div>
-            <div style={{fontWeight:800,fontSize:"15px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
+            <div style={{fontWeight:800,fontSize:"14px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
             <div style={{fontSize:"11px",color:"#a5b4fc",fontWeight:600,marginTop:"2px"}}>{h.ticker} <span style={{color:"#6366f1",fontSize:"10px"}}>상세보기 ›</span></div>
             {h.stockType&&h.stockType!=="일반주식"&&<div style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.stockType}</div>}
             {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
@@ -2556,7 +2555,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
 
   const FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif";
-  const tabs = [["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
+  const tabs = [["overview","🏠 전체현황"],["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
   const TT = { contentStyle:{ background:"#1e293b", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"10px", fontSize:"13px", fontFamily:FONT } };
 
   // 포트폴리오2 계산
@@ -2731,21 +2730,19 @@ function PortfolioApp({ syncKey, onLogout }) {
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
           {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3 (ISA)"]].map(([id,label])=>(
-            <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+            <button key={id} onClick={()=>{setMainTab(id);setTab(id==="overview"?"overview":"portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
               {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":"P3 ISA"):label}
             </button>
           ))}
         </div>
-        {/* 서브 탭: 전체현황 숨김, P1/P2/P3 동일 */}
-        {mainTab !== "overview" && (
-          <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
-            {tabs.map(([id, label]) => (
-              <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"3px 8px":"4px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"10px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-                {isMobile ? label.split(" ")[1]||label : label}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 서브 탭 */}
+        <div style={{ display:"flex", gap:"4px", flexWrap:"wrap" }}>
+          {(mainTab==="p1"?tabs:mainTab==="p2"?[["overview","🏠 전체현황"],["portfolio","📊 보유종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]:[["overview","🏠 전체현황"],["portfolio","📊 ISA 종목"],["trades","📝 매매일지"],["dividend","💰 배당"]]).map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"5px 10px":"6px 14px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
+              {isMobile ? label.split(" ")[1]||label : label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:"1200px", margin:"0 auto" }}>
@@ -2770,30 +2767,17 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab === "portfolio" && mainTab === "p1" && (
           <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
-          {/* ── 뷰 선택 + 통화 + 요약 접기 ── */}
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px",flexWrap:"wrap",gap:"6px"}}>
-            <div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
-              {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
-                <button key={id} onClick={()=>setOverviewTab(id)} style={{
-                  background:overviewTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)",
-                  border:overviewTab===id?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",
-                  color:overviewTab===id?"#c7d2fe":"#64748b",
-                  padding:isMobile?"4px 9px":"5px 13px",borderRadius:"7px",cursor:"pointer",
-                  fontSize:isMobile?"11px":"12px",fontWeight:overviewTab===id?800:500,letterSpacing:"-0.01em",
-                }}>{isMobile?label.split(" ")[1]:label}</button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
-              {overviewTab==="all" && (
-                <div style={{display:"flex",background:"rgba(255,255,255,0.06)",borderRadius:"8px",padding:"2px",gap:"2px"}}>
-                  <button onClick={()=>setCurrMode("KRW")} style={{padding:"3px 10px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"11px",fontWeight:700,background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent",color:currMode==="KRW"?"#c7d2fe":"#64748b"}}>₩</button>
-                  <button onClick={()=>setCurrMode("USD")} style={{padding:"3px 10px",borderRadius:"6px",border:"none",cursor:"pointer",fontSize:"11px",fontWeight:700,background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent",color:currMode==="USD"?"#6ee7b7":"#64748b"}}>$</button>
-                </div>
-              )}
-              <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
-                {summaryOpen?"▴ 접기":"▾ 요약"}
-              </button>
-            </div>
+          {/* ── 뷰 선택 탭 ── */}
+          <div style={{display:"flex",gap:"4px",marginBottom:"14px",flexWrap:"wrap"}}>
+            {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
+              <button key={id} onClick={()=>setOverviewTab(id)} style={{
+                background:overviewTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)",
+                border:overviewTab===id?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",
+                color:overviewTab===id?"#c7d2fe":"#64748b",
+                padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer",
+                fontSize:isMobile?"12px":"13px", fontWeight:overviewTab===id?800:500, letterSpacing:"-0.01em",
+              }}>{isMobile?label.split(" ")[1]:label}</button>
+            ))}
           </div>
 
           {/* ── 증권사별 / 국내해외별 테이블 뷰 ── */}
@@ -2914,33 +2898,62 @@ function PortfolioApp({ syncKey, onLogout }) {
             );
           })()}
 
-          {/* ── 전체 뷰 ── */}
+          {/* ── 전체 뷰 (기존 포트폴리오 화면) ── */}
           {overviewTab==="all" && (
             <div>
-            {/* 요약 영역 접기/펼치기 */}
-            {summaryOpen && (<>
-            {/* 요약 카드 — 슬림 */}
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"4px":"8px", marginBottom:isMobile?"6px":"10px" }}>
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"3px" }}>
-                  <div style={{ fontSize:"10px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>총 평가금액</div>
-                  <span style={{ fontSize:"10px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
-                </div>
-                {hideAmt ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
-                  : <AnimatedNumber value={currMode==="KRW"?totalVal:totalVal/liveUsdKrw} format={v=>currMode==="KRW"?fmtKRW(v):"$"+(Math.round(v)).toLocaleString("en-US")} color="#f8fafc" fontSize={isMobile?"14px":"18px"}/>}
-                {!hideAmt && currMode==="USD" && <div style={{ fontSize:"9px", color:"#475569", marginTop:"2px" }}>환율 {liveUsdKrw.toLocaleString()}₩</div>}
+            {/* 통화 전환 버튼 */}
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:"8px" }}>
+              <div style={{ display:"flex", background:"rgba(255,255,255,0.06)", borderRadius:"10px", padding:"3px", gap:"2px" }}>
+                <button onClick={()=>setCurrMode("KRW")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="KRW"?"rgba(99,102,241,0.5)":"transparent", color:currMode==="KRW"?"#c7d2fe":"#64748b" }}>₩ 원화</button>
+                <button onClick={()=>setCurrMode("USD")} style={{ padding:"5px 14px", borderRadius:"8px", border:"none", cursor:"pointer", fontSize:"13px", fontWeight:700, background:currMode==="USD"?"rgba(16,185,129,0.4)":"transparent", color:currMode==="USD"?"#6ee7b7":"#64748b" }}>$ 달러</button>
               </div>
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"3px" }}>
-                  <div style={{ fontSize:"10px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>평가 손익</div>
-                  <span style={{ fontSize:"10px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
+            </div>
+            {/* 요약 카드 */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"5px":"12px", marginBottom:isMobile?"8px":"20px" }}>
+              {/* 총 평가금액 */}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none" }}
+                onClick={()=>setHideAmt(h=>!h)}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+                  <div style={{ fontSize:"12px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 평가금액</div>
+                  <span style={{ fontSize:"11px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
                 </div>
-                {hideAmt ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
-                  : <AnimatedNumber value={currMode==="KRW"?totalPnL:totalPnL/liveUsdKrw} format={v=>{const s=v>=0?"+":"";return currMode==="KRW"?s+fmtKRW(v):(v>=0?"+":"-")+"$"+Math.abs(Math.round(v)).toLocaleString("en-US");}} color={totalPnL>=0?"#34d399":"#f87171"} fontSize={isMobile?"14px":"18px"}/>}
+                {hideAmt
+                  ? <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber
+                      value={currMode==="KRW" ? totalVal : totalVal/liveUsdKrw}
+                      format={v => currMode==="KRW" ? fmtKRW(v) : "$"+(Math.round(v)).toLocaleString("en-US")}
+                      color="#f8fafc"
+                      fontSize={isMobile?"15px":"22px"}
+                    />
+                }
+                {!hideAmt && currMode==="USD" && <div style={{ fontSize:"10px", color:"#475569", marginTop:"3px" }}>환율 {liveUsdKrw.toLocaleString()}₩ 기준</div>}
               </div>
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", padding:isMobile?"8px 10px":"10px 14px" }}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>총 수익률</div>
-                <AnimatedNumber value={totalRet} format={v=>(v>=0?"+":"")+v.toFixed(2)+"%"} color={totalRet>=0?"#34d399":"#f87171"} fontSize={isMobile?"14px":"18px"}/>
+              {/* 평가 손익 */}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none" }}
+                onClick={()=>setHideAmt(h=>!h)}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+                  <div style={{ fontSize:"12px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>평가 손익</div>
+                  <span style={{ fontSize:"11px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
+                </div>
+                {hideAmt
+                  ? <div style={{ fontSize:isMobile?"15px":"22px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber
+                      value={currMode==="KRW" ? totalPnL : totalPnL/liveUsdKrw}
+                      format={v => { const sign = v>=0?"+":""; return currMode==="KRW" ? sign+fmtKRW(v) : (v>=0?"+":"-")+"$"+Math.abs(Math.round(v)).toLocaleString("en-US"); }}
+                      color={totalPnL>=0?"#34d399":"#f87171"}
+                      fontSize={isMobile?"15px":"22px"}
+                    />
+                }
+              </div>
+              {/* 총 수익률 - 항상 표시 */}
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)" }}>
+                <div style={{ fontSize:"12px", color:"#64748b", marginBottom:"6px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.07em" }}>총 수익률</div>
+                <AnimatedNumber
+                  value={totalRet}
+                  format={v => (v>=0?"+":"") + v.toFixed(2) + "%"}
+                  color={totalRet>=0?"#34d399":"#f87171"}
+                  fontSize={isMobile?"15px":"22px"}
+                />
               </div>
             </div>
             {/* 보유종목 + 자산배분 그리드 */}
@@ -2986,10 +2999,8 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             )}
 
-            </>)}
-
-            {/* ── 보유 종목 테이블 ── */}
-            <div style={{...S.card, padding:isMobile?"8px":"12px"}}>
+            {/* ── 아이디어2: 전체 너비 테이블 + 아이디어3: 컴팩트 모드 ── */}
+            <div style={{...S.card, padding:isMobile?"10px":"14px"}}>
               {/* 헤더 + 컨트롤 */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"10px", gap:"6px", flexWrap:"wrap" }}>
                 <div>
@@ -3153,35 +3164,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
           {/* P3 보유종목 */}
           {tab === "portfolio" && (
-            <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-            {/* P3 요약 토글 */}
-            <div style={{display:"flex",justifyContent:"flex-end"}}>
-              <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
-                {summaryOpen?"▴ 접기":"▾ 요약"}
-              </button>
-            </div>
-            {summaryOpen && (<>
-            {/* 요약 카드 */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
-              <div style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
-                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>총 평가금액</div>
-                  <span style={{fontSize:"10px",color:"#475569"}}>{hideAmt?"👁":"🔒"}</span>
-                </div>
-                {hideAmt?<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#475569",letterSpacing:"0.1em"}}>●●●●●</div>:<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.03em"}}>{Math.round(isaTotal).toLocaleString()}₩</div>}
-              </div>
-              <div style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
-                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>평가 손익</div>
-                  <span style={{fontSize:"10px",color:"#475569"}}>{hideAmt?"👁":"🔒"}</span>
-                </div>
-                {hideAmt?<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#475569",letterSpacing:"0.1em"}}>●●●●●</div>:<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:isaPnL>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{(isaPnL>=0?"+":"")+Math.round(isaPnL).toLocaleString()}₩</div>}
-              </div>
-              <div style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",padding:isMobile?"8px 10px":"10px 14px"}}>
-                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>총 수익률</div>
-                <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:isaRet>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{(isaRet>=0?"+":"")+isaRet.toFixed(2)}%</div>
-              </div>
-            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
             {/* ISA 납입현황 */}
             {(()=>{
               const pct=isaContribLimit>0?Math.min((isaContribAmount/isaContribLimit)*100,100):0;
@@ -3218,7 +3201,6 @@ function PortfolioApp({ syncKey, onLogout }) {
                 </div>
               );
             })()}
-            </>)}
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",flexWrap:"wrap",gap:"8px"}}>
                 <div style={{fontSize:"15px",fontWeight:800}}>💧 ISA 보유종목 <span style={{fontSize:"12px",color:"#64748b",fontWeight:500}}>{isaPortfolio.length}종목</span></div>
@@ -3258,7 +3240,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         <div style={{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
                           <div style={{width:"8px",height:"8px",borderRadius:"2px",background:"#06b6d4"}}/>
                           <div>
-                            <div style={{fontWeight:800,fontSize:"15px",color:"#f1f5f9"}}>{h.name||h.ticker}</div>
+                            <div style={{fontWeight:800,fontSize:"14px",color:"#f1f5f9"}}>{h.name||h.ticker}</div>
                             <div style={{fontSize:"11px",color:"#06b6d4"}}>{h.ticker}</div>
                           </div>
                         </div>
@@ -3271,7 +3253,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {[["현재가",Math.round(h.price).toLocaleString()+"₩"],["수량",h.quantity.toLocaleString()+"주"],["평가금액",Math.round(h.value).toLocaleString()+"₩"],["일변동",(h.regChgAmt>=0?"+":"")+Math.round(h.regChgAmt).toLocaleString()+"₩"],["등락률",(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"]].map(([l,v])=>(
                           <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
                             <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{l}</div>
-                            <div style={{fontSize:"12px",fontWeight:700}}>{v}</div>
+                            <div style={{fontSize:"13px",fontWeight:700}}>{v}</div>
                           </div>
                         ))}
                       </div>
@@ -3283,10 +3265,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/></div>
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>증권사</div><input value={editForm.broker||""} onChange={e=>setEditForm(p=>({...p,broker:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/></div>
                           </div>
-                          <div style={{display:"flex",gap:"8px",marginTop:"8px"}}>
-                            <button onClick={saveEdit} style={S.btn("#06b6d4",{fontSize:"12px",padding:"6px 14px",flex:1})}>✓ 저장</button>
-                            <button onClick={()=>setEditingId(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 14px",flex:1})}>취소</button>
-                            <button onClick={()=>{if(window.confirm("삭제?"))setHoldings(p=>p.filter(x=>x.id!==h.id));setEditingId(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px"})}>🗑️</button>
+                          <div style={{display:"flex",gap:"8px",marginTop:"8px",alignItems:"center"}}>
+                            <button onClick={()=>{if(window.confirm("삭제?"))setHoldings(p=>p.filter(x=>x.id!==h.id));setEditingId(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 10px"})}>🗑️ 삭제</button>
+                            <div style={{flex:1}}/>
+                            <button onClick={()=>setEditingId(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 12px"})}>취소</button>
+                            <button onClick={saveEdit} style={S.btn("#06b6d4",{fontSize:"12px",padding:"6px 12px"})}>✓ 저장</button>
                           </div>
                         </div>
                       )}
@@ -3329,10 +3312,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>증권사</div><input value={editForm.broker||""} onChange={e=>setEditForm(p=>({...p,broker:e.target.value}))} style={S.inp}/></div>
                               </div>
-                              <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                                <button onClick={saveEdit} style={S.btn("#06b6d4",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
+                              <div style={{display:"flex",gap:"8px",marginTop:"10px",alignItems:"center"}}>
+                                <button onClick={()=>{if(window.confirm(`"${h.name||h.ticker}" 삭제?`)){setHoldings(p=>p.filter(x=>x.id!==h.id));setEditingId(null);}}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 12px"})}>🗑️ 삭제</button>
+                                <div style={{flex:1}}/>
                                 <button onClick={()=>setEditingId(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 14px"})}>취소</button>
-                                <button onClick={()=>{if(window.confirm(`"${h.name||h.ticker}" 삭제?`)){setHoldings(p=>p.filter(x=>x.id!==h.id));setEditingId(null);}}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px",marginLeft:"auto"})}>🗑️ 삭제</button>
+                                <button onClick={saveEdit} style={S.btn("#06b6d4",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
                               </div>
                             </div>
                           </td></tr>
@@ -3352,7 +3336,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",flexWrap:"wrap",gap:"8px"}}>
                 <div><div style={{fontSize:"17px",fontWeight:800}}>ISA 매매일지</div>
-                  <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>{trades.filter(t=>isaHoldings.some(h=>h.ticker===t.ticker)).length}건</div>
+                  <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>{trades.filter(t=>t.portfolio==="p3"||isaHoldings.some(h=>h.ticker===t.ticker)).length}건</div>
                 </div>
                 <button onClick={()=>setShowForm(showForm==="t3"?null:"t3")} style={S.btn("#06b6d4")}>+ 기록 추가</button>
               </div>
@@ -3370,12 +3354,12 @@ function PortfolioApp({ syncKey, onLogout }) {
                     <input placeholder="수수료 (선택)" type="number" value={tForm.fee} onChange={e=>setTForm(p=>({...p,fee:e.target.value}))} style={S.inp}/>
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:""});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
+                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:"p3",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:""});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
                     <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
                   </div>
                 </div>
               )}
-              {[...trades].filter(t=>isaHoldings.some(h=>h.ticker===t.ticker)).reverse().map(t=>(
+              {[...trades].filter(t=>t.portfolio==="p3"||(  !t.portfolio&&isaHoldings.some(h=>h.ticker===t.ticker))).reverse().map(t=>(
                 <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 0",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:"12px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:"12px",minWidth:0}}>
                     <div style={{background:t.type==="buy"?"rgba(6,182,212,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${t.type==="buy"?"rgba(6,182,212,0.45)":"rgba(239,68,68,0.45)"}`,color:t.type==="buy"?"#67e8f9":"#fca5a5",padding:"4px 12px",borderRadius:"20px",fontSize:"13px",fontWeight:800,flexShrink:0}}>{t.type==="buy"?"매수":"매도"}</div>
@@ -3470,40 +3454,42 @@ function PortfolioApp({ syncKey, onLogout }) {
 
         {/* ── PORTFOLIO 2 (절세계좌) ── */}
                 {tab === "portfolio" && mainTab === "p2" && (
-          <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-            {/* P2 요약 토글 */}
-            <div style={{display:"flex",justifyContent:"flex-end"}}>
-              <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
-                {summaryOpen?"▴ 접기":"▾ 요약"}
-              </button>
-            </div>
-            {summaryOpen && (<>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
-              <div style={{...S.card,background:"rgba(234,179,8,0.09)",borderColor:"rgba(234,179,8,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
-                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>총 평가금액</div>
-                  <span style={{fontSize:"10px",color:"#475569"}}>{hideAmt?"👁":"🔒"}</span>
+          <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
+            {/* P2 요약 */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"10px"}}>
+              {[["총 평가금액",Math.round(total2Val).toLocaleString()+"₩","#f8fafc"],["평가 손익",(total2PnL>=0?"+":"")+Math.round(total2PnL).toLocaleString()+"₩",total2PnL>=0?"#34d399":"#f87171"],["총 수익률",(total2Ret>=0?"+":"")+total2Ret.toFixed(2)+"%",total2Ret>=0?"#34d399":"#f87171"]].map(([l,v,c])=>(
+                <div key={l} style={{...S.card,background:"rgba(234,179,8,0.08)",borderColor:"rgba(234,179,8,0.2)"}}>
+                  <div style={{fontSize:"11px",color:"#64748b",marginBottom:"4px",fontWeight:700}}>{l}</div>
+                  <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:c,letterSpacing:"-0.03em"}}>{v}</div>
                 </div>
-                {hideAmt?<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#475569",letterSpacing:"0.1em"}}>●●●●●</div>:<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.03em"}}>{Math.round(total2Val).toLocaleString()}₩</div>}
-              </div>
-              <div style={{...S.card,background:"rgba(234,179,8,0.09)",borderColor:"rgba(234,179,8,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
-                  <div style={{fontSize:"10px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>평가 손익</div>
-                  <span style={{fontSize:"10px",color:"#475569"}}>{hideAmt?"👁":"🔒"}</span>
-                </div>
-                {hideAmt?<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:"#475569",letterSpacing:"0.1em"}}>●●●●●</div>:<div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:total2PnL>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{(total2PnL>=0?"+":"")+Math.round(total2PnL).toLocaleString()}₩</div>}
-              </div>
-              <div style={{...S.card,background:"rgba(234,179,8,0.09)",borderColor:"rgba(234,179,8,0.22)",padding:isMobile?"8px 10px":"10px 14px"}}>
-                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>총 수익률</div>
-                <div style={{fontSize:isMobile?"14px":"18px",fontWeight:800,color:total2Ret>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{(total2Ret>=0?"+":"")+total2Ret.toFixed(2)}%</div>
-              </div>
+              ))}
             </div>
             {/* 납입현황 */}
             <ContribProgressBar taxAccounts={TAX_ACCOUNTS} holdings2={holdings2} prices={prices} liveUsdKrw={liveUsdKrw} contribLimits={contribLimits} contribAmounts={contribAmounts} onOpenSettings={()=>setShowContrib(true)} isMobile={isMobile}/>
-            </>)}
-            {/* 계좌별 종목 — 추가 버튼 카드 헤더 안으로 이동 */}
+            {/* 추가 버튼 */}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:"6px"}}>
+              <button onClick={()=>setShowForm(showForm==="h2"?null:"h2")} style={S.btn("#f59e0b",{fontSize:"12px"})}>+ 종목 추가</button>
+            </div>
+            {showForm==="h2"&&(
+              <div style={{...S.card,border:"1px solid rgba(234,179,8,0.35)"}}>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"8px"}}>
+                  <input placeholder="티커" value={hForm2.ticker} onChange={e=>setHForm2(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
+                  <input placeholder="종목명" value={hForm2.name} onChange={e=>setHForm2(p=>({...p,name:e.target.value}))} style={S.inp}/>
+                  <select value={hForm2.market} onChange={e=>setHForm2(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option></select>
+                  <select value={hForm2.taxAccount} onChange={e=>setHForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,appearance:"none"}}>{TAX_ACCOUNTS.map(a=><option key={a} value={a}>{a}</option>)}</select>
+                  <input placeholder="수량" type="number" value={hForm2.quantity} onChange={e=>setHForm2(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
+                  <input placeholder="평균 매수가" type="number" value={hForm2.avgPrice} onChange={e=>setHForm2(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
+                </div>
+                <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
+                  <button onClick={()=>{if(!hForm2.ticker||!hForm2.quantity||!hForm2.avgPrice)return;setHoldings2(p=>[...p,{id:Date.now(),...hForm2,quantity:+hForm2.quantity,avgPrice:+hForm2.avgPrice}]);setHForm2({ticker:"",name:"",market:"KR",quantity:"",avgPrice:"",taxAccount:TAX_ACCOUNTS[0],broker:""});setShowForm(null);}} style={S.btn("#f59e0b")}>✓ 추가</button>
+                  <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
+                </div>
+              </div>
+            )}
+            {/* 계좌별 종목 - P1 스타일 테이블 */}
             {TAX_ACCOUNTS.map(account=>{
               const items=portfolio2.filter(h=>h.taxAccount===account);
+              if(!items.length) return null;
               const accVal=items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
               const accCost=items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
               const accRet=accCost>0?((accVal-accCost)/accCost)*100:0;
@@ -3513,26 +3499,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                     <div>
                       <span style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0"}}>{account}</span>
                       <span style={{marginLeft:"8px",fontSize:"11px",background:"rgba(234,179,8,0.15)",color:"#eab308",padding:"1px 7px",borderRadius:"20px",fontWeight:700}}>절세</span>
-                      {items.length>0&&<div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>{fmtKRW(accVal)} · {accRet>=0?"+":""}{accRet.toFixed(2)}% · {items.length}종목</div>}
+                      <div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>{fmtKRW(accVal)} · {accRet>=0?"+":""}{accRet.toFixed(2)}% · {items.length}종목</div>
                     </div>
-                    <button onClick={()=>{setHForm2(p=>({...p,taxAccount:account}));setShowForm(showForm==="h2_"+account?null:"h2_"+account);}} style={S.btn("#f59e0b",{fontSize:"12px"})}>+ 추가</button>
                   </div>
-                  {showForm==="h2_"+account&&(
-                    <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:"14px",marginBottom:"12px",border:"1px solid rgba(234,179,8,0.3)"}}>
-                      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"8px"}}>
-                        <input placeholder="티커" value={hForm2.ticker} onChange={e=>setHForm2(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
-                        <input placeholder="종목명" value={hForm2.name} onChange={e=>setHForm2(p=>({...p,name:e.target.value}))} style={S.inp}/>
-                        <select value={hForm2.market} onChange={e=>setHForm2(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}><option value="KR">한국주식</option><option value="US">미국주식</option><option value="ETF">ETF</option></select>
-                        <select value={hForm2.taxAccount} onChange={e=>setHForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,appearance:"none"}}>{TAX_ACCOUNTS.map(a=><option key={a} value={a}>{a}</option>)}</select>
-                        <input placeholder="수량" type="number" value={hForm2.quantity} onChange={e=>setHForm2(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
-                        <input placeholder="평균 매수가" type="number" value={hForm2.avgPrice} onChange={e=>setHForm2(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
-                      </div>
-                      <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                        <button onClick={()=>{if(!hForm2.ticker||!hForm2.quantity||!hForm2.avgPrice)return;setHoldings2(p=>[...p,{id:Date.now(),...hForm2,quantity:+hForm2.quantity,avgPrice:+hForm2.avgPrice}]);setHForm2({ticker:"",name:"",market:"KR",quantity:"",avgPrice:"",taxAccount:TAX_ACCOUNTS[0],broker:""});setShowForm(null);}} style={S.btn("#f59e0b")}>✓ 추가</button>
-                        <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
-                      </div>
-                    </div>
-                  )}
                   {isMobile?(
                     <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
                       {items.map(h=>(
@@ -3556,7 +3525,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                             ].map(([l,v])=>(
                               <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"5px 7px"}}>
                                 <div style={{fontSize:"9px",color:"#64748b",marginBottom:"1px"}}>{l}</div>
-                                <div style={{fontSize:"11px",fontWeight:700,color:l==="손익률"?h.pnlPct>=0?"#34d399":"#f87171":l==="일변동"?h.regChgPct>=0?"#34d399":"#f87171":"#f1f5f9"}}>{v}</div>
+                                <div style={{fontSize:"13px",fontWeight:700,color:l==="손익률"?h.pnlPct>=0?"#34d399":"#f87171":l==="일변동"?h.regChgPct>=0?"#34d399":"#f87171":"#f1f5f9"}}>{v}</div>
                               </div>
                             ))}
                           </div>
@@ -3569,9 +3538,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계좌</div><select value={editForm2.taxAccount||""} onChange={e=>setEditForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px",appearance:"none"}}>{TAX_ACCOUNTS.map(a=><option key={a} value={a} style={{background:"#1e293b"}}>{a}</option>)}</select></div>
                               </div>
                               <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                                <button onClick={saveEdit2} style={S.btn("#f59e0b",{fontSize:"12px",padding:"6px",flex:1})}>✓ 저장</button>
+                                <button onClick={()=>{if(window.confirm("삭제?"))setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 10px"})}>🗑️ 삭제</button>
                                 <button onClick={()=>setEditingId2(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px",flex:1})}>취소</button>
-                                <button onClick={()=>{if(window.confirm("삭제?"))setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px"})}>🗑️</button>
+                                <button onClick={saveEdit2} style={S.btn("#f59e0b",{fontSize:"12px",padding:"6px",flex:1})}>✓ 저장</button>
                               </div>
                             </div>
                           )}
@@ -3594,7 +3563,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 </div>
                               </div>
                             </td>
-                            <td style={S.TD}><div style={{fontWeight:700}}>{h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</div></td>
+                            <td style={S.TD}><div style={{fontWeight:700,fontSize:"14px"}}>{h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</div></td>
                             <td style={{...S.TD,color:h.regChgPct>=0?"#34d399":"#f87171",fontWeight:700}}>
                               <div style={{fontWeight:800}}>{(h.regChgAmt>=0?"+":"-")+(h.cur==="USD"?"$"+Math.abs(h.regChgAmt).toFixed(2):Math.abs(Math.round(h.regChgAmt)).toLocaleString()+"₩")}</div>
                               <div style={{fontSize:"11px",opacity:0.85}}>({(h.regChgPct>=0?"+":"")+h.regChgPct.toFixed(2)}%)</div>
@@ -3613,10 +3582,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                                   <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm2.avgPrice||""} onChange={e=>setEditForm2(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
                                   <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>계좌</div><select value={editForm2.taxAccount||""} onChange={e=>setEditForm2(p=>({...p,taxAccount:e.target.value}))} style={{...S.inp,appearance:"none"}}>{TAX_ACCOUNTS.map(a=><option key={a} value={a} style={{background:"#1e293b"}}>{a}</option>)}</select></div>
                                 </div>
-                                <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                                  <button onClick={saveEdit2} style={S.btn("#f59e0b",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
+                                <div style={{display:"flex",gap:"8px",marginTop:"10px",alignItems:"center"}}>
+                                  <button onClick={()=>{if(window.confirm("삭제?"))setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 12px"})}>🗑️ 삭제</button>
+                                  <div style={{flex:1}}/>
                                   <button onClick={()=>setEditingId2(null)} style={S.btn("#475569",{fontSize:"12px",padding:"6px 14px"})}>취소</button>
-                                  <button onClick={()=>{if(window.confirm("삭제?"))setHoldings2(p=>p.filter(x=>x.id!==h.id));setEditingId2(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px",marginLeft:"auto"})}>🗑️ 삭제</button>
+                                  <button onClick={saveEdit2} style={S.btn("#f59e0b",{fontSize:"12px",padding:"6px 14px"})}>✓ 저장</button>
                                 </div>
                               </div>
                             </td></tr>
@@ -3633,18 +3603,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
 
         {/* ── CHARTS (P1/P2/P3 공통) ── */}
-        {tab === "charts" && (mainTab==="p1"||mainTab==="p2"||mainTab==="p3") && (()=>{
-          // 실제 표시 범위 계산
-          const rangeLabel = filteredSnaps.length >= 2
-            ? `${filteredSnaps[0].label} ~ ${filteredSnaps[filteredSnaps.length-1].label}`
-            : null;
-          const periodDays = chartPeriod==="all" ? null : parseInt(chartPeriod);
-          const hasEnough = filteredSnaps.length >= 2;
-          const n = filteredSnaps.length;
-          const ti = Math.max(1, Math.floor(n / (isMobile?4:7)));
-          const xf = v => { if(!v) return ""; const p=v.split(" "); return chartPeriod==="7d"?p[1]||v:p[0]||v; };
-
-          return (
+        {tab === "charts" && (mainTab==="p1"||mainTab==="p2"||mainTab==="p3") && (
           <div style={{display:"flex",flexDirection:"column",gap:"20px"}}>
             <div style={S.card}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px",flexWrap:"wrap",gap:"8px"}}>
@@ -3655,60 +3614,41 @@ function PortfolioApp({ syncKey, onLogout }) {
                   ))}
                 </div>
               </div>
-              <div style={{fontSize:"12px",color:"#475569",marginBottom:"14px",display:"flex",gap:"10px",flexWrap:"wrap",alignItems:"center"}}>
-                <span>전체 {snapshotList.length}개 기록</span>
-                {rangeLabel && <span style={{color:"#64748b"}}>· 표시 범위: {rangeLabel} ({n}개)</span>}
-                {!hasEnough && chartPeriod!=="all" && (
-                  <span style={{color:"#f59e0b",fontWeight:700}}>
-                    ⚠ 선택 기간({[["7d","1주"],["30d","1달"],["90d","3달"],["180d","6달"],["365d","1년"]].find(([k])=>k===chartPeriod)?.[1]}) 데이터 없음 — 앱을 더 오래 실행하면 쌓입니다
-                  </span>
-                )}
-              </div>
-              {!hasEnough ? (
-                <div style={{textAlign:"center",padding:"40px 20px",color:"#475569"}}>
-                  <div style={{fontSize:"28px",marginBottom:"10px"}}>📊</div>
-                  <div style={{fontSize:"14px",marginBottom:"6px"}}>해당 기간 데이터가 없습니다</div>
-                  <div style={{fontSize:"12px",color:"#334155"}}>차트는 앱이 켜져 있는 동안 자동으로 기록됩니다.<br/>매일 앱을 사용하면 기간별 변화를 볼 수 있습니다.</div>
-                  {snapshotList.length >= 2 && (
-                    <button onClick={()=>setChartPeriod("all")} style={{marginTop:"14px",background:"rgba(99,102,241,0.2)",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"6px 16px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>전체 데이터 보기 ({snapshotList.length}개)</button>
-                  )}
-                </div>
-              ) : (
+              <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>새로고침마다 자동 기록 · {filteredSnaps.length}개 데이터</div>
+              {filteredSnaps.length<2?(
+                <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>📊</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
+              ):(
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={ti} tickFormatter={xf}/>
-                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"} domain={["auto","auto"]}/>
-                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]} labelFormatter={v=>v}/>
-                    <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={n<=80} activeDot={{r:5,fill:"#6366f1"}}/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd" tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return(chartPeriod==="7d"||chartPeriod==="all")?p[1]||v:p[0]||v;}}/>
+                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"}/>
+                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]}/>
+                    <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={false} activeDot={{r:5,fill:"#6366f1"}}/>
                   </LineChart>
                 </ResponsiveContainer>
               )}
             </div>
             <div style={S.card}>
               <div style={{fontSize:"17px",fontWeight:800,marginBottom:"4px",letterSpacing:"-0.03em"}}>💰 자산 총액 변화</div>
-              <div style={{fontSize:"12px",color:"#475569",marginBottom:"14px"}}>KRW 환산 기준{rangeLabel?` · ${rangeLabel}`:""}</div>
-              {!hasEnough ? (
-                <div style={{textAlign:"center",padding:"40px",color:"#475569"}}>
-                  <div style={{fontSize:"28px",marginBottom:"10px"}}>💰</div>
-                  <div>해당 기간 데이터가 없습니다</div>
-                </div>
-              ) : (
+              <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>KRW 환산 기준</div>
+              {filteredSnaps.length<2?(
+                <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>💰</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
+              ):(
                 <ResponsiveContainer width="100%" height={240}>
                   <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
                     <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={ti} tickFormatter={xf}/>
-                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"} domain={["auto","auto"]}/>
-                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]} labelFormatter={v=>v}/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval="preserveStartEnd" tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return(chartPeriod==="7d"||chartPeriod==="all")?p[1]||v:p[0]||v;}}/>
+                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"}/>
+                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]}/>
                     <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
                   </AreaChart>
                 </ResponsiveContainer>
               )}
             </div>
           </div>
-          );
-        })()}
+        )}
 
         {/* ── TRADES (P1/P2/P3 필터) ── */}
         {tab==="trades"&&(mainTab==="p1"||mainTab==="p2")&&(
@@ -3717,16 +3657,19 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div>
                 <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.03em"}}>매매 일지</div>
                 <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>
-                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"} · {trades.filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker)).length}건
+                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"} · {trades.filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):(t.portfolio==="p2"||holdings2.some(h=>h.ticker===t.ticker))).length}건
                 </div>
               </div>
               <button onClick={()=>setShowForm(showForm==="t"?null:"t")} style={S.btn()}>+ 기록 추가</button>
             </div>
             {showForm==="t"&&(
-              <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"12px",padding:"18px",marginBottom:"18px",border:"1px solid rgba(99,102,241,0.35)"}}>
+              <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"12px",padding:"18px",marginBottom:"18px",border:"1px solid rgba(234,179,8,0.35)"}}>
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"8px"}}>
                   <input type="date" value={tForm.date} onChange={e=>setTForm(p=>({...p,date:e.target.value}))} style={S.inp}/>
-                  <input placeholder="티커" value={tForm.ticker} onChange={e=>setTForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp}/>
+                  <select value={tForm.ticker} onChange={e=>setTForm(p=>({...p,ticker:e.target.value}))} style={{...S.inp,appearance:"none"}}>
+                    <option value="">종목 선택</option>
+                    {holdings2.map(h=><option key={h.id} value={h.ticker}>{h.name||h.ticker}</option>)}
+                  </select>
                   <select value={tForm.type} onChange={e=>setTForm(p=>({...p,type:e.target.value}))} style={{...S.inp,appearance:"none"}}><option value="buy">매수</option><option value="sell">매도</option></select>
                   <input placeholder="수량" type="number" value={tForm.quantity} onChange={e=>setTForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                   <input placeholder="체결가" type="number" value={tForm.price} onChange={e=>setTForm(p=>({...p,price:e.target.value}))} style={S.inp}/>
@@ -3734,13 +3677,17 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <input placeholder="메모 (선택)" value={tForm.note} onChange={e=>setTForm(p=>({...p,note:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
                 </div>
                 <div style={{display:"flex",gap:"8px",marginTop:"12px"}}>
-                  <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:""});setShowForm(null);}} style={S.btn("#10b981")}>✓ 저장</button>
+                  <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:"p2",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:""});setShowForm(null);}} style={S.btn("#f59e0b")}>✓ 저장</button>
                   <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
                 </div>
               </div>
             )}
             {(()=>{
-              const filtered = [...trades].filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker));
+              const filtered = [...trades].filter(t=>
+              mainTab==="p1"
+                ? (t.portfolio==="p1" || (!t.portfolio && holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker)))
+                : (t.portfolio==="p2" || (!t.portfolio && holdings2.some(h=>h.ticker===t.ticker)))
+            );
               return filtered.length===0?(
                 <div style={{textAlign:"center",padding:"44px",color:"#475569"}}><div style={{fontSize:"36px",marginBottom:"12px"}}>📝</div><div>매매 기록을 추가해주세요</div></div>
               ):filtered.reverse().map(t=>(
