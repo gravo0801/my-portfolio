@@ -1793,6 +1793,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   });
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false); // 요약 기본 접힘
+  const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [showContrib, setShowContrib] = useState(false);
@@ -2739,16 +2740,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         {mainTab !== "overview" && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
-              <button key={id} onClick={() => setTab(id)} style={{
-                background: tab===id?"rgba(99,102,241,0.2)":"transparent",
-                border: tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent",
-                color: tab===id?"#a5b4fc":"#475569",
-                padding: isMobile?"3px 8px":"4px 12px",
-                borderRadius:"7px", cursor:"pointer",
-                fontSize: isMobile?"10px":"12px",
-                fontWeight: tab===id?700:500,
-                letterSpacing:"-0.01em", fontFamily:FONT,
-              }}>
+              <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"3px 8px":"4px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"10px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
                 {isMobile ? label.split(" ")[1]||label : label}
               </button>
             ))}
@@ -2929,32 +2921,23 @@ function PortfolioApp({ syncKey, onLogout }) {
             {summaryOpen && (<>
             {/* 요약 카드 — 슬림 */}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:isMobile?"4px":"8px", marginBottom:isMobile?"6px":"10px" }}>
-              {/* 총 평가금액 */}
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }}
-                onClick={()=>setHideAmt(h=>!h)}>
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }} onClick={()=>setHideAmt(h=>!h)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"3px" }}>
                   <div style={{ fontSize:"10px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>총 평가금액</div>
                   <span style={{ fontSize:"10px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
                 </div>
-                {hideAmt
-                  ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
-                  : <AnimatedNumber value={currMode==="KRW"?totalVal:totalVal/liveUsdKrw} format={v=>currMode==="KRW"?fmtKRW(v):"$"+(Math.round(v)).toLocaleString("en-US")} color="#f8fafc" fontSize={isMobile?"14px":"18px"}/>
-                }
+                {hideAmt ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber value={currMode==="KRW"?totalVal:totalVal/liveUsdKrw} format={v=>currMode==="KRW"?fmtKRW(v):"$"+(Math.round(v)).toLocaleString("en-US")} color="#f8fafc" fontSize={isMobile?"14px":"18px"}/>}
                 {!hideAmt && currMode==="USD" && <div style={{ fontSize:"9px", color:"#475569", marginTop:"2px" }}>환율 {liveUsdKrw.toLocaleString()}₩</div>}
               </div>
-              {/* 평가 손익 */}
-              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }}
-                onClick={()=>setHideAmt(h=>!h)}>
+              <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", cursor:"pointer", userSelect:"none", padding:isMobile?"8px 10px":"10px 14px" }} onClick={()=>setHideAmt(h=>!h)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"3px" }}>
                   <div style={{ fontSize:"10px", color:"#64748b", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>평가 손익</div>
                   <span style={{ fontSize:"10px", color:"#475569" }}>{hideAmt?"👁":"🔒"}</span>
                 </div>
-                {hideAmt
-                  ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
-                  : <AnimatedNumber value={currMode==="KRW"?totalPnL:totalPnL/liveUsdKrw} format={v=>{const s=v>=0?"+":"";return currMode==="KRW"?s+fmtKRW(v):(v>=0?"+":"-")+"$"+Math.abs(Math.round(v)).toLocaleString("en-US");}} color={totalPnL>=0?"#34d399":"#f87171"} fontSize={isMobile?"14px":"18px"}/>
-                }
+                {hideAmt ? <div style={{ fontSize:isMobile?"14px":"18px", fontWeight:800, color:"#475569", letterSpacing:"0.1em" }}>●●●●●</div>
+                  : <AnimatedNumber value={currMode==="KRW"?totalPnL:totalPnL/liveUsdKrw} format={v=>{const s=v>=0?"+":"";return currMode==="KRW"?s+fmtKRW(v):(v>=0?"+":"-")+"$"+Math.abs(Math.round(v)).toLocaleString("en-US");}} color={totalPnL>=0?"#34d399":"#f87171"} fontSize={isMobile?"14px":"18px"}/>}
               </div>
-              {/* 총 수익률 */}
               <div style={{ ...S.card, background:"rgba(99,102,241,0.09)", borderColor:"rgba(99,102,241,0.22)", padding:isMobile?"8px 10px":"10px 14px" }}>
                 <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.05em" }}>총 수익률</div>
                 <AnimatedNumber value={totalRet} format={v=>(v>=0?"+":"")+v.toFixed(2)+"%"} color={totalRet>=0?"#34d399":"#f87171"} fontSize={isMobile?"14px":"18px"}/>
@@ -3002,6 +2985,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                 </div>
               </div>
             )}
+
             </>)}
 
             {/* ── 보유 종목 테이블 ── */}
@@ -3170,7 +3154,6 @@ function PortfolioApp({ syncKey, onLogout }) {
           {/* P3 보유종목 */}
           {tab === "portfolio" && (
             <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-
             {/* P3 요약 토글 */}
             <div style={{display:"flex",justifyContent:"flex-end"}}>
               <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
@@ -3178,6 +3161,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               </button>
             </div>
             {summaryOpen && (<>
+            {/* 요약 카드 */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
               <div style={{...S.card,background:"rgba(6,182,212,0.09)",borderColor:"rgba(6,182,212,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
@@ -3487,13 +3471,12 @@ function PortfolioApp({ syncKey, onLogout }) {
         {/* ── PORTFOLIO 2 (절세계좌) ── */}
                 {tab === "portfolio" && mainTab === "p2" && (
           <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
-            {/* P2 요약 토글 버튼 */}
+            {/* P2 요약 토글 */}
             <div style={{display:"flex",justifyContent:"flex-end"}}>
               <button onClick={()=>setSummaryOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:"3px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 9px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
                 {summaryOpen?"▴ 접기":"▾ 요약"}
               </button>
             </div>
-            {/* P2 요약 카드 + 납입현황 — 접기/펼치기 */}
             {summaryOpen && (<>
             <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"4px":"8px"}}>
               <div style={{...S.card,background:"rgba(234,179,8,0.09)",borderColor:"rgba(234,179,8,0.22)",cursor:"pointer",userSelect:"none",padding:isMobile?"8px 10px":"10px 14px"}} onClick={()=>setHideAmt(h=>!h)}>
@@ -3518,8 +3501,8 @@ function PortfolioApp({ syncKey, onLogout }) {
             {/* 납입현황 */}
             <ContribProgressBar taxAccounts={TAX_ACCOUNTS} holdings2={holdings2} prices={prices} liveUsdKrw={liveUsdKrw} contribLimits={contribLimits} contribAmounts={contribAmounts} onOpenSettings={()=>setShowContrib(true)} isMobile={isMobile}/>
             </>)}
-            {/* 계좌별 종목 - 추가 버튼 카드 헤더 안 */}
-            {TAX_ACCOUNTS.map((account)=>{
+            {/* 계좌별 종목 — 추가 버튼 카드 헤더 안으로 이동 */}
+            {TAX_ACCOUNTS.map(account=>{
               const items=portfolio2.filter(h=>h.taxAccount===account);
               const accVal=items.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0);
               const accCost=items.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0);
@@ -3664,45 +3647,35 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>새로고침마다 자동 기록 · {filteredSnaps.length}개 데이터</div>
               {filteredSnaps.length<2?(
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>📊</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
-              ):(()=>{
-                const n = filteredSnaps.length;
-                const ti = Math.max(1, Math.floor(n / (isMobile?4:7)));
-                const xf = v => { if(!v) return ""; const p=v.split(" "); return chartPeriod==="7d"?p[1]||v:p[0]||v; };
-                return (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                      <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={ti} tickFormatter={xf}/>
-                      <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"} domain={["auto","auto"]}/>
-                      <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]} labelFormatter={v=>v}/>
-                      <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={n<=50} activeDot={{r:5,fill:"#6366f1"}}/>
-                    </LineChart>
-                  </ResponsiveContainer>
-                );
-              })()}
+              ):(
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={Math.max(1,Math.floor(filteredSnaps.length/(isMobile?4:7)))} tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return chartPeriod==="7d"?p[1]||v:p[0]||v;}}/>
+                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v.toFixed(1)+"%"} domain={["auto","auto"]}/>
+                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[v.toFixed(2)+"%","수익률"]}/>
+                    <Line type="monotone" dataKey="returnRate" stroke="#6366f1" strokeWidth={2.5} dot={false} activeDot={{r:5,fill:"#6366f1"}}/>
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
             <div style={S.card}>
               <div style={{fontSize:"17px",fontWeight:800,marginBottom:"4px",letterSpacing:"-0.03em"}}>💰 자산 총액 변화</div>
               <div style={{fontSize:"13px",color:"#475569",marginBottom:"18px"}}>KRW 환산 기준</div>
               {filteredSnaps.length<2?(
                 <div style={{textAlign:"center",padding:"40px",color:"#475569"}}><div style={{fontSize:"28px",marginBottom:"10px"}}>💰</div><div>데이터가 쌓이면 그래프가 그려집니다</div></div>
-              ):(()=>{
-                const n = filteredSnaps.length;
-                const ti = Math.max(1, Math.floor(n / (isMobile?4:7)));
-                const xf = v => { if(!v) return ""; const p=v.split(" "); return chartPeriod==="7d"?p[1]||v:p[0]||v; };
-                return (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
-                      <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                      <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={ti} tickFormatter={xf}/>
-                      <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"} domain={["auto","auto"]}/>
-                      <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]} labelFormatter={v=>v}/>
-                      <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
-                    </AreaChart>
-                  </ResponsiveContainer>
-                );
-              })()}
+              ):(
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={filteredSnaps} margin={{top:5,right:10,left:0,bottom:5}}>
+                    <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
+                    <XAxis dataKey="label" tick={{fill:"#64748b",fontSize:10}} interval={Math.max(1,Math.floor(filteredSnaps.length/(isMobile?4:7)))} tickFormatter={v=>{if(!v)return"";const p=v.split(" ");return chartPeriod==="7d"?p[1]||v:p[0]||v;}}/>
+                    <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>(v/10000).toFixed(0)+"만"} domain={["auto","auto"]}/>
+                    <Tooltip contentStyle={{background:"#1e293b",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"10px",fontSize:"13px"}} formatter={v=>[Math.round(v).toLocaleString("ko-KR")+"₩","총 자산"]}/>
+                    <Area type="monotone" dataKey="totalValue" stroke="#10b981" strokeWidth={2.5} fill="url(#ag)" dot={false} activeDot={{r:5,fill:"#10b981"}}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         )}
