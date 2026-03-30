@@ -1775,7 +1775,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [loaded, setLoaded]       = useState(false);
   const [showForm, setShowForm]   = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3"
+  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3" | "tax"
   const [overviewTab, setOverviewTab] = useState("all"); // "all"|"account"|"broker"|"market"
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
@@ -1793,6 +1793,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   });
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [tradeFilterYear, setTradeFilterYear] = useState("");
+  const [tradeFilterMonth, setTradeFilterMonth] = useState("");
   const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -2730,14 +2732,14 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3 (ISA)"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3 (ISA)"],["tax","💰 세금계산기"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":"P3 ISA"):label}
+              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="tax"?"세금":label):label}
             </button>
           ))}
         </div>
-        {/* 서브 탭: overview에서 숨김, P1/P2/P3 동일 */}
-        {mainTab !== "overview" && (
+        {/* 서브 탭: overview/tax에서 숨김, P1/P2/P3 동일 */}
+        {(mainTab !== "overview" && mainTab !== "tax") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -2770,7 +2772,7 @@ function PortfolioApp({ syncKey, onLogout }) {
         {tab === "portfolio" && mainTab === "p1" && (
           <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
 
-          {/* ── 뷰선택 + 통화 + 요약접기 한 줄 ── */}
+          {/* ── 뷰선택 + 통화 + 요약접기 ── */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px",flexWrap:"wrap",gap:"6px"}}>
             <div style={{display:"flex",gap:"3px",flexWrap:"wrap"}}>
               {[["all","🗂 전체"],["broker","🏢 증권사별"],["market","🌍 국내·해외별"]].map(([id,label])=>(
@@ -3010,9 +3012,8 @@ function PortfolioApp({ syncKey, onLogout }) {
             )}
 
             </>)}
-            {/* ── 보유 종목 (페이지 하단까지 확장) ── */}
-            <div style={{...S.card, padding:isMobile?"8px":"12px", flex:1,
-              minHeight: isMobile ? "calc(100vh - 200px)" : "calc(100vh - 220px)"}}>
+            {/* ── 보유 종목 ── */}
+            <div style={{...S.card, padding:isMobile?"8px":"12px", minHeight:isMobile?"calc(100vh - 200px)":"calc(100vh - 220px)"}}>
               {/* 헤더 + 컨트롤 */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"8px", gap:"6px", flexWrap:"wrap" }}>
                 <div>
@@ -3359,11 +3360,24 @@ function PortfolioApp({ syncKey, onLogout }) {
           {/* P3 매매일지 */}
           {tab === "trades" && (
             <div style={S.card}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",flexWrap:"wrap",gap:"8px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
                 <div><div style={{fontSize:"17px",fontWeight:800}}>ISA 매매일지</div>
-                  <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>{trades.filter(t=>isaHoldings.some(h=>h.ticker===t.ticker)).length}건</div>
+                  <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>포트폴리오3 (ISA)</div>
                 </div>
-                <button onClick={()=>setShowForm(showForm==="t3"?null:"t3")} style={S.btn("#06b6d4")}>+ 기록 추가</button>
+                <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center"}}>
+                  <select value={tradeFilterYear} onChange={e=>setTradeFilterYear(e.target.value)} style={{...S.inp,padding:"5px 8px",fontSize:"12px",width:"auto"}}>
+                    <option value="">전체 연도</option>
+                    {[...new Set(trades.map(t=>t.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}년</option>)}
+                  </select>
+                  {tradeFilterYear && (
+                    <select value={tradeFilterMonth} onChange={e=>setTradeFilterMonth(e.target.value)} style={{...S.inp,padding:"5px 8px",fontSize:"12px",width:"auto"}}>
+                      <option value="">전체 월</option>
+                      {Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")).map(m=><option key={m} value={m}>{Number(m)}월</option>)}
+                    </select>
+                  )}
+                  <button onClick={()=>downloadTradesExcel(trades,holdings,holdings2,{year:tradeFilterYear,month:tradeFilterMonth?Number(tradeFilterMonth):null})} style={{...S.btn("#06b6d4",{fontSize:"12px",padding:"5px 12px"})}}>⬇ CSV</button>
+                  <button onClick={()=>setShowForm(showForm==="t3"?null:"t3")} style={S.btn("#06b6d4")}>+ 추가</button>
+                </div>
               </div>
               {showForm==="t3"&&(
                 <div style={{background:"rgba(0,0,0,0.3)",borderRadius:"12px",padding:"16px",marginBottom:"16px",border:"1px solid rgba(6,182,212,0.3)"}}>
@@ -3384,12 +3398,12 @@ function PortfolioApp({ syncKey, onLogout }) {
                   </div>
                 </div>
               )}
-              {[...trades].filter(t=>isaHoldings.some(h=>h.ticker===t.ticker)).reverse().map(t=>(
+              {[...trades].filter(t=>{if(!isaHoldings.some(h=>h.ticker===t.ticker))return false;if(tradeFilterYear&&!t.date?.startsWith(tradeFilterYear))return false;if(tradeFilterMonth&&!t.date?.startsWith(tradeFilterYear+"-"+tradeFilterMonth))return false;return true;}).reverse().map(t=>(
                 <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 0",borderBottom:"1px solid rgba(255,255,255,0.06)",gap:"12px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:"12px",minWidth:0}}>
                     <div style={{background:t.type==="buy"?"rgba(6,182,212,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${t.type==="buy"?"rgba(6,182,212,0.45)":"rgba(239,68,68,0.45)"}`,color:t.type==="buy"?"#67e8f9":"#fca5a5",padding:"4px 12px",borderRadius:"20px",fontSize:"13px",fontWeight:800,flexShrink:0}}>{t.type==="buy"?"매수":"매도"}</div>
                     <div>
-                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const h=isaHoldings.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker} · {t.date}</span></div>
+                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const h=isaHoldings.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker}·{t.date}</span></div>
                       {(()=>{const p=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];if(!p||!t.price)return null;const d=p.price-t.price,pct=(d/t.price)*100;return(<span style={{fontSize:"11px",color:d>=0?"#34d399":"#f87171",fontWeight:700}}>{d>=0?"▲":"▼"}{Math.abs(d)>=1?Math.round(Math.abs(d)).toLocaleString():Math.abs(d).toFixed(2)}₩ ({d>=0?"+":""}{pct.toFixed(1)}%)</span>);})()}
                     </div>
                   </div>
@@ -3685,14 +3699,28 @@ function PortfolioApp({ syncKey, onLogout }) {
         {/* ── TRADES (P1/P2/P3 필터) ── */}
         {tab==="trades"&&(mainTab==="p1"||mainTab==="p2")&&(
           <div style={S.card}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",flexWrap:"wrap",gap:"8px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
               <div>
                 <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.03em"}}>매매 일지</div>
                 <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>
-                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"} · {trades.filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker)).length}건
+                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"}
                 </div>
               </div>
-              <button onClick={()=>setShowForm(showForm==="t"?null:"t")} style={S.btn()}>+ 기록 추가</button>
+              <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center"}}>
+                {/* 연도 필터 */}
+                <select value={tradeFilterYear} onChange={e=>setTradeFilterYear(e.target.value)} style={{...S.inp,padding:"5px 8px",fontSize:"12px",width:"auto"}}>
+                  <option value="">전체 연도</option>
+                  {[...new Set(trades.map(t=>t.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}년</option>)}
+                </select>
+                {tradeFilterYear && (
+                  <select value={tradeFilterMonth} onChange={e=>setTradeFilterMonth(e.target.value)} style={{...S.inp,padding:"5px 8px",fontSize:"12px",width:"auto"}}>
+                    <option value="">전체 월</option>
+                    {Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")).map(m=><option key={m} value={m}>{Number(m)}월</option>)}
+                  </select>
+                )}
+                <button onClick={()=>downloadTradesExcel(trades,holdings,holdings2,{year:tradeFilterYear,month:tradeFilterMonth?Number(tradeFilterMonth):null})} style={{...S.btn("#10b981",{fontSize:"12px",padding:"5px 12px"})}}>⬇ CSV</button>
+                <button onClick={()=>setShowForm(showForm==="t"?null:"t")} style={S.btn()}>+ 추가</button>
+              </div>
             </div>
             {showForm==="t"&&(
               <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"12px",padding:"18px",marginBottom:"18px",border:"1px solid rgba(99,102,241,0.35)"}}>
@@ -3712,7 +3740,13 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             )}
             {(()=>{
-              const filtered = [...trades].filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker));
+              const filtered = [...trades].filter(t=>{
+                const matchPort = mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker);
+                if(!matchPort) return false;
+                if(tradeFilterYear && !t.date?.startsWith(tradeFilterYear)) return false;
+                if(tradeFilterMonth && !t.date?.startsWith(tradeFilterYear+"-"+tradeFilterMonth)) return false;
+                return true;
+              });
               return filtered.length===0?(
                 <div style={{textAlign:"center",padding:"44px",color:"#475569"}}><div style={{fontSize:"36px",marginBottom:"12px"}}>📝</div><div>매매 기록을 추가해주세요</div></div>
               ):filtered.reverse().map(t=>(
@@ -3720,7 +3754,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div style={{display:"flex",alignItems:"center",gap:"14px",minWidth:0}}>
                     <div style={{background:t.type==="buy"?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${t.type==="buy"?"rgba(99,102,241,0.45)":"rgba(239,68,68,0.45)"}`,color:t.type==="buy"?"#c7d2fe":"#fca5a5",padding:"5px 14px",borderRadius:"20px",fontSize:"14px",fontWeight:800,flexShrink:0}}>{t.type==="buy"?"매수":"매도"}</div>
                     <div>
-                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const all=[...holdings,...holdings2];const h=all.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker} · {t.date}</span></div>
+                      <div style={{fontWeight:800,fontSize:"14px"}}>{(()=>{const all=[...holdings,...holdings2];const h=all.find(x=>x.ticker===t.ticker);return h?.name||t.ticker;})()}<span style={{color:"#64748b",fontWeight:400,fontSize:"10px",marginLeft:"5px"}}>{t.ticker}·{t.date}</span></div>
                       {(()=>{const tk=t.ticker;const p=prices[tk]||prices[tk+".KS"]||prices[tk+".KQ"];if(!p||!t.price)return null;const d=p.price-t.price,pct=(d/t.price)*100;return(<span style={{fontSize:"11px",color:d>=0?"#34d399":"#f87171",fontWeight:700}}>{d>=0?"▲":"▼"}{Math.abs(d)>=1?Math.round(Math.abs(d)).toLocaleString():Math.abs(d).toFixed(2)}₩ ({d>=0?"+":""}{pct.toFixed(1)}%)</span>);})()}
                       {t.note&&<div style={{fontSize:"11px",color:"#64748b",marginTop:"1px"}}>{t.note}</div>}
                     </div>
@@ -4039,6 +4073,179 @@ function PortfolioApp({ syncKey, onLogout }) {
         <ContribModal limits={contribLimits} amounts={contribAmounts} onSave={(l,a)=>{setContribLimits(l);setContribAmounts(a);setShowContrib(false);}} onClose={()=>setShowContrib(false)} isMobile={isMobile}/>
       )}
 
+
+        {/* ── 양도소득세 계산기 ── */}
+        {mainTab === "tax" && (()=>{
+          // 매도 거래만 추출
+          const sellTrades = trades.filter(t=>t.type==="sell");
+          const allH = [...holdings,...holdings2];
+          const getName = tk => allH.find(h=>h.ticker===tk)?.name||tk;
+          // 시장 판별: US 여부 (보유종목 market 기준)
+          const getMarket = tk => {
+            const h = allH.find(h=>h.ticker===tk);
+            if(h) return h.market;
+            // 티커 패턴으로 추정: .KS .KQ 없으면 US
+            if(tk.includes(".KS")||tk.includes(".KQ")||/^\d{6}$/.test(tk)) return "KR";
+            return "US";
+          };
+          // 연도 목록
+          const years = [...new Set(sellTrades.map(t=>t.date?.slice(0,4)).filter(Boolean))].sort().reverse();
+          const [taxYear, setTaxYear_] = useState(()=>new Date().getFullYear().toString());
+          // 해당 연도 매도 수익 계산
+          // 수익 = (매도가 - 매수평단가) × 수량 − 수수료
+          const calcProfit = t => {
+            const h = allH.find(h=>h.ticker===t.ticker);
+            const buyPrice = h?.avgPrice||0;
+            const profit = (t.price - buyPrice)*t.quantity - (t.fee||0);
+            return profit;
+          };
+          const yearSells = sellTrades.filter(t=>t.date?.startsWith(taxYear));
+          // 시장별 분류
+          const usSells = yearSells.filter(t=>getMarket(t.ticker)==="US");
+          const krSells = yearSells.filter(t=>getMarket(t.ticker)!=="US");
+          const usProfitKRW = usSells.reduce((s,t)=>{
+            const raw = calcProfit(t);
+            return s + (t.cur==="USD" ? raw*liveUsdKrw : raw);
+          },0);
+          const krProfitKRW = krSells.reduce((s,t)=>s+calcProfit(t),0);
+          // 미국주식 양도세: 250만원 초과분 × 22%
+          const US_EXEMPT = 2500000;
+          const usTaxable = Math.max(0, usProfitKRW - US_EXEMPT);
+          const usTax = Math.round(usTaxable * 0.22);
+          return (
+            <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
+              {/* 헤더 */}
+              <div style={{...S.card,background:"linear-gradient(135deg,rgba(239,68,68,0.12),rgba(251,146,60,0.08))",borderColor:"rgba(239,68,68,0.3)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px",marginBottom:"12px"}}>
+                  <div>
+                    <div style={{fontSize:"18px",fontWeight:800,letterSpacing:"-0.03em"}}>💰 양도소득세 계산기</div>
+                    <div style={{fontSize:"12px",color:"#94a3b8",marginTop:"3px"}}>매매일지 데이터 기반 자동 계산 · 참고용 (세무사 확인 권장)</div>
+                  </div>
+                  <select value={taxYear} onChange={e=>setTaxYear_(e.target.value)} style={{...S.inp,padding:"6px 10px",fontSize:"13px",width:"auto"}}>
+                    {(years.length?years:[new Date().getFullYear().toString()]).map(y=><option key={y} value={y}>{y}년</option>)}
+                  </select>
+                </div>
+                {/* 요약 카드 3개 */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"6px":"12px"}}>
+                  {[
+                    ["🇺🇸 미국주식 수익",usProfitKRW,"#f8fafc"],
+                    ["🇰🇷 국내주식 수익",krProfitKRW,"#f8fafc"],
+                    ["납부 예상 세액",usTax,"#f87171"]
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.08)"}}>
+                      <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:"4px"}}>{l}</div>
+                      <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:v>=0?c:"#f87171",letterSpacing:"-0.03em"}}>{(v>=0?v<0?"":"+":"")+Math.round(v).toLocaleString()}₩</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 미국주식 양도세 상세 */}
+              <div style={S.card}>
+                <div style={{fontSize:"15px",fontWeight:800,marginBottom:"12px"}}>🇺🇸 미국주식 양도세 계산</div>
+                <div style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:"10px",padding:"14px",marginBottom:"14px"}}>
+                  <div style={{fontSize:"12px",color:"#94a3b8",marginBottom:"10px",lineHeight:1.7}}>
+                    📌 <strong style={{color:"#fca5a5"}}>비과세 한도: 250만원</strong> — 연간 양도차익이 250만원 이하면 납부 없음<br/>
+                    📌 <strong style={{color:"#fca5a5"}}>세율: 22%</strong> — 250만원 초과분에 대해 양도소득세 20% + 지방소득세 2%<br/>
+                    📌 국내주식(코스피/코스닥) 일반 투자자는 <strong style={{color:"#86efac"}}>비과세</strong>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px"}}>
+                    {[
+                      ["연간 실현 수익",Math.round(usProfitKRW).toLocaleString()+"₩",usProfitKRW>=0?"#34d399":"#f87171"],
+                      ["비과세 공제","-"+US_EXEMPT.toLocaleString()+"₩","#94a3b8"],
+                      ["과세 대상",Math.max(0,Math.round(usTaxable)).toLocaleString()+"₩",usTaxable>0?"#fbbf24":"#64748b"],
+                      ["예상 세액 (22%)",usTax.toLocaleString()+"₩",usTax>0?"#f87171":"#64748b"],
+                    ].map(([l,v,c])=>(
+                      <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"10px 12px"}}>
+                        <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
+                        <div style={{fontSize:"14px",fontWeight:800,color:c}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* 연도별 매도 내역 */}
+                <div style={{fontSize:"13px",fontWeight:700,color:"#64748b",marginBottom:"8px"}}>{taxYear}년 미국주식 매도 내역 ({usSells.length}건)</div>
+                {usSells.length===0?(
+                  <div style={{textAlign:"center",padding:"24px",color:"#475569",fontSize:"13px"}}>해당 연도 미국주식 매도 내역 없음</div>
+                ):(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse"}}>
+                      <thead><tr>{["날짜","종목","매도가","수량","매수평단","손익","비고"].map(h=><th key={h} style={{...S.TH,fontSize:"11px"}}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {usSells.map(t=>{
+                          const h=allH.find(x=>x.ticker===t.ticker);
+                          const bp=h?.avgPrice||0;
+                          const pr=(t.price-bp)*t.quantity-(t.fee||0);
+                          const prKRW=t.cur==="USD"?pr*liveUsdKrw:pr;
+                          return(
+                            <tr key={t.id}>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}><div style={{fontWeight:700}}>{getName(t.ticker)}</div><div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}</div></td>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.cur==="USD"?"$"+Number(t.price).toFixed(2):Number(t.price).toLocaleString()+"₩"}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.quantity.toLocaleString()}</td>
+                              <td style={{...S.TD,fontSize:"12px",color:"#64748b"}}>{bp>0?(t.cur==="USD"?"$"+bp.toFixed(2):bp.toLocaleString()+"₩"):"미상"}</td>
+                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:prKRW>=0?"#34d399":"#f87171"}}>{(prKRW>=0?"+":"")+Math.round(prKRW).toLocaleString()}₩</td>
+                              <td style={{...S.TD,fontSize:"11px",color:"#64748b"}}>{t.note||""}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* 국내주식 */}
+              <div style={S.card}>
+                <div style={{fontSize:"15px",fontWeight:800,marginBottom:"8px"}}>🇰🇷 국내주식 양도세</div>
+                <div style={{background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:"10px",padding:"14px",marginBottom:"12px"}}>
+                  <div style={{fontSize:"13px",color:"#86efac",fontWeight:700,marginBottom:"4px"}}>✅ 일반 개인 투자자 비과세</div>
+                  <div style={{fontSize:"12px",color:"#94a3b8",lineHeight:1.7}}>
+                    코스피·코스닥 주식 일반 개인투자자는 양도소득세 면제<br/>
+                    (대주주 요건 해당 시 별도 과세 — 종목당 10억원 이상 보유 등)<br/>
+                    ISA 계좌는 비과세 혜택 별도 적용
+                  </div>
+                </div>
+                <div style={{fontSize:"13px",fontWeight:700,color:"#64748b",marginBottom:"8px"}}>{taxYear}년 국내주식 매도 내역 ({krSells.length}건)</div>
+                {krSells.length===0?(
+                  <div style={{textAlign:"center",padding:"24px",color:"#475569",fontSize:"13px"}}>해당 연도 국내주식 매도 내역 없음</div>
+                ):(
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse"}}>
+                      <thead><tr>{["날짜","종목","매도가","수량","매수평단","손익"].map(h=><th key={h} style={{...S.TH,fontSize:"11px"}}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {krSells.map(t=>{
+                          const h=allH.find(x=>x.ticker===t.ticker);
+                          const bp=h?.avgPrice||0;
+                          const pr=(t.price-bp)*t.quantity-(t.fee||0);
+                          return(
+                            <tr key={t.id}>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}><div style={{fontWeight:700}}>{getName(t.ticker)}</div><div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}</div></td>
+                              <td style={{...S.TD,fontSize:"12px"}}>{Number(t.price).toLocaleString()}₩</td>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.quantity.toLocaleString()}</td>
+                              <td style={{...S.TD,fontSize:"12px",color:"#64748b"}}>{bp>0?bp.toLocaleString()+"₩":"미상"}</td>
+                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:pr>=0?"#34d399":"#f87171"}}>{(pr>=0?"+":"")+Math.round(pr).toLocaleString()}₩ <span style={{fontSize:"10px",color:"#64748b"}}>(비과세)</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* 주의사항 */}
+              <div style={{background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:"10px",padding:"14px",fontSize:"12px",color:"#94a3b8",lineHeight:1.8}}>
+                ⚠️ <strong style={{color:"#fbbf24"}}>주의사항</strong><br/>
+                · 이 계산기는 <strong>매매일지에 입력된 데이터</strong> 기반의 참고용 계산입니다<br/>
+                · 실제 세금은 환율 적용 시점, 수수료 처리 방식 등에 따라 다를 수 있습니다<br/>
+                · 정확한 세금 신고는 <strong>세무사 상담</strong>을 권장합니다<br/>
+                · 미국주식 양도세 신고 기간: 매년 5월 (전년도 분)
+              </div>
+            </div>
+          );
+        })()}
       <div style={{position:"fixed",bottom:"22px",right:"22px",display:"flex",flexDirection:"column-reverse",gap:"10px",zIndex:999}}>
         {toasts.map(t=>(
           <div key={t.id} style={{background:t.type==="up"?"rgba(16,185,129,0.18)":t.type==="down"?"rgba(239,68,68,0.18)":"rgba(30,41,59,0.96)",backdropFilter:"blur(14px)",border:`1px solid ${t.type==="up"?"rgba(16,185,129,0.45)":t.type==="down"?"rgba(239,68,68,0.45)":"rgba(255,255,255,0.12)"}`,padding:"14px 20px",borderRadius:"12px",fontSize:"15px",fontWeight:700,maxWidth:"320px"}}>
