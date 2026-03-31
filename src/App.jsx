@@ -1719,9 +1719,9 @@ async function fetchSpark(ticker, market) {
 }
 
 function IntradaySparkline({ ticker, market, width = 80, height = 32 }) {
-  const [pts, setPts] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => {
+  const [pts, setPts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
     const key = ticker + "_spark";
     const cached = _sparkCache[key];
     if (cached && Date.now() - cached.ts < 300_000) { setPts(cached.data); setLoading(false); return; }
