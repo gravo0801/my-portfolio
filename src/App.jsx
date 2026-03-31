@@ -3724,7 +3724,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div>
                 <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.03em"}}>매매 일지</div>
                 <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>
-                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"} · {trades.filter(t=>mainTab==="p1"?holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker):holdings2.some(h=>h.ticker===t.ticker)).length}건
+                  {mainTab==="p1"?"포트폴리오1 (일반계좌)":"포트폴리오2 (절세계좌)"} · {trades.filter(t=>mainTab==="p1"?(t.portfolio==="p1"||!t.portfolio):t.portfolio==="p2").length}건
                 </div>
               </div>
               <button onClick={()=>setShowForm(showForm==="t"?null:"t")} style={S.btn()}>+ 기록 추가</button>
@@ -3754,7 +3754,14 @@ function PortfolioApp({ syncKey, onLogout }) {
               </div>
             )}
             {(()=>{
-              const filtered = [...trades].filter(t=>{if(mainTab==="p1")return t.portfolio==="p1"||(!t.portfolio&&holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===t.ticker));return t.portfolio==="p2"||(!t.portfolio&&holdings2.some(h=>h.ticker===t.ticker));});
+              const filtered = [...trades].filter(t=>{
+                if(mainTab==="p1") {
+                  // p1 태그이거나, 태그 자체가 없는 기존 데이터는 모두 P1에서 표시
+                  return t.portfolio==="p1" || !t.portfolio;
+                }
+                // P2는 portfolio:"p2" 태그 있는 것만
+                return t.portfolio==="p2";
+              });
               return filtered.length===0?(
                 <div style={{textAlign:"center",padding:"44px",color:"#475569"}}><div style={{fontSize:"36px",marginBottom:"12px"}}>📝</div><div>매매 기록을 추가해주세요</div></div>
               ):filtered.reverse().map(t=>(
