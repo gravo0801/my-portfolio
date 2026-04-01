@@ -1682,40 +1682,25 @@ const TICKER_DOMAIN = {
 };
 
 
-// ── 미니 스파크라인 차트 (보유종목 옆 인라인) ─────────────────────────────
-function MiniSparkline({ ticker, market, color="#6366f1", width=60, height=28 }) {
-  const [pts, setPts] = React.useState(null);
-  React.useEffect(() => {
-    const key = ticker+"_"+market;
-    if (_chartCache[key]) {
-      buildPts(_chartCache[key]);
-      return;
-    }
-    fetchHistory(ticker, market, "1mo").then(data => {
-      if (data && data.length >= 2) {
-        _chartCache[key] = data;
-        buildPts(data);
-      }
-    }).catch(() => {});
-    function buildPts(data) {
-      const prices = data.map(d=>d.price).filter(v=>typeof v==="number"&&isFinite(v));
-      if (prices.length < 2) return;
-      const mn=Math.min(...prices), mx=Math.max(...prices);
-      const pad={t:2,b:2,l:2,r:2};
-      const str = prices.map((p,i)=>{
-        const x=(pad.l+(i/(prices.length-1))*(width-pad.l-pad.r)).toFixed(1);
-        const y=(pad.t+(1-(p-mn)/(mx-mn||1))*(height-pad.t-pad.b)).toFixed(1);
-        return x+","+y;
-      }).join(" ");
-      const up = prices[prices.length-1] >= prices[0];
-      setPts({str, up});
-    }
-  }, [ticker, market]);
-  if (!pts) return null;
-  const c = pts.up ? "#34d399" : "#f87171";
+// ── 미니 스파크라인 (순수 SVG, Hook/fetch 없음) ───────────────────────────
+function MiniSparkline({ pnlPct=0, chgPct=0, width=60, height=24 }) {
+  const up = pnlPct >= 0;
+  const c  = up ? "#34d399" : "#f87171";
+  // pnlPct 기반 게이지: 중앙선에서 위/아래로 표시
+  const mid = height / 2;
+  const barH = Math.min(Math.abs(pnlPct) * 1.2, mid - 2);
+  const y1 = up ? mid - barH : mid;
+  const y2 = up ? mid : mid + barH;
+  // 당일 변동 점 (오른쪽)
+  const dotY = Math.max(2, Math.min(height-2, mid - chgPct * 1.5));
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.85}}>
-      <polyline points={pts.str} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/>
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.75}}>
+      {/* 중앙 기준선 */}
+      <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+      {/* 손익 바 */}
+      <rect x={width*0.15} y={y1} width={width*0.45} height={Math.max(1,y2-y1)} fill={c} opacity="0.7" rx="1"/>
+      {/* 당일 변동 점 */}
+      <circle cx={width*0.8} cy={dotY} r="2.5" fill={chgPct>=0?"#34d399":"#f87171"}/>
     </svg>
   );
 }
@@ -2494,7 +2479,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"3px",letterSpacing:"0.05em"}}>ISA</div>}
                                 {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
-          <MiniSparkline ticker={h.ticker} market={h.market}/>
+          <MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={60} height={22}/>
         </div>
       </td>
       <td style={S.TD}>
@@ -2616,7 +2601,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       </div>
       {/* 미니 스파크라인 */}
       <div style={{marginBottom:"6px"}}>
-        <MiniSparkline ticker={h.ticker} market={h.market} width={isMobile?260:220} height={30}/>
+        <MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={180} height={26}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
@@ -3066,7 +3051,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
-                              {!isMobile&&<div style={{flexShrink:0,opacity:0.8}}><MiniSparkline ticker={h.ticker} market={h.market} width={50} height={24}/></div>}
+                              {!isMobile&&<div style={{flexShrink:0}}><MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.chgPct||0} width={48} height={22}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -3441,7 +3426,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         </div>
                       </div>
                       {/* ISA 미니 스파크라인 */}
-                      <div style={{marginBottom:"6px"}}><MiniSparkline ticker={h.ticker} market={h.market} width={240} height={28}/></div>
+                      <div style={{marginBottom:"6px"}}><MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={180} height={24}/></div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
                         {[["현재가",Math.round(h.price).toLocaleString()+"₩"],["수량",h.quantity.toLocaleString()+"주"],["평가금액",Math.round(h.value).toLocaleString()+"₩"],["일변동",(h.regChgAmt>=0?"+":"")+Math.round(h.regChgAmt).toLocaleString()+"₩"],["등락률",(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"]].map(([l,v])=>(
                           <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
