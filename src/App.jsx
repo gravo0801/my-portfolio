@@ -1682,25 +1682,41 @@ const TICKER_DOMAIN = {
 };
 
 
-// ── 미니 스파크라인 (순수 SVG, Hook/fetch 없음) ───────────────────────────
-function MiniSparkline({ pnlPct=0, chgPct=0, width=60, height=24 }) {
-  const up = pnlPct >= 0;
+// ── 미니 스파크라인 (순수 SVG, props로 받은 data 렌더링) ──────────────────
+function MiniSparkline({ data, pnlPct=0, width=60, height=24 }) {
+  if (!data || data.length < 2) {
+    // 데이터 없을 때: pnlPct 기반 간단 바
+    const up = pnlPct >= 0;
+    const c  = up ? "#34d399" : "#f87171";
+    const mid = height / 2;
+    const barH = Math.min(Math.abs(pnlPct) * 1.5, mid - 3);
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.5}}>
+        <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
+        <rect x={4} y={up?mid-barH:mid} width={width-8} height={Math.max(1,barH)} fill={c} opacity="0.5" rx="1"/>
+      </svg>
+    );
+  }
+  const prices = data.map(d=>d.price).filter(v=>typeof v==="number"&&isFinite(v));
+  if (prices.length < 2) return null;
+  const mn=Math.min(...prices), mx=Math.max(...prices), range=mx-mn||1;
+  const pad={t:2,b:2,l:2,r:2};
+  const pts = prices.map((p,i)=>{
+    const x=(pad.l+(i/(prices.length-1))*(width-pad.l-pad.r)).toFixed(1);
+    const y=(pad.t+(1-(p-mn)/range)*(height-pad.t-pad.b)).toFixed(1);
+    return x+","+y;
+  }).join(" ");
+  const up = prices[prices.length-1] >= prices[0];
   const c  = up ? "#34d399" : "#f87171";
-  // pnlPct 기반 게이지: 중앙선에서 위/아래로 표시
-  const mid = height / 2;
-  const barH = Math.min(Math.abs(pnlPct) * 1.2, mid - 2);
-  const y1 = up ? mid - barH : mid;
-  const y2 = up ? mid : mid + barH;
-  // 당일 변동 점 (오른쪽)
-  const dotY = Math.max(2, Math.min(height-2, mid - chgPct * 1.5));
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.75}}>
-      {/* 중앙 기준선 */}
-      <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
-      {/* 손익 바 */}
-      <rect x={width*0.15} y={y1} width={width*0.45} height={Math.max(1,y2-y1)} fill={c} opacity="0.7" rx="1"/>
-      {/* 당일 변동 점 */}
-      <circle cx={width*0.8} cy={dotY} r="2.5" fill={chgPct>=0?"#34d399":"#f87171"}/>
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.85}}>
+      <polyline points={pts} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/>
+      {(()=>{
+        const lp=prices[prices.length-1];
+        const lx=(pad.l+(width-pad.l-pad.r)).toFixed(1);
+        const ly=(pad.t+(1-(lp-mn)/range)*(height-pad.t-pad.b)).toFixed(1);
+        return <circle cx={lx} cy={ly} r="2" fill={c}/>;
+      })()}
     </svg>
   );
 }
@@ -1866,6 +1882,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [tradeFilterPeriod, setTradeFilterPeriod] = useState("all");
   const [tradePage, setTradePage] = useState(1);
   const TRADE_PAGE_SIZE = 10;
+  const [sparklineData, setSparklineData] = useState({});
   const [liveIndices, setLiveIndices] = useState(null); // {kospi,sp500,nasdaq,futures}
   const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
@@ -2444,6 +2461,39 @@ function PortfolioApp({ syncKey, onLogout }) {
     return () => { cancelled = true; if(timer) clearTimeout(timer); };
   }, []);
 
+
+  // ── 스파크라인: 보유종목 변경 시 순차 지연 로딩 ─────────────────────────
+  useEffect(() => {
+    const allTickers = [
+      ...holdings.map(h=>({ticker:h.ticker, market:h.market})),
+      ...holdings2.map(h=>({ticker:h.ticker, market:h.market})),
+    ].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i); // 중복 제거
+    let cancelled = false;
+    const load = async () => {
+      for (let i=0; i<allTickers.length; i++) {
+        if (cancelled) break;
+        const {ticker, market} = allTickers[i];
+        const key = ticker+"_"+market;
+        if (_chartCache[key]) {
+          setSparklineData(p=>({...p,[ticker]:_chartCache[key]}));
+          continue;
+        }
+        // 종목당 400ms 간격으로 순차 로딩 (동시 요청 방지)
+        await new Promise(r=>setTimeout(r, i===0?100:400));
+        if (cancelled) break;
+        try {
+          const data = await fetchHistory(ticker, market, "1mo");
+          if (data && data.length >= 2) {
+            _chartCache[key] = data;
+            if (!cancelled) setSparklineData(p=>({...p,[ticker]:data}));
+          }
+        } catch {}
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [holdings.length, holdings2.length]); // 종목 수 바뀔 때만 재로딩
+
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, portfolio:"p1", quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -2479,7 +2529,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"3px",letterSpacing:"0.05em"}}>ISA</div>}
                                 {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
-          <MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={60} height={22}/>
+          <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={60} height={22}/>
         </div>
       </td>
       <td style={S.TD}>
@@ -2601,7 +2651,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       </div>
       {/* 미니 스파크라인 */}
       <div style={{marginBottom:"6px"}}>
-        <MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={180} height={26}/>
+        <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={180} height={26}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
@@ -3051,7 +3101,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
-                              {!isMobile&&<div style={{flexShrink:0}}><MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.chgPct||0} width={48} height={22}/></div>}
+                              {!isMobile&&<div style={{flexShrink:0}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={48} height={22}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -3426,7 +3476,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         </div>
                       </div>
                       {/* ISA 미니 스파크라인 */}
-                      <div style={{marginBottom:"6px"}}><MiniSparkline pnlPct={h.pnlPct||0} chgPct={h.regChgPct??h.chgPct??0} width={180} height={24}/></div>
+                      <div style={{marginBottom:"6px"}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={180} height={24}/></div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
                         {[["현재가",Math.round(h.price).toLocaleString()+"₩"],["수량",h.quantity.toLocaleString()+"주"],["평가금액",Math.round(h.value).toLocaleString()+"₩"],["일변동",(h.regChgAmt>=0?"+":"")+Math.round(h.regChgAmt).toLocaleString()+"₩"],["등락률",(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"]].map(([l,v])=>(
                           <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
