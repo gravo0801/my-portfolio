@@ -1043,6 +1043,56 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
           </div>
         </div>
       </div>
+      {/* 일일 변동폭 */}
+      {(()=>{
+        let dayChgKRW = 0;
+        portfolio.forEach(h => {
+          const p2 = safeP[h.ticker];
+          if (!p2) return;
+          const chgAmt = p2.regularChangeAmount ?? p2.changeAmount ?? 0;
+          const inKRW = h.cur==="USD" ? chgAmt*(liveUsdKrw||1380) : chgAmt;
+          dayChgKRW += inKRW * h.quantity;
+        });
+        if (Math.abs(dayChgKRW) < 1) return null;
+        const dayPct = totalVal>0 ? (dayChgKRW/totalVal)*100 : 0;
+        const up = dayChgKRW >= 0;
+        return (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,0.18)",borderRadius:"7px",padding:"5px 10px",marginBottom:"8px"}}>
+            <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>오늘 변동</span>
+            <div style={{textAlign:"right"}}>
+              <span style={{fontSize:"13px",fontWeight:800,color:up?"#34d399":"#f87171"}}>
+                {up?"+":""}{Math.round(Math.abs(dayChgKRW)).toLocaleString()}₩
+              </span>
+              <span style={{fontSize:"11px",fontWeight:700,color:up?"#34d399":"#f87171",marginLeft:"6px"}}>
+                ({up?"+":""}{dayPct.toFixed(2)}%)
+              </span>
+            </div>
+          </div>
+        );
+      })()}
+      {/* 일일 변동폭 */}
+      {(()=>{
+        let dayChgKRW=0;
+        portfolio.forEach(h=>{
+          const p2=safeP[h.ticker];
+          if(!p2) return;
+          const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
+          const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
+          dayChgKRW+=inKRW*h.quantity;
+        });
+        if(Math.abs(dayChgKRW)<1) return null;
+        const dayPct=totalVal>0?(dayChgKRW/totalVal)*100:0;
+        const up=dayChgKRW>=0;
+        return(
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(0,0,0,0.18)",borderRadius:"7px",padding:"5px 10px",marginBottom:"8px"}}>
+            <span style={{fontSize:"10px",color:"#64748b",fontWeight:600}}>오늘 변동</span>
+            <div>
+              <span style={{fontSize:"13px",fontWeight:800,color:up?"#34d399":"#f87171"}}>{up?"+":""}{Math.round(Math.abs(dayChgKRW)).toLocaleString()}₩</span>
+              <span style={{fontSize:"11px",fontWeight:700,color:up?"#34d399":"#f87171",marginLeft:"6px"}}>({up?"+":""}{dayPct.toFixed(2)}%)</span>
+            </div>
+          </div>
+        );
+      })()}
       {/* 비중 바 */}
       <div style={{background:"rgba(255,255,255,0.08)",borderRadius:"4px",height:"6px",overflow:"hidden",marginBottom:"10px"}}>
         <div style={{width:Math.min(Math.abs(pnlPct)*2+50,100)+"%",height:"100%",background:isUp?"#34d399":"#f87171",borderRadius:"4px"}}/>
@@ -1051,12 +1101,12 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
       <div style={{display:"flex",justifyContent:"space-between",fontSize:"12px",color:"#64748b"}}>
         <span>{items.length}종목</span>
         <span style={{color:"#34d399"}}>▲{portfolio.filter(h=>{
-          const p2=safeP[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
+          const p2=safeP[h.ticker];
           const v=((p2?.price??h.avgPrice)*h.quantity); const c=h.avgPrice*h.quantity;
           return v>c;
         }).length}</span>
         <span style={{color:"#f87171"}}>▼{portfolio.filter(h=>{
-          const p2=safeP[h.ticker]; const cur=h.market==="US"?"USD":"KRW";
+          const p2=safeP[h.ticker];
           const v=((p2?.price??h.avgPrice)*h.quantity); const c=h.avgPrice*h.quantity;
           return v<c;
         }).length}</span>
@@ -1160,6 +1210,26 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
               <span style={{fontSize:"13px",color:totalPnL>=0?"#34d399":"#f87171"}}>{totalPnL>=0?"+":""}{fmtK(Math.abs(totalPnL))}</span>
               <span style={{fontSize:"12px",color:"#475569"}}>{allItems.length}종목</span>
             </div>
+            {(()=>{
+              let dayKRW=0;
+              allItems.forEach(h=>{
+                const p2=prices[h.ticker];
+                if(!p2) return;
+                const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
+                const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
+                dayKRW+=inKRW*h.quantity;
+              });
+              if(Math.abs(dayKRW)<1) return null;
+              const dayPct=totalVal>0?(dayKRW/totalVal)*100:0;
+              const up=dayKRW>=0;
+              return(
+                <div style={{display:"flex",alignItems:"center",gap:"8px",marginTop:"6px",padding:"5px 10px",background:"rgba(0,0,0,0.2)",borderRadius:"8px",flexWrap:"wrap"}}>
+                  <span style={{fontSize:"11px",color:"#64748b",fontWeight:600}}>오늘 변동</span>
+                  <span style={{fontSize:"14px",fontWeight:800,color:up?"#34d399":"#f87171"}}>{up?"+":""}{fmtK(Math.abs(dayKRW))}</span>
+                  <span style={{fontSize:"13px",fontWeight:700,color:up?"#34d399":"#f87171"}}>({up?"+":""}{dayPct.toFixed(2)}%)</span>
+                </div>
+              );
+            })()}
           </div>
           {snap.length >= 2 && (
             <svg viewBox={`0 0 ${W} ${H}`} style={{width:isMobile?"140px":"180px",height:"60px"}}>
@@ -2913,10 +2983,28 @@ function PortfolioApp({ syncKey, onLogout }) {
                             {g.sub&&<span style={{fontSize:"11px",color:"#64748b"}}>{g.sub}</span>}
                             <span style={{fontSize:"11px",color:"#475569",background:"rgba(255,255,255,0.06)",padding:"1px 7px",borderRadius:"20px"}}>{g.items.length}종목</span>
                           </div>
-                          <div style={{display:"flex",gap:"12px",marginTop:"4px",flexWrap:"wrap"}}>
+                          <div style={{display:"flex",gap:"12px",marginTop:"4px",flexWrap:"wrap",alignItems:"center"}}>
                             <span style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0"}}>{fmtKRW(gVal)}</span>
                             <span style={{fontSize:"13px",fontWeight:700,color:gRet>=0?"#34d399":"#f87171"}}>{gRet>=0?"+":""}{gRet.toFixed(2)}%</span>
                             <span style={{fontSize:"12px",color:"#64748b"}}>{gPnL>=0?"+":""}{fmtKRW(gPnL)}</span>
+                            {(()=>{
+                              let dayKRW=0;
+                              g.items.forEach(h=>{
+                                const p2=prices[h.ticker];
+                                if(!p2) return;
+                                const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
+                                const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
+                                dayKRW+=inKRW*h.quantity;
+                              });
+                              if(Math.abs(dayKRW)<1) return null;
+                              const dayPct=gVal>0?(dayKRW/gVal)*100:0;
+                              const up=dayKRW>=0;
+                              return(
+                                <span style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"2px 8px",fontSize:"12px",fontWeight:700,color:up?"#34d399":"#f87171"}}>
+                                  오늘 {up?"+":""}{fmtKRW(Math.abs(dayKRW))} ({up?"+":""}{dayPct.toFixed(2)}%)
+                                </span>
+                              );
+                            })()}
                           </div>
                         </div>
                         <button onClick={()=>setSelectedAccount({title:g.label,items:g.items.map(h=>({...h,id:h.id||Math.random()}))})}
