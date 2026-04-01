@@ -2616,7 +2616,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       </div>
       {/* 미니 스파크라인 */}
       <div style={{marginBottom:"6px"}}>
-        <MiniSparkline ticker={h.ticker} market={h.market} width={isMobile?window.innerWidth-80:220} height={30}/>
+        <MiniSparkline ticker={h.ticker} market={h.market} width={isMobile?260:220} height={30}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
