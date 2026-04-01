@@ -1681,6 +1681,45 @@ const TICKER_DOMAIN = {
   "102110":"samsungasset.com",  // TIGER 200
 };
 
+
+// ── 미니 스파크라인 차트 (보유종목 옆 인라인) ─────────────────────────────
+function MiniSparkline({ ticker, market, color="#6366f1", width=60, height=28 }) {
+  const [pts, setPts] = React.useState(null);
+  React.useEffect(() => {
+    const key = ticker+"_"+market;
+    if (_chartCache[key]) {
+      buildPts(_chartCache[key]);
+      return;
+    }
+    fetchHistory(ticker, market, "1mo").then(data => {
+      if (data && data.length >= 2) {
+        _chartCache[key] = data;
+        buildPts(data);
+      }
+    }).catch(() => {});
+    function buildPts(data) {
+      const prices = data.map(d=>d.price).filter(v=>typeof v==="number"&&isFinite(v));
+      if (prices.length < 2) return;
+      const mn=Math.min(...prices), mx=Math.max(...prices);
+      const pad={t:2,b:2,l:2,r:2};
+      const str = prices.map((p,i)=>{
+        const x=(pad.l+(i/(prices.length-1))*(width-pad.l-pad.r)).toFixed(1);
+        const y=(pad.t+(1-(p-mn)/(mx-mn||1))*(height-pad.t-pad.b)).toFixed(1);
+        return x+","+y;
+      }).join(" ");
+      const up = prices[prices.length-1] >= prices[0];
+      setPts({str, up});
+    }
+  }, [ticker, market]);
+  if (!pts) return null;
+  const c = pts.up ? "#34d399" : "#f87171";
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.85}}>
+      <polyline points={pts.str} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 function TickerLogo({ ticker, name, size=40 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const clean = (ticker||"").replace(".KS","").replace(".KQ","");
@@ -2380,9 +2419,22 @@ function PortfolioApp({ syncKey, onLogout }) {
   };
 
 
-  // ── 지수 실시간 30초 폴링 (코스피/S&P500/나스닥/야간선물) ────────────────
+  // ── 지수 실시간 폴링 (코스피/S&P500/나스닥/야간선물) ────────────────
+  // 미국 정규장(한국시간 23:30~6:00 표준, 22:30~5:00 서머타임): 5초
+  // 그 외: 30초
   useEffect(() => {
     let cancelled = false;
+    let timer = null;
+    const getInterval = () => {
+      const dst = isUSDST();
+      const kst = new Date(Date.now()+9*3600000);
+      const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
+      const usStart = dst?22*60+30:23*60+30;
+      const usEnd   = dst?5*60:6*60;
+      const usActive = mins>=usStart || mins<usEnd;
+      const krActive = mins>=9*60 && mins<15*60+35;
+      return (usActive||krActive) ? 5000 : 30000;
+    };
     const fetchAll = async () => {
       try {
         const [kospiRes, sp500Res, nasdaqRes, futRes] = await Promise.allSettled([
@@ -2393,16 +2445,18 @@ function PortfolioApp({ syncKey, onLogout }) {
         ]);
         if (cancelled) return;
         setLiveIndices({
-          kospi:  kospiRes.status  === "fulfilled" ? kospiRes.value  : null,
-          sp500:  sp500Res.status  === "fulfilled" ? sp500Res.value  : null,
-          nasdaq: nasdaqRes.status === "fulfilled" ? nasdaqRes.value : null,
-          futures: futRes.status   === "fulfilled" ? futRes.value    : null,
+          kospi:   kospiRes.status  === "fulfilled" ? kospiRes.value  : null,
+          sp500:   sp500Res.status  === "fulfilled" ? sp500Res.value  : null,
+          nasdaq:  nasdaqRes.status === "fulfilled" ? nasdaqRes.value : null,
+          futures: futRes.status    === "fulfilled" ? futRes.value    : null,
         });
       } catch {}
+      if (!cancelled) {
+        timer = setTimeout(fetchAll, getInterval());
+      }
     };
     fetchAll();
-    const t = setInterval(fetchAll, 30000);
-    return () => { cancelled = true; clearInterval(t); };
+    return () => { cancelled = true; if(timer) clearTimeout(timer); };
   }, []);
 
   const addT = () => {
@@ -2440,6 +2494,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"3px",letterSpacing:"0.05em"}}>ISA</div>}
                                 {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
+          <MiniSparkline ticker={h.ticker} market={h.market}/>
         </div>
       </td>
       <td style={S.TD}>
@@ -2558,6 +2613,10 @@ function PortfolioApp({ syncKey, onLogout }) {
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
         </div>
+      </div>
+      {/* 미니 스파크라인 */}
+      <div style={{marginBottom:"6px"}}>
+        <MiniSparkline ticker={h.ticker} market={h.market} width={isMobile?window.innerWidth-80:220} height={30}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
@@ -2724,17 +2783,22 @@ function PortfolioApp({ syncKey, onLogout }) {
             <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
             {/* 코스피/S&P500/나스닥/야간선물 실시간 지수 */}
             {liveIndices && (()=>{
-              const Idx = ({label, data, fmt="pct"}) => {
+              const Idx = ({label, data, isKR=false}) => {
                 if (!data?.price) return null;
                 const chg = data.changePercent ?? 0;
                 const chgAmt = data.changeAmount ?? 0;
                 const up = chg >= 0;
                 const c = up ? "#34d399" : "#f87171";
+                const priceStr = isKR
+                  ? Math.round(data.price).toLocaleString("ko-KR")
+                  : data.price >= 10000
+                    ? Math.round(data.price).toLocaleString("en-US")
+                    : data.price.toFixed(2);
                 return (
                   <div style={{display:"flex",alignItems:"center",gap:"5px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"7px",padding:isMobile?"2px 7px":"3px 10px",flexShrink:0}}>
                     <span style={{fontSize:"10px",color:"#6b7280",fontWeight:600,whiteSpace:"nowrap"}}>{label}</span>
+                    {!isMobile&&<span style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0",whiteSpace:"nowrap"}}>{priceStr}</span>}
                     <span style={{fontSize:isMobile?"11px":"12px",fontWeight:800,color:c,whiteSpace:"nowrap"}}>{up?"+":""}{chg.toFixed(2)}%</span>
-                    {!isMobile&&<span style={{fontSize:"10px",color:c,whiteSpace:"nowrap"}}>({up?"+":""}{typeof chgAmt==="number"&&Math.abs(chgAmt)>=1?Math.round(Math.abs(chgAmt)).toLocaleString():Math.abs(chgAmt).toFixed(2)})</span>}
                   </div>
                 );
               };
@@ -2753,6 +2817,7 @@ function PortfolioApp({ syncKey, onLogout }) {
               };
               return (<>
                 <span style={{color:"rgba(255,255,255,0.08)",fontSize:"14px",userSelect:"none",flexShrink:0}}>|</span>
+                <Idx label="KOSPI" data={liveIndices.kospi} isKR={true}/>
                 <Idx label="S&P500" data={liveIndices.sp500}/>
                 <Idx label="NASDAQ" data={liveIndices.nasdaq}/>
                 <Fut data={liveIndices.futures}/>
@@ -3001,6 +3066,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
+                              {!isMobile&&<div style={{flexShrink:0,opacity:0.8}}><MiniSparkline ticker={h.ticker} market={h.market} width={50} height={24}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -3374,6 +3440,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
                         </div>
                       </div>
+                      {/* ISA 미니 스파크라인 */}
+                      <div style={{marginBottom:"6px"}}><MiniSparkline ticker={h.ticker} market={h.market} width={240} height={28}/></div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
                         {[["현재가",Math.round(h.price).toLocaleString()+"₩"],["수량",h.quantity.toLocaleString()+"주"],["평가금액",Math.round(h.value).toLocaleString()+"₩"],["일변동",(h.regChgAmt>=0?"+":"")+Math.round(h.regChgAmt).toLocaleString()+"₩"],["등락률",(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"]].map(([l,v])=>(
                           <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
