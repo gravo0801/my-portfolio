@@ -1049,9 +1049,12 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
         portfolio.forEach(h=>{
           const p2=safeP[h.ticker];
           if(!p2) return;
-          const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
-          const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
-          dayChgKRW+=inKRW*h.quantity;
+          // 주당 등락액: changeAmount 우선, 없으면 price * changePercent/100
+          const pct = p2.regularChangePercent??p2.changePercent??0;
+          const px  = p2.price??0;
+          const rawAmt = p2.regularChangeAmount??p2.changeAmount??(px*pct/100);
+          const inKRW = h.cur==="USD" ? rawAmt*(liveUsdKrw||1380) : rawAmt;
+          dayChgKRW += inKRW * h.quantity;
         });
         if(Math.abs(dayChgKRW)<1) return null;
         const dayPct=totalVal>0?(dayChgKRW/totalVal)*100:0;
@@ -1188,9 +1191,11 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
               allItems.forEach(h=>{
                 const p2=prices[h.ticker];
                 if(!p2) return;
-                const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
-                const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
-                dayKRW+=inKRW*h.quantity;
+                const pct = p2.regularChangePercent??p2.changePercent??0;
+                const px  = p2.price??0;
+                const rawAmt = p2.regularChangeAmount??p2.changeAmount??(px*pct/100);
+                const inKRW = h.cur==="USD" ? rawAmt*(liveUsdKrw||1380) : rawAmt;
+                dayKRW += inKRW * h.quantity;
               });
               if(Math.abs(dayKRW)<1) return null;
               const dayPct=totalVal>0?(dayKRW/totalVal)*100:0;
@@ -1927,16 +1932,52 @@ function PortfolioApp({ syncKey, onLogout }) {
       const u = dbOn(`users/${syncKey}/${path}`, val => {
         if (saving.current[key]) return;
         fbLoadedRef.current[key] = true;
-        setter(val ? (Array.isArray(val) ? val : Object.values(val)) : []);
+        if (val) {
+          setter(Array.isArray(val) ? val : Object.values(val));
+        } else {
+          // Firebase 데이터 없음 → localStorage 백업에서 복구 시도
+          try {
+            const bk = localStorage.getItem("pm_bk_" + key);
+            if (bk) {
+              const { data, ts } = JSON.parse(bk);
+              const ageMin = (Date.now() - ts) / 60000;
+              if (data && ageMin < 43200) { // 30일 이내 백업만 사용
+                console.warn(`[복구] ${key} Firebase 없음 → 로컬 백업 사용 (${Math.round(ageMin)}분 전)`);
+                setter(Array.isArray(data) ? data : Object.values(data));
+              }
+            }
+          } catch {}
+        }
         setLoaded(true);
       });
       unsubs.push(u);
     };
     attach("holdings",  setHoldings,  "h");
-    attach("trades", (val) => {
-      tradesLoadedFromFB.current = true;
-      setTrades(val ? (Array.isArray(val) ? val : Object.values(val)) : []);
-    }, "t");
+    {
+      const u = dbOn(`users/${syncKey}/trades`, val => {
+        if (saving.current["t"]) return;
+        tradesLoadedFromFB.current = true;
+        fbLoadedRef.current["t"] = true;
+        if (val) {
+          setTrades(Array.isArray(val) ? val : Object.values(val));
+        } else {
+          // Firebase 데이터 없음 → localStorage 백업 복구
+          try {
+            const bk = localStorage.getItem("pm_bk_t");
+            if (bk) {
+              const { data, ts } = JSON.parse(bk);
+              const ageMin = (Date.now() - ts) / 60000;
+              if (data && data.length > 0 && ageMin < 43200) {
+                console.warn(`[복구] trades Firebase 없음 → 로컬 백업 사용 (${Math.round(ageMin)}분 전, ${data.length}건)`);
+                setTrades(data);
+              }
+            }
+          } catch {}
+        }
+        setLoaded(true);
+      });
+      unsubs.push(u);
+    }
     attach("alerts",    setAlerts,    "a");
     attach("snapshots", setSnapshots, "s");
     attach("holdings2",  setHoldings2, "h2");
@@ -1966,6 +2007,21 @@ function PortfolioApp({ syncKey, onLogout }) {
     unsubs.push(uCa);
     attach("divRecords",   setDivRecords,  "dr");
     setTimeout(() => setLoaded(true), 2000);
+    // 로컬 백업 현황 로깅
+    try {
+      const keys = ["h","h2","t","dr","di","wl","a","cl","ca"];
+      const bkSummary = keys.map(k => {
+        const bk = localStorage.getItem("pm_bk_" + k);
+        if (!bk) return null;
+        try {
+          const { data, ts } = JSON.parse(bk);
+          const cnt = Array.isArray(data) ? data.length : Object.keys(data).length;
+          const ageMin = Math.round((Date.now()-ts)/60000);
+          return `${k}:${cnt}건(${ageMin}분전)`;
+        } catch { return null; }
+      }).filter(Boolean).join(", ");
+      if (bkSummary) console.info("[로컬백업 현황]", bkSummary);
+    } catch {}
     return () => unsubs.forEach(u => typeof u === "function" && u());
   }, [syncKey]);
 
@@ -3089,9 +3145,11 @@ function PortfolioApp({ syncKey, onLogout }) {
                               g.items.forEach(h=>{
                                 const p2=prices[h.ticker];
                                 if(!p2) return;
-                                const chgAmt=p2.regularChangeAmount??p2.changeAmount??0;
-                                const inKRW=h.cur==="USD"?chgAmt*(liveUsdKrw||1380):chgAmt;
-                                dayKRW+=inKRW*h.quantity;
+                                const pct = p2.regularChangePercent??p2.changePercent??0;
+                                const px  = p2.price??0;
+                                const rawAmt = p2.regularChangeAmount??p2.changeAmount??(px*pct/100);
+                                const inKRW = h.cur==="USD" ? rawAmt*(liveUsdKrw||1380) : rawAmt;
+                                dayKRW += inKRW * h.quantity;
                               });
                               if(Math.abs(dayKRW)<1) return null;
                               const dayPct=gVal>0?(dayKRW/gVal)*100:0;
