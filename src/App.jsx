@@ -1913,6 +1913,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const isMobile = useIsMobile();
   const saving = useRef({});
   const fbLoadedRef = useRef({});
+  const tradesLoadedFromFB = useRef(false); // Firebase에서 trades를 한 번이라도 수신했는지
 
   const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", stockType:"일반주식", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
@@ -1932,7 +1933,10 @@ function PortfolioApp({ syncKey, onLogout }) {
       unsubs.push(u);
     };
     attach("holdings",  setHoldings,  "h");
-    attach("trades",    setTrades,    "t");
+    attach("trades", (val) => {
+      tradesLoadedFromFB.current = true;
+      setTrades(val ? (Array.isArray(val) ? val : Object.values(val)) : []);
+    }, "t");
     attach("alerts",    setAlerts,    "a");
     attach("snapshots", setSnapshots, "s");
     attach("holdings2",  setHoldings2, "h2");
@@ -2059,7 +2063,12 @@ function PortfolioApp({ syncKey, onLogout }) {
   useEffect(() => { if (loaded) saveData("contribLimits",  Object.keys(contribLimits).length ? contribLimits : {}, "cl"); }, [contribLimits,  loaded]);
   useEffect(() => { if (loaded) saveData("contribAmounts", Object.keys(contribAmounts).length ? contribAmounts: {}, "ca"); }, [contribAmounts, loaded]);
   useEffect(() => { if (loaded) saveData("divRecords",  divRecords.length  ? divRecords  : [],  "dr"); }, [divRecords, loaded]);
-  useEffect(() => { if (loaded) saveData("trades",   trades.length   ? trades   : [], "t"); }, [trades,   loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    if (!tradesLoadedFromFB.current) return; // Firebase에서 아직 안 읽어옴 → 저장 금지
+    if (trades.length === 0) return; // 빈 배열은 절대 저장 안함 (실수 삭제 방지)
+    saveData("trades", trades, "t");
+  }, [trades, loaded]);
   useEffect(() => { if (loaded) saveData("alerts",   alerts.length   ? alerts   : [], "a"); }, [alerts,   loaded]);
 
   const toast = useCallback((msg, type="info") => {
