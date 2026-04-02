@@ -2535,15 +2535,17 @@ function PortfolioApp({ syncKey, onLogout }) {
     <>
     <tr key={h.id}>
       <td style={{...S.TD,cursor:"pointer",padding:compact?"4px 8px":"8px 12px"}} onClick={()=>setSelectedStock(h)} onMouseEnter={()=>{if(!_chartCache[h.ticker]){fetchHistory(h.ticker,h.market).then(d=>{_chartCache[h.ticker]=d});fetchStockInfo(h.ticker,h.market).then(d=>{_infoCache[h.ticker]=d});} }}>
-        <div style={{display:"flex",alignItems:"center",gap:compact?"6px":"10px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:compact?"6px":"10px",minWidth:0}}>
           <div style={{width:compact?"7px":"10px",height:compact?"7px":"10px",borderRadius:"2px",background:MARKET_COLOR[h.market],flexShrink:0}}/>
-          <div>
-            <div style={{fontWeight:700,fontSize:compact?"12px":"15px",letterSpacing:"-0.02em",color:"#f1f5f9"}}>{h.name||MARKET_LABEL[h.market]}</div>
+          <div style={{minWidth:0,flex:"1 1 auto"}}>
+            <div style={{fontWeight:700,fontSize:compact?"12px":"15px",letterSpacing:"-0.02em",color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name||MARKET_LABEL[h.market]}</div>
             <div style={{fontSize:"10px",color:"#a5b4fc",fontWeight:600,marginTop:"1px",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:"2px"}}>{h.ticker}</div>
             {h.market==="ISA"&&<div style={{fontSize:"10px",color:"#06b6d4",background:"rgba(6,182,212,0.12)",border:"1px solid rgba(6,182,212,0.3)",display:"inline-block",padding:"1px 7px",borderRadius:"4px",fontWeight:800,marginTop:"3px",letterSpacing:"0.05em"}}>ISA</div>}
-                                {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
+            {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
-          <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={60} height={22}/>
+          {!compact&&<div style={{flexShrink:0,marginLeft:"8px",borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"10px"}}>
+            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={64} height={24}/>
+          </div>}
         </div>
       </td>
       <td style={S.TD}>
@@ -2659,13 +2661,12 @@ function PortfolioApp({ syncKey, onLogout }) {
           </div>
         </div>
         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+          <div style={{borderLeft:"1px solid rgba(255,255,255,0.08)",paddingLeft:"8px",marginRight:"4px"}}>
+            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
+          </div>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
         </div>
-      </div>
-      {/* 미니 스파크라인 */}
-      <div style={{marginBottom:"6px"}}>
-        <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={180} height={26}/>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"3px":"6px"}}>
         <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
@@ -3115,7 +3116,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
-                              {!isMobile&&<div style={{flexShrink:0}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={48} height={22}/></div>}
+                              {!isMobile&&<div style={{flexShrink:0,borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"8px",marginLeft:"4px"}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={52} height={22}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -3484,13 +3485,14 @@ function PortfolioApp({ syncKey, onLogout }) {
                             <div style={{fontSize:"11px",color:"#06b6d4"}}>{h.ticker}</div>
                           </div>
                         </div>
-                        <div style={{display:"flex",gap:"6px"}}>
+                        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                          <div style={{borderLeft:"1px solid rgba(6,182,212,0.15)",paddingLeft:"8px",marginRight:"4px"}}>
+                            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={52} height={20}/>
+                          </div>
                           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#06b6d4",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
                           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
                         </div>
                       </div>
-                      {/* ISA 미니 스파크라인 */}
-                      <div style={{marginBottom:"6px"}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={180} height={24}/></div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px"}}>
                         {[["현재가",Math.round(h.price).toLocaleString()+"₩"],["수량",h.quantity.toLocaleString()+"주"],["평가금액",Math.round(h.value).toLocaleString()+"₩"],["일변동",(h.regChgAmt>=0?"+":"")+Math.round(h.regChgAmt).toLocaleString()+"₩"],["등락률",(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"]].map(([l,v])=>(
                           <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
