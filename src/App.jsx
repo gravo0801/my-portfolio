@@ -607,16 +607,11 @@ function InfoWidget() {
       const city = CITIES[customCity];
       const urls = [
         `https://api.open-meteo.com/v1/forecast?latitude=37.5665&longitude=126.9780&current=temperature_2m,weathercode&timezone=Asia/Seoul`,
-        `https://api.open-meteo.com/v1/forecast?latitude=40.7128&longitude=-74.0060&current=temperature_2m,weathercode&timezone=America/New_York`,
-        `https://api.open-meteo.com/v1/forecast?latitude=35.6762&longitude=139.6503&current=temperature_2m,weathercode&timezone=Asia/Tokyo`,
-        `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weathercode&timezone=${encodeURIComponent(city.tz)}`,
       ];
       const results = await Promise.all(urls.map(u => fetch(u).then(r=>r.json()).catch(()=>null)));
       setWeather({
         seoul:  results[0] ? { temp: Math.round(results[0].current.temperature_2m), code: results[0].current.weathercode } : null,
-        nyc:    results[1] ? { temp: Math.round(results[1].current.temperature_2m), code: results[1].current.weathercode } : null,
-        tokyo:  results[2] ? { temp: Math.round(results[2].current.temperature_2m), code: results[2].current.weathercode } : null,
-        custom: results[3] ? { temp: Math.round(results[3].current.temperature_2m), code: results[3].current.weathercode } : null,
+        nyc: null, tokyo: null, custom: null,
       });
     } catch {}
     setWLoading(false);
@@ -738,12 +733,11 @@ function InfoWidget() {
         {!collapsed && <>
           <button style={btnStyle(mode==="weather")} onClick={()=>setMode("weather")}>🌤️ 날씨</button>
           <button style={btnStyle(mode==="rate")}    onClick={()=>setMode("rate")}>💱 환율</button>
-          <button style={btnStyle(mode==="rate2")}   onClick={()=>{setMode("rate2");if(!Object.keys(rates).length)fetchRates();}}>🌐 통화</button>
         </>}
         <button onClick={()=>setCollapsed(c=>!c)}
           style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", color:"#64748b", padding:"3px 8px", borderRadius:"6px", cursor:"pointer", fontSize:"11px", fontWeight:700 }}>
           {collapsed
-            ? `🌤️ ${weather.seoul ? weather.seoul.temp+"°" : "--"} 💱 ${rates?.KRW ? Math.round(rates.KRW).toLocaleString()+"₩" : "--"} ▾`
+            ? `🌤️ ${weather.seoul ? weather.seoul.temp+"°" : "--"} | $${rates?.KRW ? Math.round(rates.KRW).toLocaleString() : "--"}₩ | ¥100=${rates?.JPY&&rates?.KRW ? Math.round(rates.KRW/rates.JPY*100).toLocaleString() : "--"}₩ ▾`
             : "▴ 접기"
           }
         </button>
@@ -754,35 +748,21 @@ function InfoWidget() {
       {/* 날씨 */}
       {mode === "weather" && (
         <div style={{ display:"flex", gap:"6px", alignItems:"flex-start" }}>
-          {wLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (<>
-            {[
-              ["🇰🇷 서울", weather.seoul],
-              ["🇺🇸 뉴욕",  weather.nyc],
-              ["🇯🇵 도쿄", weather.tokyo],
-              [CITIES[customCity]?.label, weather.custom],
-            ].map(([label, w]) => w ? (
-              <div key={label} style={cardStyle}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700, whiteSpace:"nowrap" }}>{label}</div>
-                <div style={{ fontSize:"22px", lineHeight:1 }}>{WX_ICON[w.code]??'🌡️'}</div>
-                <div style={{ fontSize:"16px", fontWeight:800, color:"#f1f5f9", marginTop:"3px" }}>{w.temp}°C</div>
-                <div style={{ fontSize:"10px", color:"#64748b", marginTop:"2px" }}>{WX_CODE[w.code]??""}</div>
-              </div>
-            ) : null)}
-            {/* 도시 선택 */}
-            <div style={{ display:"flex", flexDirection:"column", justifyContent:"center" }}>
-              <select value={customCity} onChange={e=>setCustomCity(e.target.value)}
-                style={{ background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", padding:"3px 6px", borderRadius:"6px", fontSize:"10px", cursor:"pointer", appearance:"none", outline:"none" }}>
-                {Object.entries(CITIES).map(([k,v]) => <option key={k} value={k} style={{background:"#1e293b"}}>{v.label}</option>)}
-              </select>
+          {wLoading ? <span style={{fontSize:"11px",color:"#475569"}}>조회중...</span> : weather.seoul ? (
+            <div style={cardStyle}>
+              <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇰🇷 서울</div>
+              <div style={{ fontSize:"22px", lineHeight:1 }}>{WX_ICON[weather.seoul.code]??'🌡️'}</div>
+              <div style={{ fontSize:"16px", fontWeight:800, color:"#f1f5f9", marginTop:"3px" }}>{weather.seoul.temp}°C</div>
+              <div style={{ fontSize:"10px", color:"#64748b", marginTop:"2px" }}>{WX_CODE[weather.seoul.code]??""}</div>
             </div>
-          </>)}
+          ) : null}
         </div>
       )}
 
       {/* 주요 환율 (USD·JPY) */}
       {mode === "rate" && (
         <div style={{ display:"flex", gap:"6px" }}>
-          {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (<>
+          {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>조회중...</span> : (<>
             {rates?.KRW && (
               <div style={cardStyle}>
                 <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>🇺🇸 USD</div>
@@ -797,55 +777,11 @@ function InfoWidget() {
                 <div style={{ fontSize:"10px", color:"#64748b" }}>100엔</div>
               </div>
             )}
-            {/* 추가 통화 선택 */}
-            {rates?.KRW && (
-              <div style={cardStyle}>
-                <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"3px", fontWeight:700 }}>{CURRENCIES[extraCurrency]?.label}</div>
-                <div style={{ fontSize:"16px", fontWeight:800, color:"#a5b4fc" }}>{krwPer(extraCurrency)?.toLocaleString()}₩</div>
-                <div style={{ fontSize:"10px", color:"#64748b" }}>1{CURRENCIES[extraCurrency]?.flag}</div>
-              </div>
-            )}
-            <div style={{ display:"flex", flexDirection:"column", justifyContent:"center" }}>
-              <select value={extraCurrency} onChange={e=>setExtraCurrency(e.target.value)}
-                style={{ background:"rgba(255,255,255,0.08)", border:"1px solid rgba(255,255,255,0.1)", color:"#94a3b8", padding:"3px 6px", borderRadius:"6px", fontSize:"10px", cursor:"pointer", appearance:"none", outline:"none" }}>
-                {Object.entries(CURRENCIES).map(([k,v]) => <option key={k} value={k} style={{background:"#1e293b"}}>{v.label}</option>)}
-              </select>
-            </div>
           </>)}
         </div>
       )}
 
-      {/* 전체 환율 보기 */}
-      {mode === "rate2" && (
-        <div style={{ display:"flex", gap:"6px", flexWrap:"wrap", maxWidth:"400px", justifyContent:"flex-end" }}>
-          {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>불러오는 중...</span> : (
-            rates?.KRW ? (
-              [
-                ["USD","🇺🇸","#34d399","1달러"],
-                ["JPY","🇯🇵","#f59e0b","100엔"],
-                ["EUR","🇪🇺","#60a5fa","1유로"],
-                ["CNY","🇨🇳","#f87171","1위안"],
-                ["GBP","🇬🇧","#c084fc","1파운드"],
-                ["AUD","🇦🇺","#34d399","1호주달러"],
-                ["SGD","🇸🇬","#fb923c","1싱가포르달러"],
-                ["HKD","🇭🇰","#f59e0b","1홍콩달러"],
-              ].map(([cur, flag, color, label]) => {
-                const krw = cur==="JPY"
-                  ? Math.round(rates.KRW/rates.JPY*100)
-                  : krwPer(cur);
-                if (!krw) return null;
-                return (
-                  <div key={cur} style={{...cardStyle, minWidth:"64px", padding:"5px 8px"}}>
-                    <div style={{ fontSize:"10px", color:"#64748b", marginBottom:"2px", fontWeight:700 }}>{flag} {cur}</div>
-                    <div style={{ fontSize:"14px", fontWeight:800, color }}>{krw.toLocaleString()}₩</div>
-                    <div style={{ fontSize:"9px", color:"#475569" }}>{label}</div>
-                  </div>
-                );
-              })
-            ) : <span style={{fontSize:"11px",color:"#f87171",cursor:"pointer"}} onClick={fetchRates}>⟳ 다시 시도</span>
-          )}
-        </div>
-      )}
+
       </>}
     </div>
   );
@@ -4792,18 +4728,30 @@ function PortfolioApp({ syncKey, onLogout }) {
 
               {/* 종목별 종가 히스토리 */}
               <div style={S.card}>
-                <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📈 종목별 종가 히스토리 <span style={{fontSize:"11px",color:"#475569",fontWeight:400}}>(최근 3개월)</span></div>
-                <div style={{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"10px"}}>
-                  {[...holdings,...holdings2].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i).map(h=>(
-                    <button key={h.ticker} onClick={()=>{
-                      const next=calStockTicker===h.ticker?null:h.ticker;
-                      setCalStockTicker(next);
-                      if(next&&!stockHistory[next]) fetchHistory(h.ticker,h.market,"3mo").then(d=>{if(d)setStockHistory(p=>({...p,[next]:d}));}).catch(()=>{});
-                    }} style={{background:calStockTicker===h.ticker?"rgba(99,102,241,0.35)":"rgba(255,255,255,0.05)",border:calStockTicker===h.ticker?"1px solid rgba(99,102,241,0.6)":"1px solid rgba(255,255,255,0.08)",color:calStockTicker===h.ticker?"#c7d2fe":"#94a3b8",padding:"4px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:calStockTicker===h.ticker?700:400}}>
-                      {h.name||h.ticker}
-                    </button>
-                  ))}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:calStockTicker?"10px":"0"}}>
+                  <div style={{fontSize:"14px",fontWeight:800}}>📈 종목별 종가 히스토리 <span style={{fontSize:"11px",color:"#475569",fontWeight:400}}>(최근 3개월)</span></div>
+                  <button onClick={()=>setCalStockTicker(calStockTicker?"__closed__":null===calStockTicker?"__open__":null)}
+                    style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                    {calStockTicker&&calStockTicker!=="__closed__"&&calStockTicker!=="__open__"?"✕ 닫기":calStockTicker==="__closed__"?"▾ 종목 선택":"▾ 종목 선택"}
+                  </button>
                 </div>
+                {/* 종목 선택 드롭다운 - 버튼 클릭 시 표시 */}
+                {(calStockTicker==="__open__"||calStockTicker===null||(!calStockTicker||calStockTicker.length<=10))&&calStockTicker!=="__closed__"&&(
+                  <div style={{marginTop:"10px",marginBottom:"10px"}}>
+                    <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px"}}>종목을 선택하세요</div>
+                    <div style={{display:"flex",gap:"5px",flexWrap:"wrap"}}>
+                      {[...holdings,...holdings2].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i).map(h=>(
+                        <button key={h.ticker} onClick={()=>{
+                          const next=calStockTicker===h.ticker?null:h.ticker;
+                          setCalStockTicker(next);
+                          if(next&&!stockHistory[next]) fetchHistory(h.ticker,h.market,"3mo").then(d=>{if(d)setStockHistory(p=>({...p,[next]:d}));}).catch(()=>{});
+                        }} style={{background:calStockTicker===h.ticker?"rgba(99,102,241,0.35)":"rgba(255,255,255,0.05)",border:calStockTicker===h.ticker?"1px solid rgba(99,102,241,0.6)":"1px solid rgba(255,255,255,0.08)",color:calStockTicker===h.ticker?"#c7d2fe":"#94a3b8",padding:"4px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:calStockTicker===h.ticker?700:400}}>
+                          {h.name||h.ticker}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {calStockTicker&&(()=>{
                   const hist=stockHistory[calStockTicker];
                   const h=[...holdings,...holdings2].find(x=>x.ticker===calStockTicker);
