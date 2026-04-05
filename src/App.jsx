@@ -4779,8 +4779,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                   <div style={S.card}>
                     <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate}</div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
-                      {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩
-"+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
+                      {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩\n"+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
                         <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
                           <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
                           <div style={{fontSize:"13px",fontWeight:800,color:c,whiteSpace:"pre-line"}}>{v}</div>
