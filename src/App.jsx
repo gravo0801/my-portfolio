@@ -316,6 +316,56 @@ function isUSDST() {
   return now >= dstStart && now < dstEnd;
 }
 
+// ── 한국 공휴일 체크 (KST 기준) ─────────────────────────────────────────
+function isKRHoliday(kstDate) {
+  const y = kstDate.getUTCFullYear();
+  const m = kstDate.getUTCMonth()+1; // 1~12
+  const d = kstDate.getUTCDate();
+  const dow = kstDate.getUTCDay(); // 0=일,6=토
+  // 주말
+  if (dow === 0 || dow === 6) return true;
+  // 고정 공휴일
+  const fixed = [[1,1],[3,1],[5,5],[6,6],[8,15],[10,3],[10,9],[12,25]];
+  if (fixed.some(([hm,hd])=>m===hm&&d===hd)) return true;
+  // 설날/추석/어린이날 대체 등은 정확한 음력계산이 필요해 간략화:
+  // 음력 명절 근처 며칠은 야후/네이버 API의 marketState로 이미 반영됨
+  return false;
+}
+
+// ── 미국 공휴일 체크 (ET 기준, KST로 입력받아 ET 변환) ──────────────────
+function isUSHoliday(kstDate) {
+  const dst = isUSDST();
+  // KST → ET: KST는 UTC+9, ET는 UTC-4(DST)/UTC-5(표준)
+  const etOffset = dst ? -(9+4)*3600000 : -(9+5)*3600000;
+  const et = new Date(kstDate.getTime() + etOffset);
+  const y  = et.getUTCFullYear();
+  const m  = et.getUTCMonth()+1;
+  const d  = et.getUTCDate();
+  const dow = et.getUTCDay();
+  // 주말
+  if (dow === 0 || dow === 6) return true;
+  // 고정 공휴일
+  if (m===1 && d===1)  return true; // 신정
+  if (m===6 && d===19) return true; // Juneteenth
+  if (m===7 && d===4)  return true; // 독립기념일
+  if (m===11 && d===11) return true; // Veterans Day
+  if (m===12 && d===25) return true; // 크리스마스
+  // MLK Day: 1월 셋째 월요일
+  if (m===1 && dow===1 && d>=15 && d<=21) return true;
+  // Presidents Day: 2월 셋째 월요일
+  if (m===2 && dow===1 && d>=15 && d<=21) return true;
+  // Memorial Day: 5월 마지막 월요일
+  if (m===5 && dow===1 && d>=25) return true;
+  // Labor Day: 9월 첫째 월요일
+  if (m===9 && dow===1 && d<=7) return true;
+  // Thanksgiving: 11월 넷째 목요일
+  if (m===11 && dow===4 && d>=22 && d<=28) return true;
+  // Good Friday: Easter 2일 전 (간단히: 3~4월 중 야후 API로 커버)
+  // 현충일 날짜 계산 (5월 마지막 월요일과 겹치지 않는 특이케이스 제외)
+  return false;
+}
+
+
 async function fetchKospiFutures() {
   const now = new Date();
   const m = now.getMonth() + 1; // 1~12
@@ -1888,6 +1938,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [tradePage, setTradePage] = useState(1);
   const TRADE_PAGE_SIZE = 10;
   const [sparklineData, setSparklineData] = useState({});
+  const [calSelectedDate, setCalSelectedDate] = useState(null);
+  const [calStockTicker, setCalStockTicker] = useState(null);
+  const [stockHistory, setStockHistory] = useState({});
   const [liveIndices, setLiveIndices] = useState(null); // {kospi,sp500,nasdaq,futures}
   const [holdings2, setHoldings2] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
@@ -2855,26 +2908,29 @@ function PortfolioApp({ syncKey, onLogout }) {
           const mins = kst.getUTCHours()*60+kst.getUTCMinutes();
           const isDST = isUSDST();
 
-          // 국내장 시간대 (KST)
-          // KRX: 정규 09:00~15:30 / 시간외단일가 16:00~18:00
-          // NXT(대체거래소): 프리 08:00~08:50 / 정규 09:00~15:20 / 애프터 15:40~20:00
-          const krPre     = mins>=8*60    && mins<9*60;         // 08:00~09:00 프리 (NXT)
-          const krRegular = mins>=9*60    && mins<15*60+30;     // 09:00~15:30 정규
-          const krAfter   = mins>=15*60+30&& mins<20*60;        // 15:30~20:00 애프터 (NXT 포함)
+          // ── 공휴일 체크
+          const krHoliday = isKRHoliday(kst);
+          const usHoliday = isUSHoliday(kst);
+
+          // 국내장 시간대 (KST) - 공휴일/주말이면 전부 휴장
+          const krPre     = !krHoliday && mins>=8*60    && mins<9*60;
+          const krRegular = !krHoliday && mins>=9*60    && mins<15*60+30;
+          const krAfter   = !krHoliday && mins>=15*60+30&& mins<20*60;
           const krClosed  = !krPre && !krRegular && !krAfter;
 
-          // 미국장 시간대 (섬머타임 자동 반영)
+          // 미국장 시간대 (섬머타임 자동 반영) - 공휴일/주말이면 전부 휴장
           const usPreStart  = isDST?17*60+30:18*60;
           const usRegStart  = isDST?22*60+30:23*60+30;
           const usRegEnd    = isDST?5*60:6*60;
           const usAfterEnd  = isDST?9*60:10*60;
-          const usRegular = mins>=usRegStart || mins<usRegEnd;
-          const usPre     = !usRegular && mins>=usPreStart && mins<usRegStart;
-          const usAfter   = !usRegular && mins>=usRegEnd   && mins<usAfterEnd;
+          const usRegular = !usHoliday && (mins>=usRegStart || mins<usRegEnd);
+          const usPre     = !usHoliday && !usRegular && mins>=usPreStart && mins<usRegStart;
+          const usAfter   = !usHoliday && !usRegular && mins>=usRegEnd   && mins<usAfterEnd;
 
-          const MarketItem = ({flag, name, regular, pre, after}) => {
+          const MarketItem = ({flag, name, regular, pre, after, holiday=false}) => {
             let dotColor, label, labelColor;
-            if      (regular) { dotColor="#22c55e"; label="정규장"; labelColor="#4ade80"; }
+            if      (holiday) { dotColor="#374151"; label="휴장일"; labelColor="#4b5563"; }
+            else if (regular) { dotColor="#22c55e"; label="정규장"; labelColor="#4ade80"; }
             else if (pre)     { dotColor="#f59e0b"; label="프리장"; labelColor="#fbbf24"; }
             else if (after)   { dotColor="#a78bfa"; label="애프터"; labelColor="#c4b5fd"; }
             else              { dotColor="#374151"; label="장마감"; labelColor="#6b7280"; }
@@ -2893,9 +2949,9 @@ function PortfolioApp({ syncKey, onLogout }) {
           };
 
           return (<>
-            <MarketItem flag="🇰🇷" name="국내" regular={krRegular} pre={krPre} after={krAfter}/>
+            <MarketItem flag="🇰🇷" name="국내" regular={krRegular} pre={krPre} after={krAfter} holiday={krHoliday&&!krPre&&!krRegular&&!krAfter}/>
             <span style={{color:"rgba(255,255,255,0.08)",fontSize:"16px",userSelect:"none"}}>|</span>
-            <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter}/>
+            <MarketItem flag="🇺🇸" name="미국" regular={usRegular} pre={usPre} after={usAfter} holiday={usHoliday&&!usPre&&!usRegular&&!usAfter}/>
             {/* 코스피/S&P500/나스닥/야간선물 실시간 지수 */}
             {liveIndices && (()=>{
               const Idx = ({label, data, isKR=false}) => {
@@ -3024,13 +3080,13 @@ function PortfolioApp({ syncKey, onLogout }) {
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["tax","💰 양도세"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["tax","💰 양도세"],["calendar","📅 캘린더"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":"양도세"):label}
+              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="tax"?"양도세":"캘린더"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax") && (
+        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -4636,6 +4692,196 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={{background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.18)",borderRadius:"10px",padding:"10px",fontSize:"12px",color:"#94a3b8",lineHeight:1.8}}>
                 ⚠️ <strong style={{color:"#fbbf24"}}>주의</strong> 참고용 계산 · 신고: 매년 5월 · 세무사 확인 권장
               </div>
+            </div>
+          );
+        })()}
+
+        {/* ── 캘린더 탭 ── */}
+        {mainTab === "calendar" && (()=>{
+          const allH = [...holdings, ...holdings2];
+          const snapByDate = {};
+          snapshots.forEach(s => {
+            if (!s.id) return;
+            const dt = new Date(s.id+9*3600000).toISOString().slice(0,10);
+            if (!snapByDate[dt]) snapByDate[dt] = [];
+            snapByDate[dt].push(s);
+          });
+          const dailySnap = {};
+          Object.entries(snapByDate).forEach(([dt, snaps]) => {
+            dailySnap[dt] = snaps.reduce((a,b)=>(a.id>b.id?a:b));
+          });
+          const dates = Object.keys(dailySnap).sort();
+          const now = new Date();
+          const calDateRef = calSelectedDate && calSelectedDate.length>=7 ? calSelectedDate : now.toISOString().slice(0,7)+"-01";
+          const calY = parseInt(calDateRef.slice(0,4));
+          const calM = parseInt(calDateRef.slice(5,7))-1;
+          const firstDay = new Date(calY, calM, 1).getDay();
+          const daysInMonth = new Date(calY, calM+1, 0).getDate();
+          const calcDayChg = (snap, prev) => {
+            if (!snap || !prev) return null;
+            const chg = snap.totalValue - prev.totalValue;
+            const pct = prev.totalValue > 0 ? (chg/prev.totalValue)*100 : 0;
+            return { chg, pct };
+          };
+          const selSnap = calSelectedDate && calSelectedDate.length===10 ? dailySnap[calSelectedDate] : null;
+          const selIdx = calSelectedDate ? dates.indexOf(calSelectedDate) : -1;
+          const prevDateSnap = selIdx > 0 ? dailySnap[dates[selIdx-1]] : null;
+          return (
+            <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingBottom:"20px"}}>
+              {/* 캘린더 */}
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
+                  <button onClick={()=>{const d=new Date(calY,calM-1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>‹</button>
+                  <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.02em"}}>{calY}년 {calM+1}월</div>
+                  <button onClick={()=>{const d=new Date(calY,calM+1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>›</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"2px",marginBottom:"4px"}}>
+                  {["일","월","화","수","목","금","토"].map((d,i)=>(
+                    <div key={d} style={{textAlign:"center",fontSize:"11px",fontWeight:700,color:i===0?"#fca5a5":i===6?"#93c5fd":"#64748b",padding:"4px 0"}}>{d}</div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"3px"}}>
+                  {Array.from({length:firstDay},(_,i)=><div key={"e"+i}/>)}
+                  {Array.from({length:daysInMonth},(_,i)=>{
+                    const d=i+1;
+                    const dateStr=`${calY}-${String(calM+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+                    const snap=dailySnap[dateStr];
+                    const prevIdx2=dates.indexOf(dateStr);
+                    const prevS=prevIdx2>0?dailySnap[dates[prevIdx2-1]]:null;
+                    const dayChg=calcDayChg(snap,prevS);
+                    const isToday=dateStr===new Date().toISOString().slice(0,10);
+                    const isSel=dateStr===calSelectedDate;
+                    const dow=new Date(calY,calM,d).getDay();
+                    const isWeekend=dow===0||dow===6;
+                    return(
+                      <div key={d} onClick={()=>setCalSelectedDate(isSel?null:dateStr)} style={{borderRadius:"8px",padding:"5px 2px",cursor:"pointer",background:isSel?"rgba(99,102,241,0.3)":isToday?"rgba(99,102,241,0.1)":"rgba(255,255,255,0.02)",border:isSel?"1px solid rgba(99,102,241,0.7)":isToday?"1px solid rgba(99,102,241,0.3)":"1px solid transparent",minHeight:"46px",display:"flex",flexDirection:"column",alignItems:"center",gap:"1px",opacity:isWeekend&&!snap?0.35:1,transition:"all 0.1s"}}>
+                        <span style={{fontSize:"12px",fontWeight:isSel||isToday?800:400,color:isToday?"#a5b4fc":dow===0?"#fca5a5":dow===6?"#93c5fd":"#e2e8f0"}}>{d}</span>
+                        {snap&&<span style={{fontSize:"9px",fontWeight:700,color:snap.returnRate>=0?"#34d399":"#f87171",lineHeight:1.2}}>{snap.returnRate>=0?"+":""}{snap.returnRate.toFixed(1)}%</span>}
+                        {dayChg&&<span style={{fontSize:"8px",color:dayChg.chg>=0?"#34d399":"#f87171",opacity:0.75,lineHeight:1.1}}>{dayChg.chg>=0?"▲":"▼"}{Math.abs(dayChg.pct).toFixed(1)}%</span>}
+                        {!snap&&isWeekend&&<span style={{fontSize:"7px",color:"#2d3748",marginTop:"2px"}}>휴장</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 선택 날짜 상세 */}
+              {calSelectedDate&&calSelectedDate.length===10&&(()=>{
+                const dayChg=calcDayChg(selSnap,prevDateSnap);
+                if(!selSnap) return(
+                  <div style={{...S.card,textAlign:"center",padding:"20px",color:"#475569"}}>
+                    <div style={{fontSize:"24px",marginBottom:"6px"}}>📭</div>
+                    <div>{calSelectedDate} — 스냅샷 없음</div>
+                    <div style={{fontSize:"11px",color:"#374151",marginTop:"4px"}}>앱이 열려있을 때 30초마다 자동 기록됩니다</div>
+                  </div>
+                );
+                return(
+                  <div style={S.card}>
+                    <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
+                      {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩
+"+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
+                        <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
+                          <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
+                          <div style={{fontSize:"13px",fontWeight:800,color:c,whiteSpace:"pre-line"}}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 종목별 종가 히스토리 */}
+              <div style={S.card}>
+                <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📈 종목별 종가 히스토리 <span style={{fontSize:"11px",color:"#475569",fontWeight:400}}>(최근 3개월)</span></div>
+                <div style={{display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"10px"}}>
+                  {[...holdings,...holdings2].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i).map(h=>(
+                    <button key={h.ticker} onClick={()=>{
+                      const next=calStockTicker===h.ticker?null:h.ticker;
+                      setCalStockTicker(next);
+                      if(next&&!stockHistory[next]) fetchHistory(h.ticker,h.market,"3mo").then(d=>{if(d)setStockHistory(p=>({...p,[next]:d}));}).catch(()=>{});
+                    }} style={{background:calStockTicker===h.ticker?"rgba(99,102,241,0.35)":"rgba(255,255,255,0.05)",border:calStockTicker===h.ticker?"1px solid rgba(99,102,241,0.6)":"1px solid rgba(255,255,255,0.08)",color:calStockTicker===h.ticker?"#c7d2fe":"#94a3b8",padding:"4px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:calStockTicker===h.ticker?700:400}}>
+                      {h.name||h.ticker}
+                    </button>
+                  ))}
+                </div>
+                {calStockTicker&&(()=>{
+                  const hist=stockHistory[calStockTicker];
+                  const h=[...holdings,...holdings2].find(x=>x.ticker===calStockTicker);
+                  const cur=(h?.market==="US"||(h?.market==="ETF"&&!/^[0-9]/.test(calStockTicker)))?"USD":"KRW";
+                  const fmtPr=v=>cur==="USD"?"$"+v.toFixed(2):Math.round(v).toLocaleString()+"₩";
+                  if(!hist) return <div style={{textAlign:"center",padding:"16px",color:"#475569"}}>⏳ 데이터 로딩 중...</div>;
+                  const rows=[...hist].reverse().slice(0,90);
+                  return(
+                    <div>
+                      <div style={{fontSize:"12px",color:"#64748b",marginBottom:"6px"}}>{h?.name||calStockTicker} · {rows.length}일 데이터</div>
+                      <div style={{overflowX:"auto",maxHeight:"360px",overflowY:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse"}}>
+                          <thead style={{position:"sticky",top:0,background:"rgba(15,23,42,0.96)"}}>
+                            <tr>{["날짜","종가","전일비","등락률"].map(c=><th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>)}</tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((row,i)=>{
+                              const prev=rows[i+1];
+                              const chgAmt=prev?row.price-prev.price:null;
+                              const chgPct=prev&&prev.price>0?(row.price-prev.price)/prev.price*100:null;
+                              const up=chgAmt>=0;
+                              const isCalSel=calSelectedDate&&row.date&&(row.date===calSelectedDate||row.date===calSelectedDate.slice(2));
+                              return(
+                                <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:isCalSel?"rgba(99,102,241,0.1)":"transparent",transition:"background 0.1s"}}
+                                  onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.05)"}
+                                  onMouseLeave={e=>e.currentTarget.style.background=isCalSel?"rgba(99,102,241,0.1)":"transparent"}>
+                                  <td style={{...S.TD,fontSize:"12px",color:"#94a3b8"}}>{row.date}</td>
+                                  <td style={{...S.TD,textAlign:"right",fontWeight:700,color:"#e2e8f0",fontSize:"13px"}}>{fmtPr(row.price)}</td>
+                                  <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chgAmt===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chgAmt===null?"—":(up?"+":"")+fmtPr(Math.abs(chgAmt))}</td>
+                                  <td style={{...S.TD,textAlign:"right",fontWeight:700,color:chgPct===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chgPct===null?"—":(up?"+":"")+chgPct.toFixed(2)+"%"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {!calStockTicker&&<div style={{textAlign:"center",padding:"16px",color:"#475569",fontSize:"12px"}}>종목을 선택하면 날짜별 종가·등락폭을 확인할 수 있습니다</div>}
+              </div>
+
+              {/* 전체 일별 히스토리 테이블 */}
+              {dates.length>1&&(
+                <div style={S.card}>
+                  <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 포트폴리오 일별 기록</div>
+                  <div style={{overflowX:"auto",maxHeight:"300px",overflowY:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse"}}>
+                      <thead style={{position:"sticky",top:0,background:"rgba(15,23,42,0.96)"}}>
+                        <tr>{["날짜","총 평가금액","전일 변동","누적 수익률"].map(c=><th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {[...dates].reverse().map((dt,i)=>{
+                          const s=dailySnap[dt];
+                          const prevDt=[...dates].reverse()[i+1];
+                          const ps=prevDt?dailySnap[prevDt]:null;
+                          const chg=ps?s.totalValue-ps.totalValue:null;
+                          const chgP=ps&&ps.totalValue>0?(chg/ps.totalValue)*100:null;
+                          const up=chg>=0;
+                          const isSel=dt===calSelectedDate;
+                          return(
+                            <tr key={dt} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:isSel?"rgba(99,102,241,0.1)":"transparent",cursor:"pointer",transition:"background 0.1s"}}
+                              onClick={()=>setCalSelectedDate(isSel?null:dt)}
+                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                              onMouseLeave={e=>e.currentTarget.style.background=isSel?"rgba(99,102,241,0.1)":"transparent"}>
+                              <td style={{...S.TD,fontSize:"12px",color:isSel?"#a5b4fc":"#94a3b8",fontWeight:isSel?700:400}}>{dt}</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:"#e2e8f0",fontSize:"12px"}}>{Math.round(s.totalValue).toLocaleString()}₩</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chg===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chg===null?"첫 기록":(up?"+":"")+Math.round(Math.abs(chg)).toLocaleString()+"₩ ("+(up?"+":"")+chgP.toFixed(2)+"%)"}</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:s.returnRate>=0?"#34d399":"#f87171",fontSize:"12px"}}>{s.returnRate>=0?"+":""}{s.returnRate.toFixed(2)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
