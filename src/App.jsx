@@ -1876,6 +1876,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [sparklineData, setSparklineData] = useState({});
   const [calSelectedDate, setCalSelectedDate] = useState(null);
   const [calStockTicker, setCalStockTicker] = useState(null);
+  const [calShowSelector, setCalShowSelector] = useState(false);
   const [stockHistory, setStockHistory] = useState({});
   const [liveIndices, setLiveIndices] = useState(null); // {kospi,sp500,nasdaq,futures}
   const [holdings2, setHoldings2] = useState([]);
@@ -4728,60 +4729,110 @@ function PortfolioApp({ syncKey, onLogout }) {
 
               {/* 종목별 종가 히스토리 */}
               <div style={S.card}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:calStockTicker?"10px":"0"}}>
-                  <div style={{fontSize:"14px",fontWeight:800}}>📈 종목별 종가 히스토리 <span style={{fontSize:"11px",color:"#475569",fontWeight:400}}>(최근 3개월)</span></div>
-                  <button onClick={()=>setCalStockTicker(calStockTicker?"__closed__":null===calStockTicker?"__open__":null)}
-                    style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"3px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
-                    {calStockTicker&&calStockTicker!=="__closed__"&&calStockTicker!=="__open__"?"✕ 닫기":calStockTicker==="__closed__"?"▾ 종목 선택":"▾ 종목 선택"}
-                  </button>
+                {/* 헤더 */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:"14px",fontWeight:800}}>📈 종목별 종가 히스토리</div>
+                    {calStockTicker&&<div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>최근 3개월 · 날짜별 종가·등락폭</div>}
+                  </div>
+                  <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                    {calStockTicker&&(
+                      <button onClick={()=>{setCalStockTicker(null);setCalShowSelector(false);}}
+                        style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",padding:"3px 9px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                        ✕ 닫기
+                      </button>
+                    )}
+                    <button onClick={()=>setCalShowSelector(v=>!v)}
+                      style={{background:calShowSelector?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.05)",border:calShowSelector?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:calShowSelector?"#c7d2fe":"#64748b",padding:"3px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                      {calShowSelector?"▴ 접기":"▾ 종목 선택"}
+                    </button>
+                  </div>
                 </div>
-                {/* 종목 선택 드롭다운 - 버튼 클릭 시 표시 */}
-                {(calStockTicker==="__open__"||calStockTicker===null||(!calStockTicker||calStockTicker.length<=10))&&calStockTicker!=="__closed__"&&(
-                  <div style={{marginTop:"10px",marginBottom:"10px"}}>
-                    <div style={{fontSize:"11px",color:"#64748b",marginBottom:"6px"}}>종목을 선택하세요</div>
+
+                {/* 종목 선택 패널 - calShowSelector일 때만 표시 */}
+                {calShowSelector&&(
+                  <div style={{marginTop:"10px",padding:"10px",background:"rgba(0,0,0,0.2)",borderRadius:"8px"}}>
+                    <div style={{fontSize:"11px",color:"#64748b",marginBottom:"8px",fontWeight:600}}>종목을 선택하세요</div>
                     <div style={{display:"flex",gap:"5px",flexWrap:"wrap"}}>
-                      {[...holdings,...holdings2].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i).map(h=>(
-                        <button key={h.ticker} onClick={()=>{
-                          const next=calStockTicker===h.ticker?null:h.ticker;
-                          setCalStockTicker(next);
-                          if(next&&!stockHistory[next]) fetchHistory(h.ticker,h.market,"3mo").then(d=>{if(d)setStockHistory(p=>({...p,[next]:d}));}).catch(()=>{});
-                        }} style={{background:calStockTicker===h.ticker?"rgba(99,102,241,0.35)":"rgba(255,255,255,0.05)",border:calStockTicker===h.ticker?"1px solid rgba(99,102,241,0.6)":"1px solid rgba(255,255,255,0.08)",color:calStockTicker===h.ticker?"#c7d2fe":"#94a3b8",padding:"4px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:calStockTicker===h.ticker?700:400}}>
-                          {h.name||h.ticker}
-                        </button>
-                      ))}
+                      {[...holdings,...holdings2]
+                        .filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i)
+                        .map(h=>(
+                          <button key={h.ticker}
+                            onClick={()=>{
+                              setCalStockTicker(h.ticker);
+                              setCalShowSelector(false);
+                              if(!stockHistory[h.ticker]){
+                                fetchHistory(h.ticker, h.market, "3mo")
+                                  .then(d=>{ if(d&&d.length>0) setStockHistory(p=>({...p,[h.ticker]:d})); })
+                                  .catch(()=>{});
+                              }
+                            }}
+                            style={{
+                              background:calStockTicker===h.ticker?"rgba(99,102,241,0.35)":"rgba(255,255,255,0.06)",
+                              border:calStockTicker===h.ticker?"1px solid rgba(99,102,241,0.6)":"1px solid rgba(255,255,255,0.1)",
+                              color:calStockTicker===h.ticker?"#c7d2fe":"#e2e8f0",
+                              padding:"5px 12px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:calStockTicker===h.ticker?700:400,
+                              transition:"all 0.1s",
+                            }}>
+                            {h.name||h.ticker}
+                          </button>
+                        ))
+                      }
                     </div>
                   </div>
                 )}
+
+                {/* 선택된 종목 데이터 테이블 */}
                 {calStockTicker&&(()=>{
-                  const hist=stockHistory[calStockTicker];
-                  const h=[...holdings,...holdings2].find(x=>x.ticker===calStockTicker);
-                  const cur=(h?.market==="US"||(h?.market==="ETF"&&!/^[0-9]/.test(calStockTicker)))?"USD":"KRW";
-                  const fmtPr=v=>cur==="USD"?"$"+v.toFixed(2):Math.round(v).toLocaleString()+"₩";
-                  if(!hist) return <div style={{textAlign:"center",padding:"16px",color:"#475569"}}>⏳ 데이터 로딩 중...</div>;
-                  const rows=[...hist].reverse().slice(0,90);
+                  const hist = stockHistory[calStockTicker];
+                  const h = [...holdings,...holdings2].find(x=>x.ticker===calStockTicker);
+                  const cur = (h?.market==="US"||(h?.market==="ETF"&&!/^[0-9]/.test(calStockTicker))) ? "USD" : "KRW";
+                  const fmtPr = v => cur==="USD" ? "$"+v.toFixed(2) : Math.round(v).toLocaleString()+"₩";
+                  if(!hist) return (
+                    <div style={{textAlign:"center",padding:"24px",color:"#475569"}}>
+                      <div style={{fontSize:"20px",marginBottom:"8px"}}>⏳</div>
+                      <div style={{fontSize:"13px"}}>데이터 불러오는 중...</div>
+                      <div style={{fontSize:"11px",color:"#374151",marginTop:"4px"}}>잠시 기다려 주세요</div>
+                    </div>
+                  );
+                  if(hist.length===0) return (
+                    <div style={{textAlign:"center",padding:"20px",color:"#475569",fontSize:"13px"}}>데이터를 가져오지 못했습니다</div>
+                  );
+                  const rows = [...hist].reverse().slice(0,90);
                   return(
-                    <div>
-                      <div style={{fontSize:"12px",color:"#64748b",marginBottom:"6px"}}>{h?.name||calStockTicker} · {rows.length}일 데이터</div>
+                    <div style={{marginTop:"12px"}}>
+                      <div style={{fontSize:"12px",color:"#64748b",marginBottom:"6px",fontWeight:600}}>
+                        {h?.name||calStockTicker} ({calStockTicker}) · {rows.length}일
+                      </div>
                       <div style={{overflowX:"auto",maxHeight:"360px",overflowY:"auto"}}>
                         <table style={{width:"100%",borderCollapse:"collapse"}}>
                           <thead style={{position:"sticky",top:0,background:"rgba(15,23,42,0.96)"}}>
-                            <tr>{["날짜","종가","전일비","등락률"].map(c=><th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>)}</tr>
+                            <tr>
+                              {["날짜","종가","전일비","등락률"].map(c=>(
+                                <th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>
+                              ))}
+                            </tr>
                           </thead>
                           <tbody>
                             {rows.map((row,i)=>{
-                              const prev=rows[i+1];
-                              const chgAmt=prev?row.price-prev.price:null;
-                              const chgPct=prev&&prev.price>0?(row.price-prev.price)/prev.price*100:null;
-                              const up=chgAmt>=0;
-                              const isCalSel=calSelectedDate&&row.date&&(row.date===calSelectedDate||row.date===calSelectedDate.slice(2));
+                              const prev = rows[i+1];
+                              const chgAmt = prev ? row.price-prev.price : null;
+                              const chgPct = prev&&prev.price>0 ? (row.price-prev.price)/prev.price*100 : null;
+                              const up = chgAmt>=0;
+                              const isCalSel = calSelectedDate&&row.date&&(row.date===calSelectedDate||row.date===calSelectedDate.slice(2));
                               return(
-                                <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:isCalSel?"rgba(99,102,241,0.1)":"transparent",transition:"background 0.1s"}}
+                                <tr key={i}
+                                  style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:isCalSel?"rgba(99,102,241,0.1)":"transparent",transition:"background 0.1s"}}
                                   onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.05)"}
                                   onMouseLeave={e=>e.currentTarget.style.background=isCalSel?"rgba(99,102,241,0.1)":"transparent"}>
                                   <td style={{...S.TD,fontSize:"12px",color:"#94a3b8"}}>{row.date}</td>
                                   <td style={{...S.TD,textAlign:"right",fontWeight:700,color:"#e2e8f0",fontSize:"13px"}}>{fmtPr(row.price)}</td>
-                                  <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chgAmt===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chgAmt===null?"—":(up?"+":"")+fmtPr(Math.abs(chgAmt))}</td>
-                                  <td style={{...S.TD,textAlign:"right",fontWeight:700,color:chgPct===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chgPct===null?"—":(up?"+":"")+chgPct.toFixed(2)+"%"}</td>
+                                  <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chgAmt===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>
+                                    {chgAmt===null?"—":(up?"+":"")+fmtPr(Math.abs(chgAmt))}
+                                  </td>
+                                  <td style={{...S.TD,textAlign:"right",fontWeight:700,color:chgPct===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>
+                                    {chgPct===null?"—":(up?"+":"")+chgPct.toFixed(2)+"%"}
+                                  </td>
                                 </tr>
                               );
                             })}
@@ -4791,7 +4842,15 @@ function PortfolioApp({ syncKey, onLogout }) {
                     </div>
                   );
                 })()}
-                {!calStockTicker&&<div style={{textAlign:"center",padding:"16px",color:"#475569",fontSize:"12px"}}>종목을 선택하면 날짜별 종가·등락폭을 확인할 수 있습니다</div>}
+
+                {/* 초기 안내 - 아무것도 선택 안 됨 */}
+                {!calStockTicker&&!calShowSelector&&(
+                  <div style={{textAlign:"center",padding:"20px",color:"#475569",fontSize:"12px",marginTop:"8px"}}>
+                    <div style={{fontSize:"20px",marginBottom:"6px"}}>📊</div>
+                    <div>위 <strong style={{color:"#a5b4fc"}}>▾ 종목 선택</strong> 버튼을 눌러</div>
+                    <div>날짜별 종가·등락폭을 확인하세요</div>
+                  </div>
+                )}
               </div>
 
               {/* 전체 일별 히스토리 테이블 */}
