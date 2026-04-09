@@ -3742,7 +3742,6 @@ function PortfolioApp({ syncKey, onLogout }) {
                           <div style={{fontSize:"11px",color:"#64748b"}}>{t.ticker}</div>
                         </div>
                         {(()=>{const tHi=isaHoldings.find(x=>x.ticker===t.ticker);const tCi=tHi?.market==="US"||(tHi?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";const fmtI=v=>tCi==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";return(<div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}><div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtI(t.price)}</div><div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {tCi==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div></div>);})()}
-                        </div>
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
                             <div style={{fontSize:"13px",fontWeight:800,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"▲":"▼"}{Math.abs(chgD)>=1?Math.round(Math.abs(chgD)).toLocaleString():Math.abs(chgD).toFixed(1)}₩</div>
