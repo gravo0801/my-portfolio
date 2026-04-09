@@ -4183,7 +4183,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {/* 수량×가격 + 총액 */}
                         {(()=>{
                           const tH=allH.find(x=>x.ticker===t.ticker);
-                          const tCur=tH?.market==="US"||(tH?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";
+                          const isUSTicker=!/(\.KS|\.KQ)$/.test(t.ticker)&&!/^\d{5,6}$/.test(t.ticker)&&/^[A-Za-z]/.test(t.ticker);
+                          const tCur=t.cur==="USD"?"USD":tH?.market==="US"?"USD":(tH?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":(!tH&&isUSTicker)?"USD":"KRW";
                           const fmtTp=v=>tCur==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";
                           const totalKRW=tCur==="USD"?Math.round(t.quantity*t.price*liveUsdKrw):Math.round(t.quantity*t.price);
                           const totalStr=tCur==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString()+" ("+Math.round(t.quantity*t.price*liveUsdKrw).toLocaleString()+"₩)":Math.round(t.quantity*t.price).toLocaleString()+"₩";
