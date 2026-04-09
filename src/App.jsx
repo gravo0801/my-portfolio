@@ -3729,6 +3729,9 @@ function PortfolioApp({ syncKey, onLogout }) {
                     const hName=isaHoldings.find(x=>x.ticker===t.ticker)?.name||t.ticker;
                     const px=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
                     const chgD=px&&t.price?px.price-t.price:null,chgP=chgD!==null&&t.price?chgD/t.price*100:null;
+                    const tHp3=isaHoldings.find(x=>x.ticker===t.ticker);
+                    const isUSp3=tHp3?.market==="US"||(tHp3?.market==="ETF"&&!/^[0-9]/.test(t.ticker));
+                    const fmtChgP3=v=>isUSp3?"$"+(Math.abs(v)<1?Math.abs(v).toFixed(2):Math.abs(v).toFixed(1)):(Math.abs(v)>=1?Math.round(Math.abs(v)).toLocaleString():Math.abs(v).toFixed(1))+"₩";
                     const showSep=t.date&&t.date!==lastD3; if(t.date)lastD3=t.date;
                     return(<div key={t.id}>
                       {showSep&&<div style={{display:"flex",alignItems:"center",gap:"8px",padding:"8px 0 4px"}}><span style={{background:"rgba(6,182,212,0.15)",color:"#67e8f9",padding:"2px 8px",borderRadius:"6px",fontSize:"11px",fontWeight:700}}>{t.date}</span><div style={{flex:1,height:"1px",background:"rgba(255,255,255,0.07)"}}/></div>}
@@ -3744,7 +3747,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {(()=>{const tHi=isaHoldings.find(x=>x.ticker===t.ticker);const tCi=tHi?.market==="US"||(tHi?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";const fmtI=v=>tCi==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";return(<div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}><div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtI(t.price)}</div><div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {tCi==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div></div>);})()}
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
-                            <div style={{fontSize:"13px",fontWeight:800,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"▲":"▼"}{Math.abs(chgD)>=1?Math.round(Math.abs(chgD)).toLocaleString():Math.abs(chgD).toFixed(1)}₩</div>
+                            <div style={{fontSize:"13px",fontWeight:800,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"▲":"▼"}{fmtChgP3(chgD)}</div>
                             <div style={{fontSize:"12px",fontWeight:700,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"+":""}{chgP.toFixed(1)}%</div>
                           </div>
                         )}
@@ -4153,6 +4156,10 @@ function PortfolioApp({ syncKey, onLogout }) {
                   const px=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
                   const chgD=px&&t.price?px.price-t.price:null;
                   const chgP=chgD!==null&&t.price?(chgD/t.price)*100:null;
+                  // 통화 결정 (등락 표시용)
+                  const tHchg=allH.find(x=>x.ticker===t.ticker);
+                  const isUSchg=t.cur==="USD"||tHchg?.market==="US"||(tHchg?.market==="ETF"&&!/^[0-9]/.test(t.ticker))||(!tHchg&&!/(\.KS|\.KQ)$/.test(t.ticker)&&!/^\d{5,6}$/.test(t.ticker)&&/^[A-Za-z]/.test(t.ticker));
+                  const fmtChgAmt=v=>isUSchg?"$"+(Math.abs(v)<1?Math.abs(v).toFixed(2):Math.abs(v).toFixed(1)):(Math.abs(v)>=1?Math.round(Math.abs(v)).toLocaleString():Math.abs(v).toFixed(1))+"₩";
                   const showSep=t.date&&t.date!==lastDate2; if(t.date)lastDate2=t.date;
                   const acct=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):null;
                   return(
@@ -4198,7 +4205,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {/* 현재가 대비 등락 */}
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
-                            <div style={{fontSize:"13px",fontWeight:800,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"▲":"▼"}{Math.abs(chgD)>=1?Math.round(Math.abs(chgD)).toLocaleString():Math.abs(chgD).toFixed(1)}₩</div>
+                            <div style={{fontSize:"13px",fontWeight:800,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"▲":"▼"}{fmtChgAmt(chgD)}</div>
                             <div style={{fontSize:"12px",fontWeight:700,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"+":""}{chgP.toFixed(1)}%</div>
                           </div>
                         )}
