@@ -1976,7 +1976,22 @@ function PortfolioApp({ syncKey, onLogout }) {
     const uDi = dbOn(`users/${syncKey}/divInfo`, val => {
       if (saving.current["di"]) return;
       fbLoadedRef.current["di"] = true;
-      setDivInfo(val && typeof val === "object" && !Array.isArray(val) ? val : {});
+      if (val && typeof val === "object" && !Array.isArray(val) && Object.keys(val).length > 0) {
+        setDivInfo(val);
+      } else {
+        // Firebase 없음 → localStorage 백업 복구 시도
+        try {
+          const bk = localStorage.getItem("pm_bk_di");
+          if (bk) {
+            const { data, ts } = JSON.parse(bk);
+            const ageMin = (Date.now()-ts)/60000;
+            if (data && Object.keys(data).length > 0 && ageMin < 43200) {
+              console.warn("[복구] divInfo 로컬 백업 사용 (" + Math.round(ageMin) + "분 전)");
+              setDivInfo(data);
+            }
+          }
+        } catch {}
+      }
       setLoaded(true);
     });
     unsubs.push(uDi);
@@ -2105,10 +2120,20 @@ function PortfolioApp({ syncKey, onLogout }) {
   useEffect(() => { if (loaded) saveData("holdings",  holdings.length  ? holdings  : [], "h");  }, [holdings,  loaded]);
   useEffect(() => { if (loaded) saveData("holdings2", holdings2.length ? holdings2 : [], "h2"); }, [holdings2, loaded]);
   useEffect(() => { if (loaded) saveData("watchlist",   watchlist.length   ? watchlist   : [],  "wl"); }, [watchlist,  loaded]);
-  useEffect(() => { if (loaded) saveData("divInfo",        Object.keys(divInfo).length ? divInfo : {},          "di"); }, [divInfo,        loaded]);
+  useEffect(() => {
+    if(!loaded||!fbLoadedRef.current["di"]) return;
+    if(Object.keys(divInfo).length===0) return; // 빈 객체 저장 금지
+    try{localStorage.setItem("pm_bk_di",JSON.stringify({data:divInfo,ts:Date.now()}));}catch{}
+    saveData("divInfo", divInfo, "di");
+  }, [divInfo, loaded]);
   useEffect(() => { if (loaded) saveData("contribLimits",  Object.keys(contribLimits).length ? contribLimits : {}, "cl"); }, [contribLimits,  loaded]);
   useEffect(() => { if (loaded) saveData("contribAmounts", Object.keys(contribAmounts).length ? contribAmounts: {}, "ca"); }, [contribAmounts, loaded]);
-  useEffect(() => { if (loaded) saveData("divRecords",  divRecords.length  ? divRecords  : [],  "dr"); }, [divRecords, loaded]);
+  useEffect(() => {
+    if(!loaded||!fbLoadedRef.current["dr"]) return;
+    if(divRecords.length===0) return; // 빈 배열 저장 금지
+    try{localStorage.setItem("pm_bk_dr",JSON.stringify({data:divRecords,ts:Date.now()}));}catch{}
+    saveData("divRecords", divRecords, "dr");
+  }, [divRecords, loaded]);
   useEffect(() => {
     if (!loaded) return;
     if (!tradesLoadedFromFB.current) return; // Firebase에서 아직 안 읽어옴 → 저장 금지
@@ -3716,9 +3741,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                           <div style={{fontWeight:800,fontSize:"15px",color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{hName}</div>
                           <div style={{fontSize:"11px",color:"#64748b"}}>{t.ticker}</div>
                         </div>
-                        <div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {Number(t.price).toLocaleString()}₩</div>
-                          <div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {Math.round(t.quantity*t.price).toLocaleString()}₩</div>
+                        {(()=>{const tHi=isaHoldings.find(x=>x.ticker===t.ticker);const tCi=tHi?.market==="US"||(tHi?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";const fmtI=v=>tCi==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";return(<div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}><div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtI(t.price)}</div><div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {tCi==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div></div>);})()}
                         </div>
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
@@ -4159,10 +4182,19 @@ function PortfolioApp({ syncKey, onLogout }) {
                           </div>
                         </div>
                         {/* 수량×가격 + 총액 */}
-                        <div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}>
-                          <div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {Number(t.price).toLocaleString()}₩</div>
-                          <div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {Math.round(t.quantity*t.price).toLocaleString()}₩</div>
-                        </div>
+                        {(()=>{
+                          const tH=allH.find(x=>x.ticker===t.ticker);
+                          const tCur=tH?.market==="US"||(tH?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";
+                          const fmtTp=v=>tCur==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";
+                          const totalKRW=tCur==="USD"?Math.round(t.quantity*t.price*liveUsdKrw):Math.round(t.quantity*t.price);
+                          const totalStr=tCur==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString()+" ("+Math.round(t.quantity*t.price*liveUsdKrw).toLocaleString()+"₩)":Math.round(t.quantity*t.price).toLocaleString()+"₩";
+                          return(
+                            <div style={{flex:"0 0 auto",textAlign:"right",flexShrink:0}}>
+                              <div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtTp(t.price)}</div>
+                              <div style={{fontSize:"12px",color:"#94a3b8",fontWeight:600,whiteSpace:"nowrap"}}>총 {totalStr}</div>
+                            </div>
+                          );
+                        })()}
                         {/* 현재가 대비 등락 */}
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
@@ -4667,10 +4699,43 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingBottom:"20px"}}>
               {/* 캘린더 */}
               <div style={S.card}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
-                  <button onClick={()=>{const d=new Date(calY,calM-1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>‹</button>
-                  <div style={{fontSize:"17px",fontWeight:800,letterSpacing:"-0.02em"}}>{calY}년 {calM+1}월</div>
-                  <button onClick={()=>{const d=new Date(calY,calM+1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>›</button>
+                <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"14px"}}>
+                  {/* 년도+월 네비게이션 */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <button onClick={()=>{const d=new Date(calY,calM-1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}}
+                      style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>‹</button>
+                    <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                      {/* 년도 선택 */}
+                      <select value={calY} onChange={e=>{const y=e.target.value;setCalSelectedDate(`${y}-${String(calM+1).padStart(2,"0")}-01`);}}
+                        style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",color:"#f1f5f9",padding:"4px 8px",borderRadius:"7px",fontSize:"15px",fontWeight:800,cursor:"pointer",appearance:"none",outline:"none",textAlign:"center"}}>
+                        {Array.from({length:6},(_,i)=>new Date().getFullYear()-3+i).map(y=>(
+                          <option key={y} value={y} style={{background:"#1e293b"}}>{y}년</option>
+                        ))}
+                      </select>
+                      {/* 월 선택 */}
+                      <select value={calM+1} onChange={e=>{const m=+e.target.value;setCalSelectedDate(`${calY}-${String(m).padStart(2,"0")}-01`);}}
+                        style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",color:"#f1f5f9",padding:"4px 8px",borderRadius:"7px",fontSize:"15px",fontWeight:800,cursor:"pointer",appearance:"none",outline:"none",textAlign:"center"}}>
+                        {Array.from({length:12},(_,i)=>i+1).map(m=>(
+                          <option key={m} value={m} style={{background:"#1e293b"}}>{m}월</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button onClick={()=>{const d=new Date(calY,calM+1,1);setCalSelectedDate(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`);}}
+                      style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"14px",fontWeight:700}}>›</button>
+                  </div>
+                  {/* 빠른 이동: 오늘 */}
+                  <div style={{display:"flex",justifyContent:"center",gap:"6px"}}>
+                    <button onClick={()=>setCalSelectedDate(new Date().toISOString().slice(0,10))}
+                      style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.3)",color:"#a5b4fc",padding:"3px 12px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                      오늘
+                    </button>
+                    {dates.length>0&&(
+                      <button onClick={()=>setCalSelectedDate(dates[dates.length-1])}
+                        style={{background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.3)",color:"#34d399",padding:"3px 12px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                        마지막 기록
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"2px",marginBottom:"4px"}}>
                   {["일","월","화","수","목","금","토"].map((d,i)=>(
@@ -4702,32 +4767,68 @@ function PortfolioApp({ syncKey, onLogout }) {
                 </div>
               </div>
 
-              {/* 선택 날짜 상세 */}
+  선택 날짜 상세 + 매매 내역 */}
               {calSelectedDate&&calSelectedDate.length===10&&(()=>{
                 const dayChg=calcDayChg(selSnap,prevDateSnap);
-                if(!selSnap) return(
-                  <div style={{...S.card,textAlign:"center",padding:"20px",color:"#475569"}}>
-                    <div style={{fontSize:"24px",marginBottom:"6px"}}>📭</div>
-                    <div>{calSelectedDate} — 스냅샷 없음</div>
-                    <div style={{fontSize:"11px",color:"#374151",marginTop:"4px"}}>앱이 열려있을 때 30초마다 자동 기록됩니다</div>
-                  </div>
-                );
+                const dayTrades=[...trades].filter(t=>t.date===calSelectedDate);
                 return(
-                  <div style={S.card}>
-                    <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate}</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
-                      {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩\n"+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
-                        <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
-                          <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
-                          <div style={{fontSize:"13px",fontWeight:800,color:c,whiteSpace:"pre-line"}}>{v}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"10px"}}>
+                    {selSnap?(
+                      <div style={S.card}>
+                        <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate} 포트폴리오</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
+                          {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩ ("+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%)",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
+                            <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
+                              <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
+                              <div style={{fontSize:"13px",fontWeight:800,color:c}}>{v}</div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+                    ):(
+                      <div style={{...S.card,textAlign:"center",padding:"14px",color:"#475569"}}>
+                        <div>📭 {calSelectedDate} — 스냅샷 없음</div>
+                        <div style={{fontSize:"11px",color:"#374151",marginTop:"3px"}}>앱이 열려있을 때 30초마다 자동 기록됩니다</div>
+                      </div>
+                    )}
+                    <div style={S.card}>
+                      <div style={{fontSize:"14px",fontWeight:800,marginBottom:"8px",color:"#f59e0b"}}>
+                        📝 {calSelectedDate} 매매 내역 <span style={{fontSize:"12px",color:"#64748b",fontWeight:400}}>{dayTrades.length}건</span>
+                      </div>
+                      {dayTrades.length===0?(
+                        <div style={{textAlign:"center",padding:"10px",color:"#475569",fontSize:"12px"}}>해당 날짜에 매매 기록이 없습니다</div>
+                      ):(
+                        <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                          {dayTrades.map(t=>{
+                            const allH2=[...holdings,...holdings2];
+                            const tH2=allH2.find(x=>x.ticker===t.ticker);
+                            const tName2=tH2?.name||t.ticker;
+                            const tCur2=tH2?.market==="US"||(tH2?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";
+                            const fmtP2=v=>tCur2==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";
+                            const isBuy=t.type==="buy";
+                            const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p1"?"P1":"";
+                            return(
+                              <div key={t.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:"8px",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`}}>
+                                <div style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${isBuy?"rgba(99,102,241,0.5)":"rgba(239,68,68,0.5)"}`,color:isBuy?"#c7d2fe":"#fca5a5",padding:"3px 9px",borderRadius:"12px",fontSize:"12px",fontWeight:800,flexShrink:0}}>{isBuy?"매수":"매도"}</div>
+                                <div style={{flex:1,minWidth:0}}>
+                                  <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tName2}</div>
+                                  <div style={{fontSize:"11px",color:"#64748b"}}>{t.ticker}{portLabel?` · ${portLabel}`:""}</div>
+                                </div>
+                                <div style={{textAlign:"right",flexShrink:0}}>
+                                  <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtP2(t.price)}</div>
+                                  <div style={{fontSize:"11px",color:"#94a3b8",whiteSpace:"nowrap"}}>총 {tCur2==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })()}
 
-              {/* 종목별 종가 히스토리 */}
+                            {/* 종목별 종가 히스토리 */}
               <div style={S.card}>
                 {/* 헤더 */}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
