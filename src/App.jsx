@@ -4762,12 +4762,23 @@ function PortfolioApp({ syncKey, onLogout }) {
                     const isSel=dateStr===calSelectedDate;
                     const dow=new Date(calY,calM,d).getDay();
                     const isWeekend=dow===0||dow===6;
+                    // 매수/매도 점 계산
+                    const dtrades=[...trades].filter(t=>t.date===dateStr);
+                    const hasBuy=dtrades.some(t=>t.type==="buy");
+                    const hasSell=dtrades.some(t=>t.type==="sell");
                     return(
-                      <div key={d} onClick={()=>setCalSelectedDate(isSel?null:dateStr)} style={{borderRadius:"8px",padding:"5px 2px",cursor:"pointer",background:isSel?"rgba(99,102,241,0.3)":isToday?"rgba(99,102,241,0.1)":"rgba(255,255,255,0.02)",border:isSel?"1px solid rgba(99,102,241,0.7)":isToday?"1px solid rgba(99,102,241,0.3)":"1px solid transparent",minHeight:"46px",display:"flex",flexDirection:"column",alignItems:"center",gap:"1px",opacity:isWeekend&&!snap?0.35:1,transition:"all 0.1s"}}>
+                      <div key={d} onClick={()=>setCalSelectedDate(isSel?null:dateStr)} style={{borderRadius:"8px",padding:"5px 2px",cursor:"pointer",background:isSel?"rgba(99,102,241,0.3)":isToday?"rgba(99,102,241,0.1)":"rgba(255,255,255,0.02)",border:isSel?"1px solid rgba(99,102,241,0.7)":isToday?"1px solid rgba(99,102,241,0.3)":"1px solid transparent",minHeight:"52px",display:"flex",flexDirection:"column",alignItems:"center",gap:"1px",opacity:isWeekend&&!snap&&!dtrades.length?0.35:1,transition:"all 0.1s"}}>
                         <span style={{fontSize:"12px",fontWeight:isSel||isToday?800:400,color:isToday?"#a5b4fc":dow===0?"#fca5a5":dow===6?"#93c5fd":"#e2e8f0"}}>{d}</span>
-                        {snap&&<span style={{fontSize:"9px",fontWeight:700,color:snap.returnRate>=0?"#34d399":"#f87171",lineHeight:1.2}}>{snap.returnRate>=0?"+":""}{snap.returnRate.toFixed(1)}%</span>}
-                        {dayChg&&<span style={{fontSize:"8px",color:dayChg.chg>=0?"#34d399":"#f87171",opacity:0.75,lineHeight:1.1}}>{dayChg.chg>=0?"▲":"▼"}{Math.abs(dayChg.pct).toFixed(1)}%</span>}
-                        {!snap&&isWeekend&&<span style={{fontSize:"7px",color:"#2d3748",marginTop:"2px"}}>휴장</span>}
+                        {/* 일일 수익률 (누적X) */}
+                        {dayChg&&<span style={{fontSize:"9px",fontWeight:700,color:dayChg.pct>=0?"#34d399":"#f87171",lineHeight:1.2}}>{dayChg.pct>=0?"+":""}{dayChg.pct.toFixed(1)}%</span>}
+                        {/* 매수/매도 점 */}
+                        {(hasBuy||hasSell)&&(
+                          <div style={{display:"flex",gap:"3px",marginTop:"2px"}}>
+                            {hasBuy&&<span style={{width:"6px",height:"6px",borderRadius:"50%",background:"#6366f1",display:"inline-block",flexShrink:0}}/>}
+                            {hasSell&&<span style={{width:"6px",height:"6px",borderRadius:"50%",background:"#f87171",display:"inline-block",flexShrink:0}}/>}
+                          </div>
+                        )}
+                        {!snap&&!dtrades.length&&isWeekend&&<span style={{fontSize:"7px",color:"#2d3748",marginTop:"2px"}}>휴장</span>}
                       </div>
                     );
                   })}
@@ -4783,8 +4794,13 @@ function PortfolioApp({ syncKey, onLogout }) {
                     {selSnap?(
                       <div style={S.card}>
                         <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate} 포트폴리오</div>
-                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
-                          {[["총 평가금액",Math.round(selSnap.totalValue).toLocaleString()+"₩","#f1f5f9"],["누적 수익률",(selSnap.returnRate>=0?"+":"")+selSnap.returnRate.toFixed(2)+"%",selSnap.returnRate>=0?"#34d399":"#f87171"],dayChg?["전일 대비",(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩ ("+(dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"%)",dayChg.chg>=0?"#34d399":"#f87171"]:["전일 대비","—","#475569"]].map(([l,v,c])=>(
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                          {[
+                            ["총 평가금액", Math.round(selSnap.totalValue).toLocaleString()+"₩", "#f1f5f9"],
+                            dayChg
+                              ? ["일일 수익률", (dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"% ("+(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩)", dayChg.pct>=0?"#34d399":"#f87171"]
+                              : ["일일 수익률", "데이터 없음", "#475569"]
+                          ].map(([l,v,c])=>(
                             <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
                               <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
                               <div style={{fontSize:"13px",fontWeight:800,color:c}}>{v}</div>
@@ -4810,21 +4826,55 @@ function PortfolioApp({ syncKey, onLogout }) {
                             const allH2=[...holdings,...holdings2];
                             const tH2=allH2.find(x=>x.ticker===t.ticker);
                             const tName2=tH2?.name||t.ticker;
-                            const tCur2=tH2?.market==="US"||(tH2?.market==="ETF"&&!/^[0-9]/.test(t.ticker))?"USD":"KRW";
+                            const isUStk=t.cur==="USD"||tH2?.market==="US"||(tH2?.market==="ETF"&&!/^[0-9]/.test(t.ticker))||(!tH2&&!/(\.KS|\.KQ)$/.test(t.ticker)&&!/^\d{5,6}$/.test(t.ticker)&&/^[A-Za-z]/.test(t.ticker));
+                            const tCur2=isUStk?"USD":"KRW";
                             const fmtP2=v=>tCur2==="USD"?"$"+Number(v).toFixed(2):Number(v).toLocaleString()+"₩";
+                            // 현재가
+                            const px2=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
+                            const curPx=px2?.price;
+                            const chgFromTrade=curPx&&t.price?curPx-t.price:null;
+                            const chgFromTradePct=chgFromTrade!==null&&t.price?(chgFromTrade/t.price)*100:null;
                             const isBuy=t.type==="buy";
                             const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p1"?"P1":"";
                             return(
-                              <div key={t.id} style={{display:"flex",alignItems:"center",gap:"10px",padding:"8px 10px",background:"rgba(0,0,0,0.15)",borderRadius:"8px",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`}}>
-                                <div style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${isBuy?"rgba(99,102,241,0.5)":"rgba(239,68,68,0.5)"}`,color:isBuy?"#c7d2fe":"#fca5a5",padding:"3px 9px",borderRadius:"12px",fontSize:"12px",fontWeight:800,flexShrink:0}}>{isBuy?"매수":"매도"}</div>
-                                <div style={{flex:1,minWidth:0}}>
-                                  <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tName2}</div>
-                                  <div style={{fontSize:"11px",color:"#64748b"}}>{t.ticker}{portLabel?` · ${portLabel}`:""}</div>
+                              <div key={t.id} style={{padding:"10px 12px",background:"rgba(0,0,0,0.15)",borderRadius:"10px",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`}}>
+                                <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+                                  <div style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)",border:`1px solid ${isBuy?"rgba(99,102,241,0.5)":"rgba(239,68,68,0.5)"}`,color:isBuy?"#c7d2fe":"#fca5a5",padding:"3px 9px",borderRadius:"12px",fontSize:"12px",fontWeight:800,flexShrink:0}}>{isBuy?"매수":"매도"}</div>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={{fontWeight:700,fontSize:"14px",color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tName2}</div>
+                                    <div style={{fontSize:"11px",color:"#64748b"}}>{t.ticker}{portLabel?` · ${portLabel}`:""}</div>
+                                  </div>
+                                  <div style={{textAlign:"right",flexShrink:0}}>
+                                    <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtP2(t.price)}</div>
+                                    <div style={{fontSize:"11px",color:"#64748b",whiteSpace:"nowrap"}}>총 {tCur2==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div>
+                                  </div>
                                 </div>
-                                <div style={{textAlign:"right",flexShrink:0}}>
-                                  <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",whiteSpace:"nowrap"}}>{t.quantity.toLocaleString()}주 × {fmtP2(t.price)}</div>
-                                  <div style={{fontSize:"11px",color:"#94a3b8",whiteSpace:"nowrap"}}>총 {tCur2==="USD"?"$"+Math.round(t.quantity*t.price).toLocaleString():Math.round(t.quantity*t.price).toLocaleString()+"₩"}</div>
-                                </div>
+                                {/* 현재가 + 등락폭 */}
+                                {curPx&&(
+                                  <div style={{marginTop:"8px",paddingTop:"8px",borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"6px"}}>
+                                    <div style={{display:"flex",gap:"12px",alignItems:"center"}}>
+                                      <div>
+                                        <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{isBuy?"매수가":"매도가"}</div>
+                                        <div style={{fontSize:"13px",fontWeight:700,color:"#94a3b8"}}>{fmtP2(t.price)}</div>
+                                      </div>
+                                      <div style={{color:"#374151",fontSize:"14px"}}>→</div>
+                                      <div>
+                                        <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>현재가</div>
+                                        <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9"}}>{fmtP2(curPx)}</div>
+                                      </div>
+                                    </div>
+                                    {chgFromTrade!==null&&(
+                                      <div style={{textAlign:"right"}}>
+                                        <div style={{fontSize:"14px",fontWeight:800,color:chgFromTrade>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>
+                                          {chgFromTrade>=0?"▲":"▼"}{fmtP2(Math.abs(chgFromTrade))}
+                                        </div>
+                                        <div style={{fontSize:"12px",fontWeight:700,color:chgFromTrade>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>
+                                          {chgFromTradePct>=0?"+":""}{chgFromTradePct.toFixed(2)}%
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
