@@ -3017,9 +3017,48 @@ function PortfolioApp({ syncKey, onLogout }) {
                <span style={{ display:"inline-block", minWidth:"38px", textAlign:"left" }}>{loading?"조회중":"새로고침"}</span>
              </button>
             <button onClick={()=>setShowForm(showForm==="theme"?null:"theme")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="배경 테마">🎨</button>
+            <button onClick={()=>setShowForm(showForm==="font"?null:"font")} style={{background:showForm==="font"?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.06)",border:showForm==="font"?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:showForm==="font"?"#c7d2fe":"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="폰트 선택">🔤</button>
             <button onClick={onLogout} style={S.btn("#334155", { fontSize:"11px", padding:"5px 9px" })}>로그아웃</button>
           </div>
         </div>
+        {/* 폰트 선택 패널 */}
+        {showForm==="font" && (
+          <div style={{background:"rgba(8,12,28,0.98)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"16px",marginTop:"8px",zIndex:100}}>
+            <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",marginBottom:"4px"}}>🔤 폰트 선택</div>
+            <div style={{fontSize:"11px",color:"#475569",marginBottom:"12px"}}>선택 즉시 적용 · 브라우저에 저장됨</div>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:"8px"}}>
+              {[
+                ["pretendard","Pretendard","기본 · 모던 한글"],
+                ["noto","Noto Sans KR","깔끔 · 구글 공식"],
+                ["ibmplex","IBM Plex KR","테크 · 금융 느낌"],
+                ["spoqa","Spoqa Han Sans","모던 · 얇고 세련"],
+                ["jakarta","Plus Jakarta","프리미엄 · 영문 숫자"],
+                ["inter","Inter","미니멀 · 숫자 선명"],
+              ].map(([key,name,desc])=>(
+                <button key={key} onClick={()=>{setAppFont(key);try{localStorage.setItem("pm_font",key);}catch{};}}
+                  style={{
+                    display:"flex",flexDirection:"column",alignItems:"flex-start",
+                    background:appFont===key?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.04)",
+                    border:appFont===key?"2px solid rgba(99,102,241,0.65)":"1px solid rgba(255,255,255,0.1)",
+                    color:"#e2e8f0",padding:"10px 14px",borderRadius:"10px",cursor:"pointer",
+                    textAlign:"left",transition:"all 0.15s",
+                    fontFamily:FONT_MAP[key],
+                  }}>
+                  <span style={{fontSize:"14px",fontWeight:700,color:appFont===key?"#c7d2fe":"#e2e8f0",letterSpacing:"-0.02em"}}>
+                    {name}
+                  </span>
+                  <span style={{fontSize:"11px",color:appFont===key?"#818cf8":"#64748b",marginTop:"3px"}}>
+                    {desc}
+                  </span>
+                  <span style={{fontSize:"12px",color:appFont===key?"#a5b4fc":"#475569",marginTop:"5px",fontFamily:FONT_MAP[key]}}>
+                    포트폴리오 1,234 ▲+5.6%
+                  </span>
+                  {appFont===key&&<span style={{marginTop:"5px",fontSize:"10px",background:"rgba(99,102,241,0.3)",color:"#a5b4fc",padding:"1px 7px",borderRadius:"10px",fontWeight:700}}>✓ 적용 중</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* InfoWidget: 모바일에서는 날씨/환율 탭 접기 버튼만 표시 */}
 
         {/* 테마 선택 패널 */}
@@ -3038,26 +3077,6 @@ function PortfolioApp({ syncKey, onLogout }) {
                   {label}
                 </button>
               ))}
-            </div>
-            {/* 폰트 선택 */}
-            <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:"12px",marginBottom:"14px"}}>
-              <div style={{fontSize:"12px",color:"#64748b",marginBottom:"8px",fontWeight:700}}>🔤 폰트 선택</div>
-              <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
-                {[
-                  ["pretendard","Pretendard","기본 • 모던"],
-                  ["noto","Noto Sans","깔끔 • 공식"],
-                  ["ibmplex","IBM Plex","테크 • 모노"],
-                  ["spoqa","Spoqa Han","모던 • 얇은"],
-                  ["jakarta","Jakarta","프리미엄 • 영문"],
-                  ["inter","Inter","미니멀 • 깔끔"],
-                ].map(([key,name,desc])=>(
-                  <button key={key} onClick={()=>{setAppFont(key);try{localStorage.setItem("pm_font",key);}catch{};}}
-                    style={{display:"flex",flexDirection:"column",alignItems:"flex-start",background:appFont===key?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.04)",border:appFont===key?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)",color:"#e2e8f0",padding:"7px 12px",borderRadius:"9px",cursor:"pointer",minWidth:"80px",fontFamily:FONT_MAP[key]}}>
-                    <span style={{fontSize:"13px",fontWeight:700,color:appFont===key?"#c7d2fe":"#e2e8f0"}}>{name}</span>
-                    <span style={{fontSize:"10px",color:"#64748b",marginTop:"2px"}}>{desc}</span>
-                  </button>
-                ))}
-              </div>
             </div>
             {/* 배경 이미지 업로드 */}
             <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:"12px"}}>
