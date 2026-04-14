@@ -1862,6 +1862,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [bgTheme, setBgTheme] = useState(() => {
     try { return localStorage.getItem("pm_bg_theme") || "default"; } catch { return "default"; }
   });
+  const [appFont, setAppFont] = useState(() => {
+    try { return localStorage.getItem("pm_font") || "pretendard"; } catch { return "pretendard"; }
+  });
   const [bgImage, setBgImage] = useState(() => {
     try { return localStorage.getItem("pm_bg_image") || ""; } catch { return ""; }
   });
@@ -2824,7 +2827,34 @@ function PortfolioApp({ syncKey, onLogout }) {
     setShowContrib(false);
   };
 
-  const FONT = "'Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif";
+  const FONT_MAP = {
+    pretendard: "'Pretendard Variable','Pretendard','Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif",
+    noto:       "'Noto Sans KR','Apple SD Gothic Neo',system-ui,sans-serif",
+    ibmplex:    "'IBM Plex Sans KR','Apple SD Gothic Neo',system-ui,sans-serif",
+    spoqa:      "'Spoqa Han Sans Neo','Apple SD Gothic Neo',system-ui,sans-serif",
+    jakarta:    "'Plus Jakarta Sans','Noto Sans KR',system-ui,sans-serif",
+    inter:      "'Inter','Noto Sans KR',system-ui,sans-serif",
+  };
+  const FONT = FONT_MAP[appFont] || FONT_MAP.pretendard;
+  // 구글폰트 동적 로드
+  useEffect(() => {
+    const GFONTS = {
+      noto:    "https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap",
+      ibmplex: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap",
+      spoqa:   "https://cdn.jsdelivr.net/gh/spoqa/spoqa-han-sans@latest/css/SpoqaHanSansNeo.css",
+      jakarta: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;700&display=swap",
+      inter:   "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Noto+Sans+KR:wght@400;700&display=swap",
+    };
+    const url = GFONTS[appFont];
+    if (!url) return;
+    const existing = document.getElementById("pm-font-link");
+    if (existing) existing.remove();
+    const link = document.createElement("link");
+    link.id = "pm-font-link";
+    link.rel = "stylesheet";
+    link.href = url;
+    document.head.appendChild(link);
+  }, [appFont]);
   const tabs = [["portfolio","📊 포트폴리오"],["charts","📈 차트"],["trades","📝 매매일지"],["dividend","💰 배당"],["watchlist","⭐ 관심종목"],["alerts","🔔 알람"]];
   const TT = { contentStyle:{ background:"#1e293b", border:"1px solid rgba(255,255,255,0.12)", borderRadius:"10px", fontSize:"13px", fontFamily:FONT } };
 
@@ -3008,6 +3038,26 @@ function PortfolioApp({ syncKey, onLogout }) {
                   {label}
                 </button>
               ))}
+            </div>
+            {/* 폰트 선택 */}
+            <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:"12px",marginBottom:"14px"}}>
+              <div style={{fontSize:"12px",color:"#64748b",marginBottom:"8px",fontWeight:700}}>🔤 폰트 선택</div>
+              <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                {[
+                  ["pretendard","Pretendard","기본 • 모던"],
+                  ["noto","Noto Sans","깔끔 • 공식"],
+                  ["ibmplex","IBM Plex","테크 • 모노"],
+                  ["spoqa","Spoqa Han","모던 • 얇은"],
+                  ["jakarta","Jakarta","프리미엄 • 영문"],
+                  ["inter","Inter","미니멀 • 깔끔"],
+                ].map(([key,name,desc])=>(
+                  <button key={key} onClick={()=>{setAppFont(key);try{localStorage.setItem("pm_font",key);}catch{};}}
+                    style={{display:"flex",flexDirection:"column",alignItems:"flex-start",background:appFont===key?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.04)",border:appFont===key?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)",color:"#e2e8f0",padding:"7px 12px",borderRadius:"9px",cursor:"pointer",minWidth:"80px",fontFamily:FONT_MAP[key]}}>
+                    <span style={{fontSize:"13px",fontWeight:700,color:appFont===key?"#c7d2fe":"#e2e8f0"}}>{name}</span>
+                    <span style={{fontSize:"10px",color:"#64748b",marginTop:"2px"}}>{desc}</span>
+                  </button>
+                ))}
+              </div>
             </div>
             {/* 배경 이미지 업로드 */}
             <div style={{borderTop:"1px solid rgba(255,255,255,0.07)",paddingTop:"12px"}}>
