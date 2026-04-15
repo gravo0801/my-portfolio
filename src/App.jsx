@@ -2691,11 +2691,10 @@ ${analystSummary}
 ⚠️ 이 분석은 참고용이며 투자 결정은 본인 판단으로 하세요.`;
 
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      const resp = await fetch("/api/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
           messages: [{ role: "user", content: prompt }]
         })
