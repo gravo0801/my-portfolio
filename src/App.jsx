@@ -4695,56 +4695,36 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {usProfits.map(t=>{
                           const isEditing=taxEditId===t.id;
                           const ov=taxOverrides[t.id]||{};
-                          return([
-                          <tr key={t.id} style={{background:isEditing?"rgba(99,102,241,0.08)":"transparent"}}>
-                            <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
-                            <td style={{...S.TD,fontSize:"12px"}}>
-                              <div style={{fontWeight:700}}>{getName(t.ticker)}</div>
-                              <div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}{t.taxAccount?<span style={{marginLeft:"4px",color:"#f59e0b",fontSize:"9px"}}>{t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래")}</span>:""}</div>
-                            </td>
-                            <td style={{...S.TD,fontSize:"12px"}}>${Number(t.price).toFixed(2)}</td>
-                            <td style={{...S.TD,fontSize:"12px"}}>{t.quantity.toLocaleString()}</td>
-                            <td style={{...S.TD,fontSize:"12px",color:ov.avgPrice?"#fbbf24":"#64748b"}}>
-                              ${t.bp>0?t.bp.toFixed(2):"0.00"}
-                              {ov.avgPrice&&<div style={{fontSize:"9px",color:"#fbbf24"}}>✏️ 수정됨</div>}
-                            </td>
-                            <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitUSD>=0?"#34d399":"#f87171"}}>${fmtUSD2(t.profitUSD??0)}</td>
-                            <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
-                            <td style={S.TD}>
-                              <button onClick={()=>setTaxEditId(isEditing?null:t.id)} style={{background:"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
-                                {isEditing?"닫기":"✏️"}
-                              </button>
-                            </td>
-                          </tr>
-                          isEditing?(
-                            <tr key={t.id+"_edit"}>
-                              <td colSpan={8} style={{padding:"10px 12px",background:"rgba(251,191,36,0.06)",borderBottom:"1px solid rgba(251,191,36,0.15)"}}>
-                                <div style={{fontSize:"12px",color:"#fbbf24",fontWeight:700,marginBottom:"8px"}}>✏️ 평단가 수정 (이 거래만 적용)</div>
-                                <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
-                                  <div>
-                                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>매수 평단가 (달러)</div>
-                                    <input type="number" step="0.01" placeholder={String(t.bp||0)} value={ov.avgPrice||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],avgPrice:e.target.value}}))} style={{...S.inp,width:"110px",fontSize:"13px",padding:"5px 8px"}}/>
+                          return(
+                            <tr key={t.id}>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}>
+                                <div style={{fontWeight:700}}>{getName(t.ticker)}</div>
+                                <div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}{t.taxAccount?<span style={{marginLeft:"4px",color:"#f59e0b",fontSize:"9px"}}>{t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래")}</span>:""}</div>
+                              </td>
+                              <td style={{...S.TD,fontSize:"12px"}}>${Number(t.price).toFixed(2)}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}>{t.quantity.toLocaleString()}</td>
+                              <td style={{...S.TD,fontSize:"12px"}}>
+                                <div style={{color:ov.avgPrice?"#fbbf24":"#64748b"}}>${t.bp>0?t.bp.toFixed(2):"0.00"}{ov.avgPrice&&<span style={{fontSize:"9px",color:"#fbbf24",marginLeft:"4px"}}>✏️</span>}</div>
+                                {isEditing&&(
+                                  <div style={{marginTop:"6px",padding:"8px",background:"rgba(251,191,36,0.06)",borderRadius:"6px",border:"1px solid rgba(251,191,36,0.2)"}}>
+                                    <div style={{fontSize:"10px",color:"#fbbf24",fontWeight:700,marginBottom:"5px"}}>✏️ 평단가 수정</div>
+                                    <input type="number" step="0.01" placeholder={String(t.bp||0)} value={ov.avgPrice||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],avgPrice:e.target.value}}))} style={{...S.inp,width:"90px",fontSize:"12px",padding:"4px 6px",marginBottom:"4px"}}/>
+                                    <input placeholder="메모(선택)" value={ov.memo||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],memo:e.target.value}}))} style={{...S.inp,width:"90px",fontSize:"11px",padding:"4px 6px",marginBottom:"4px"}}/>
+                                    {ov.avgPrice&&<div style={{fontSize:"11px",color:(t.price-(+ov.avgPrice||0))>=0?"#34d399":"#f87171",fontWeight:700}}>${fmtUSD2((t.price-(+ov.avgPrice||0))*t.quantity)} ({fmt((t.price-(+ov.avgPrice||0))*t.quantity*liveUsdKrw)})</div>}
+                                    {ov.avgPrice&&<button onClick={()=>setTaxOverrides(p=>{const n={...p};delete n[t.id];return n;})} style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",marginTop:"4px"}}>초기화</button>}
                                   </div>
-                                  <div>
-                                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>메모 (선택)</div>
-                                    <input placeholder="예: 토스증권 매수분" value={ov.memo||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],memo:e.target.value}}))} style={{...S.inp,width:"150px",fontSize:"12px",padding:"5px 8px"}}/>
-                                  </div>
-                                  {ov.avgPrice&&(
-                                    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"6px 10px"}}>
-                                      <div style={{fontSize:"10px",color:"#64748b"}}>수정 후 달러 손익</div>
-                                      <div style={{fontSize:"13px",fontWeight:800,color:(t.price-(+ov.avgPrice||0))>=0?"#34d399":"#f87171"}}>
-                                        ${fmtUSD2((t.price-(+ov.avgPrice||0))*t.quantity)}
-                                      </div>
-                                      <div style={{fontSize:"11px",color:"#64748b"}}>{fmt((t.price-(+ov.avgPrice||0))*t.quantity*liveUsdKrw)}</div>
-                                    </div>
-                                  )}
-                                  {ov.avgPrice&&<button onClick={()=>setTaxOverrides(p=>{const n={...p};delete n[t.id];return n;})} style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:"5px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>초기화</button>}
-                                </div>
-                                {ov.memo&&<div style={{fontSize:"11px",color:"#94a3b8",marginTop:"6px"}}>📝 {ov.memo}</div>}
+                                )}
+                              </td>
+                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:(t.profitUSD??0)>=0?"#34d399":"#f87171"}}>{fmtUSD2(t.profitUSD??0)}</td>
+                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
+                              <td style={S.TD}>
+                                <button onClick={()=>setTaxEditId(isEditing?null:t.id)} style={{background:isEditing?"rgba(251,191,36,0.2)":"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
+                                  {isEditing?"닫기":"✏️"}
+                                </button>
                               </td>
                             </tr>
-                          ):null
-                          ]);
+                          );
                         })}
                         <tr style={{borderTop:"2px solid rgba(255,255,255,0.1)"}}>
                           <td colSpan={5} style={{...S.TD,fontSize:"12px",fontWeight:700,color:"#94a3b8"}}>합계(통산)</td>
