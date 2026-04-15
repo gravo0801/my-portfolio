@@ -2652,8 +2652,11 @@ function PortfolioApp({ syncKey, onLogout }) {
 
     // 2) Claude AI 의견 요청
     const cur = h.market === "US" || (h.market === "ETF" && !/^[0-9]/.test(h.ticker)) ? "USD" : "KRW";
-    const priceStr = cur === "USD" ? `$${(h.price||0).toFixed(2)}` : `${Math.round(h.price||0).toLocaleString()}₩`;
-    const avgStr   = cur === "USD" ? `$${(h.avgPrice||0).toFixed(2)}` : `${Math.round(h.avgPrice||0).toLocaleString()}₩`;
+    const px  = parseFloat(h.price)  || 0;
+    const avg = parseFloat(h.avgPrice) || 0;
+    const priceStr = cur === "USD" ? `$${px.toFixed(2)}`  : `${Math.round(px).toLocaleString()}₩`;
+    const avgStr   = cur === "USD" ? `$${avg.toFixed(2)}` : `${Math.round(avg).toLocaleString()}₩`;
+    const pnlVal   = avg > 0 ? ((px - avg) / avg * 100).toFixed(2) : "0.00";
 
     let analystSummary = "애널리스트 데이터 없음";
     if (analyst) {
@@ -2674,7 +2677,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 시장: ${h.market === "US" ? "미국주식" : h.market === "KR" ? "한국주식" : h.market}
 현재가: ${priceStr}
 내 평단가: ${avgStr}
-현재 손익률: ${(h.pnlPct||0).toFixed(2)}%
+현재 손익률: ${pnlVal}%
 
 애널리스트 데이터 (Yahoo Finance):
 ${analystSummary}
@@ -5349,8 +5352,8 @@ ${analystSummary}
           const cur = aiPanel.market==="US"||(aiPanel.market==="ETF"&&!/^[0-9]/.test(aiPanel.ticker))?"USD":"KRW";
           const fmtPx = v => cur==="USD"?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
           return (
-            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setAiPanel(null)}>
-              <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:"680px",maxHeight:"88vh",overflowY:"auto",background:"linear-gradient(135deg,#0f172a,#0c1a2e)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:"20px 20px 0 0",padding:"20px",fontFamily:FONT}}>
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}} onClick={()=>setAiPanel(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:"680px",maxHeight:"90vh",overflowY:"auto",background:"linear-gradient(135deg,#0f172a,#0c1a2e)",border:"1px solid rgba(99,102,241,0.35)",borderRadius:"16px",padding:"20px",fontFamily:FONT,boxShadow:"0 24px 80px rgba(0,0,0,0.6)"}}>
                 {/* 헤더 */}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
                   <div>
@@ -5362,9 +5365,9 @@ ${analystSummary}
                 {/* 현재 보유 현황 */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",marginBottom:"16px"}}>
                   {[
-                    ["현재가", fmtPx(aiPanel.price), "#f1f5f9"],
-                    ["평단가", fmtPx(aiPanel.avgPrice), "#94a3b8"],
-                    ["손익률", (aiPanel.pnlPct>=0?"+":"")+aiPanel.pnlPct?.toFixed(2)+"%", aiPanel.pnlPct>=0?"#34d399":"#f87171"],
+                    ["현재가", fmtPx(parseFloat(aiPanel.price)||0), "#f1f5f9"],
+                    ["평단가", fmtPx(parseFloat(aiPanel.avgPrice)||0), "#94a3b8"],
+                    ["손익률", ((parseFloat(aiPanel.pnlPct)||0)>=0?"+":"")+(parseFloat(aiPanel.pnlPct)||0).toFixed(2)+"%", (parseFloat(aiPanel.pnlPct)||0)>=0?"#34d399":"#f87171"],
                   ].map(([l,v,c])=>(
                     <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:"10px 12px"}}>
                       <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
@@ -5396,8 +5399,9 @@ ${analystSummary}
                       )}
                       {/* 업사이드 */}
                       {a.targetMean&&aiPanel.price&&(()=>{
-                        const upside=((a.targetMean-aiPanel.price)/aiPanel.price*100);
-                        return <div style={{fontSize:"13px",fontWeight:700,color:upside>=0?"#34d399":"#f87171",marginBottom:"10px"}}>현재가 대비 목표주가 업사이드: {upside>=0?"+":""}{upside.toFixed(1)}%</div>;
+                        const px2=parseFloat(aiPanel.price)||0;
+                        const upside=px2>0?((a.targetMean-px2)/px2*100):0;
+                        return <div style={{fontSize:"13px",fontWeight:700,color:upside>=0?"#34d399":"#f87171",marginBottom:"10px"}}>현재가 대비 목표주가 업사이드: {upside>=0?"+":""}{upside.toFixed(1)}%</div>; })()} 
                       })()}
                       {/* 매수/보유/매도 바 */}
                       {total>0&&(
