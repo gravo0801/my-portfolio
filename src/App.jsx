@@ -1872,8 +1872,11 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [taxYear, setTaxYear] = useState(()=>String(new Date().getFullYear()));
-  const [taxOverrides, setTaxOverrides] = useState({}); // {tradeId: {avgPrice, memo}}
+  const [taxOverrides, setTaxOverrides] = useState(()=>{
+    try { const s=localStorage.getItem("pm_tax_overrides"); return s?JSON.parse(s):{}; } catch { return {}; }
+  }); // {tradeId: {avgPrice, memo}} - localStorage 영구 저장
   const [taxEditId, setTaxEditId] = useState(null);
+  const [taxEditForm, setTaxEditForm] = useState({avgPrice:'', memo:''});
   const [editingTradeId, setEditingTradeId] = useState(null);
   const [editTradeForm, setEditTradeForm] = useState({});
   const [tradeFilterPeriod, setTradeFilterPeriod] = useState("all");
@@ -4617,21 +4620,36 @@ function PortfolioApp({ syncKey, onLogout }) {
           const getName = tk => allH.find(h=>h.ticker===tk)?.name || tk;
           const isUS = tk => {
             const h = allH.find(h=>h.ticker===tk);
-            if(h) return h.market==="US";
-            return !/(\.KS|\.KQ)/.test(tk) && !/^\d{6}$/.test(tk);
+            if(h) return h.market==="US" || (h.market==="ETF" && !/^[0-9]/.test(tk));
+            return !/(\.KS|\.KQ)/.test(tk) && !/^\d{6}$/.test(tk) && /^[A-Za-z]/.test(tk);
           };
           const years = [...new Set(sellTrades.map(t=>t.date?.slice(0,4)).filter(Boolean))].sort().reverse();
           const yearSells = sellTrades.filter(t=>t.date?.startsWith(taxYear));
           const usSells = yearSells.filter(t=>isUS(t.ticker));
           const krSells = yearSells.filter(t=>!isUS(t.ticker));
-          const calcProfitKRW = t => {
-            const h=allH.find(x=>x.ticker===t.ticker);
-            const bp=h?.avgPrice||0;
-            const raw=(t.price-bp)*t.quantity-(t.fee||0);
-            return t.cur==="USD"?raw*liveUsdKrw:raw;
+          // 평단가: taxOverrides > 같은계좌 holdings > 일반 holdings
+          const getAvgPrice = t => {
+            const ov = taxOverrides[t.id];
+            if(ov?.avgPrice) return +ov.avgPrice;
+            const h2 = allH.find(x=>x.ticker===t.ticker && x.broker && t.taxAccount && x.broker===t.taxAccount);
+            if(h2) return h2.avgPrice||0;
+            const h = allH.find(x=>x.ticker===t.ticker);
+            return h?.avgPrice||0;
           };
-          const usProfits = usSells.map(t=>({...t,profitKRW:calcProfitKRW(t)}));
-          const krProfits = krSells.map(t=>({...t,profitKRW:calcProfitKRW(t)}));
+          // 미국주식: 달러 기준 계산 후 KRW 환산
+          const calcProfit = t => {
+            const bp = getAvgPrice(t);
+            if(isUS(t.ticker)) {
+              const feeUSD = t.cur==="USD" ? +(t.fee||0) : +(t.fee||0)/(liveUsdKrw||1380);
+              const profitUSD = (t.price - bp) * t.quantity - feeUSD;
+              const profitKRW = profitUSD * (liveUsdKrw||1380);
+              return { bp, profitUSD, profitKRW };
+            }
+            const profitKRW = (t.price - bp) * t.quantity - (t.fee||0);
+            return { bp, profitUSD: null, profitKRW };
+          };
+          const usProfits = usSells.map(t=>({...t,...calcProfit(t)}));
+          const krProfits = krSells.map(t=>({...t,...calcProfit(t)}));
           const usTotal    = usProfits.reduce((s,t)=>s+t.profitKRW,0);
           const usTotalUSD = usProfits.reduce((s,t)=>s+(t.profitUSD??0),0);
           const krTotal = krProfits.reduce((s,t)=>s+t.profitKRW,0);
@@ -4653,16 +4671,23 @@ function PortfolioApp({ syncKey, onLogout }) {
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"6px":"12px"}}>
-                  {[["🇺🇸 해외주식 손익(통산)",usTotal,usTotalUSD,usTotal>=0?"#34d399":"#f87171"],
-                    ["🇰🇷 국내주식 손익(참고)",krTotal,null,krTotal>=0?"#34d399":"#f87171"],
-                    ["납부 예상 세액",usTax,null,usTax>0?"#f87171":"#64748b"]
-                  ].map(([l,v,usd,c])=>(
-                    <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
-                      <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,letterSpacing:"0.04em",marginBottom:"4px"}}>{l}</div>
-                      <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:c,letterSpacing:"-0.03em"}}>{fmt(v)}</div>
-                      {usd!==null&&<div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>(${fmtUSD2(usd)} USD)</div>}
-                    </div>
-                  ))}
+                  {/* 해외주식 */}
+                <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,letterSpacing:"0.04em",marginBottom:"4px"}}>🇺🇸 해외주식 손익(통산)</div>
+                  <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:usTotalUSD>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{usTotalUSD>=0?"+":""}{usTotalUSD.toFixed(2)} USD</div>
+                  <div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>{usTotal>=0?"+":""}{Math.round(usTotal).toLocaleString()}₩</div>
+                </div>
+                {/* 국내주식 */}
+                <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,letterSpacing:"0.04em",marginBottom:"4px"}}>🇰🇷 국내주식 손익(참고)</div>
+                  <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:krTotal>=0?"#34d399":"#f87171",letterSpacing:"-0.03em"}}>{fmt(krTotal)}</div>
+                </div>
+                {/* 예상 세액 */}
+                <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,letterSpacing:"0.04em",marginBottom:"4px"}}>납부 예상 세액</div>
+                  <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:usTax>0?"#f87171":"#64748b",letterSpacing:"-0.03em"}}>{fmt(usTax)}</div>
+                  {usTax>0&&<div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>${(usTax/(liveUsdKrw||1380)).toFixed(0)} USD 상당</div>}
+                </div>
                 </div>
               </div>
 
@@ -4670,18 +4695,20 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={S.card}>
                 <div style={{fontSize:"15px",fontWeight:800,marginBottom:"10px"}}>🇺🇸 해외주식 양도세</div>
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px",marginBottom:"12px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",marginBottom:"12px"}}>
                   {[
-                    ["연간 총 수익(통산 KRW)",usTotal,usTotal>=0?"#34d399":"#f87171",null,usTotalUSD],
-                    ["비과세 공제",-Math.min(US_EXEMPT,Math.max(0,usTotal)),"#94a3b8",null,null],
-                    ["과세 대상",usTaxable,usTaxable>0?"#fbbf24":"#64748b",null,null],
-                    ["예상 세액(22%)",usTax,usTax>0?"#f87171":"#64748b",null,null]
-                  ].map(([l,v,c,,usd])=>(
+                    ["연간 총 손익(USD)", (usTotalUSD>=0?"+":"")+usTotalUSD.toFixed(2)+" USD", usTotalUSD>=0?"#34d399":"#f87171", (usTotal>=0?"+":"")+Math.round(usTotal).toLocaleString()+"₩"],
+                    ["비과세 공제", "-$"+(Math.min(US_EXEMPT,Math.max(0,usTotal))/(liveUsdKrw||1380)).toFixed(0)+" USD", "#94a3b8", "-"+Math.round(Math.min(US_EXEMPT,Math.max(0,usTotal))).toLocaleString()+"₩"],
+                    ["과세 대상", "$"+(usTaxable/(liveUsdKrw||1380)).toFixed(0)+" USD", usTaxable>0?"#fbbf24":"#64748b", Math.round(usTaxable).toLocaleString()+"₩"],
+                    ["예상 세액(22%)", "$"+(usTax/(liveUsdKrw||1380)).toFixed(0)+" USD", usTax>0?"#f87171":"#64748b", Math.round(usTax).toLocaleString()+"₩"],
+                  ].map(([l,v,c,sub])=>(
                     <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"10px 12px"}}>
                       <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
-                      <div style={{fontSize:"14px",fontWeight:800,color:c}}>{fmt(v)}</div>
-                      {usd!==null&&usd!==undefined&&<div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>${fmtUSD2(usd)} USD</div>}
+                      <div style={{fontSize:"13px",fontWeight:800,color:c}}>{v}</div>
+                      <div style={{fontSize:"10px",color:"#475569",marginTop:"2px"}}>{sub}</div>
                     </div>
                   ))}
+                </div>
                 </div>
                 <div style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:"10px",padding:"10px",marginBottom:"12px",fontSize:"12px",color:"#94a3b8",lineHeight:1.8}}>
                   📌 <strong style={{color:"#fca5a5"}}>비과세 250만원</strong> · <strong style={{color:"#fca5a5"}}>세율 22%</strong> · <strong style={{color:"#86efac"}}>손익통산</strong> 적용
@@ -4707,19 +4734,72 @@ function PortfolioApp({ syncKey, onLogout }) {
                               <td style={{...S.TD,fontSize:"12px"}}>
                                 <div style={{color:ov.avgPrice?"#fbbf24":"#64748b"}}>${t.bp>0?t.bp.toFixed(2):"0.00"}{ov.avgPrice&&<span style={{fontSize:"9px",color:"#fbbf24",marginLeft:"4px"}}>✏️</span>}</div>
                                 {isEditing&&(
-                                  <div style={{marginTop:"6px",padding:"8px",background:"rgba(251,191,36,0.06)",borderRadius:"6px",border:"1px solid rgba(251,191,36,0.2)"}}>
-                                    <div style={{fontSize:"10px",color:"#fbbf24",fontWeight:700,marginBottom:"5px"}}>✏️ 평단가 수정</div>
-                                    <input type="number" step="0.01" placeholder={String(t.bp||0)} value={ov.avgPrice||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],avgPrice:e.target.value}}))} style={{...S.inp,width:"90px",fontSize:"12px",padding:"4px 6px",marginBottom:"4px"}}/>
-                                    <input placeholder="메모(선택)" value={ov.memo||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],memo:e.target.value}}))} style={{...S.inp,width:"90px",fontSize:"11px",padding:"4px 6px",marginBottom:"4px"}}/>
-                                    {ov.avgPrice&&<div style={{fontSize:"11px",color:(t.price-(+ov.avgPrice||0))>=0?"#34d399":"#f87171",fontWeight:700}}>${fmtUSD2((t.price-(+ov.avgPrice||0))*t.quantity)} ({fmt((t.price-(+ov.avgPrice||0))*t.quantity*liveUsdKrw)})</div>}
-                                    {ov.avgPrice&&<button onClick={()=>setTaxOverrides(p=>{const n={...p};delete n[t.id];return n;})} style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",marginTop:"4px"}}>초기화</button>}
+                                  <div style={{marginTop:"6px",padding:"10px",background:"rgba(251,191,36,0.07)",borderRadius:"8px",border:"1px solid rgba(251,191,36,0.25)"}}>
+                                    <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,marginBottom:"8px"}}>✏️ 평단가 수정 (달러)</div>
+                                    <div style={{display:"flex",flexDirection:"column",gap:"5px"}}>
+                                      <input type="number" step="0.01"
+                                        placeholder={"기존: $"+(t.bp||0).toFixed(2)}
+                                        value={taxEditForm.avgPrice}
+                                        onChange={e=>setTaxEditForm(p=>({...p,avgPrice:e.target.value}))}
+                                        style={{...S.inp,fontSize:"13px",padding:"6px 8px"}}/>
+                                      <input placeholder="메모 (예: 토스증권 계좌)"
+                                        value={taxEditForm.memo}
+                                        onChange={e=>setTaxEditForm(p=>({...p,memo:e.target.value}))}
+                                        style={{...S.inp,fontSize:"12px",padding:"5px 8px"}}/>
+                                      {/* 수정 후 손익 미리보기 */}
+                                      {taxEditForm.avgPrice&&(
+                                        <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px",fontSize:"11px"}}>
+                                          <div style={{color:"#64748b",marginBottom:"2px"}}>수정 후 손익 미리보기</div>
+                                          <div style={{fontWeight:700,color:(t.price-(+taxEditForm.avgPrice))>=0?"#34d399":"#f87171"}}>
+                                            {(t.price-(+taxEditForm.avgPrice))>=0?"+":""}{((t.price-(+taxEditForm.avgPrice))*t.quantity).toFixed(2)} USD
+                                          </div>
+                                          <div style={{color:"#64748b"}}>{fmt((t.price-(+taxEditForm.avgPrice))*t.quantity*(liveUsdKrw||1380))}</div>
+                                        </div>
+                                      )}
+                                      {/* 저장 / 취소 / 초기화 */}
+                                      <div style={{display:"flex",gap:"5px",marginTop:"2px"}}>
+                                        <button onClick={()=>{
+                                          if(!taxEditForm.avgPrice) return;
+                                          const updated={...taxOverrides,[t.id]:{avgPrice:taxEditForm.avgPrice,memo:taxEditForm.memo}};
+                                          setTaxOverrides(updated);
+                                          try{localStorage.setItem("pm_tax_overrides",JSON.stringify(updated));}catch{}
+                                          setTaxEditId(null);
+                                          setTaxEditForm({avgPrice:'',memo:''});
+                                        }} style={S.btn("#f59e0b",{fontSize:"12px",padding:"5px 12px",flex:1})}>
+                                          ✓ 저장
+                                        </button>
+                                        <button onClick={()=>{setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:'});}}
+                                          style={S.btn("#475569",{fontSize:"12px",padding:"5px 10px"})}>
+                                          취소
+                                        </button>
+                                        {taxOverrides[t.id]?.avgPrice&&(
+                                          <button onClick={()=>{
+                                            const updated={...taxOverrides};
+                                            delete updated[t.id];
+                                            setTaxOverrides(updated);
+                                            try{localStorage.setItem("pm_tax_overrides",JSON.stringify(updated));}catch{}
+                                            setTaxEditId(null);
+                                            setTaxEditForm({avgPrice:'',memo:''});
+                                          }} style={S.btn("#dc2626",{fontSize:"12px",padding:"5px 10px"})}>
+                                            초기화
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </td>
-                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:(t.profitUSD??0)>=0?"#34d399":"#f87171"}}>{fmtUSD2(t.profitUSD??0)}</td>
+                              <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:(t.profitUSD??0)>=0?"#34d399":"#f87171"}}>{t.profitUSD!=null?((t.profitUSD>=0?"+":"")+t.profitUSD.toFixed(2)+" USD"):"—"}</td>
                               <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
                               <td style={S.TD}>
-                                <button onClick={()=>setTaxEditId(isEditing?null:t.id)} style={{background:isEditing?"rgba(251,191,36,0.2)":"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
+                                <button onClick={()=>{
+                                  if(isEditing){setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:''});}
+                                  else{
+                                    setTaxEditId(t.id);
+                                    const existing=taxOverrides[t.id];
+                                    setTaxEditForm({avgPrice:existing?.avgPrice||'',memo:existing?.memo||''});
+                                  }
+                                }} style={{background:isEditing?"rgba(251,191,36,0.2)":"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
                                   {isEditing?"닫기":"✏️"}
                                 </button>
                               </td>
@@ -4728,7 +4808,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                         })}
                         <tr style={{borderTop:"2px solid rgba(255,255,255,0.1)"}}>
                           <td colSpan={5} style={{...S.TD,fontSize:"12px",fontWeight:700,color:"#94a3b8"}}>합계(통산)</td>
-                          <td style={{...S.TD,fontSize:"13px",fontWeight:800,color:usTotalUSD>=0?"#34d399":"#f87171"}}>${fmtUSD2(usTotalUSD)}</td>
+                          <td style={{...S.TD,fontSize:"13px",fontWeight:800,color:usTotalUSD>=0?"#34d399":"#f87171"}}>{usTotalUSD>=0?"+":""}{usTotalUSD.toFixed(2)} USD</td>
                           <td style={{...S.TD,fontSize:"13px",fontWeight:800,color:usTotal>=0?"#34d399":"#f87171"}}>{fmt(usTotal)}</td>
                           <td/>
                         </tr>
