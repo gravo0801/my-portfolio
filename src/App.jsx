@@ -4768,7 +4768,7 @@ function PortfolioApp({ syncKey, onLogout }) {
                                         }} style={S.btn("#f59e0b",{fontSize:"12px",padding:"5px 12px",flex:1})}>
                                           ✓ 저장
                                         </button>
-                                        <button onClick={()=>{setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:'});}}
+                                        <button onClick={()=>{setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:''});}} 
                                           style={S.btn("#475569",{fontSize:"12px",padding:"5px 10px"})}>
                                           취소
                                         </button>
