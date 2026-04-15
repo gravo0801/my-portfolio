@@ -4637,7 +4637,10 @@ function PortfolioApp({ syncKey, onLogout }) {
           const US_EXEMPT = 2_500_000;
           const usTaxable = Math.max(0, usTotal - US_EXEMPT);
           const usTax = Math.round(usTaxable * 0.22);
-          const fmt = v => (v>=0?"+":"")+Math.round(v).toLocaleString()+"₩";
+          const fmtKRW2 = v => (v>=0?"+":"")+Math.round(v).toLocaleString()+"₩";
+          const fmtUSD2 = v => (v>=0?"+":"")+Math.abs(v).toFixed(2);
+          const fmt = fmtKRW2;
+          const fmtUSD2 = v => (v>=0?"+":"")+Math.abs(v).toFixed(2);
           return (
             <div style={{display:"flex",flexDirection:"column",gap:"16px",paddingBottom:"20px"}}>
               {/* 연도 선택 */}
