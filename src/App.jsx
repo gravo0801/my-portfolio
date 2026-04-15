@@ -2691,19 +2691,41 @@ ${analystSummary}
 ⚠️ 이 분석은 참고용이며 투자 결정은 본인 판단으로 하세요.`;
 
     try {
-      const resp = await fetch("/api/claude", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
+      let resp;
+      try {
+        resp = await fetch("/api/claude", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            max_tokens: 1200,
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+      } catch (e) {
+        setAiResult(p => ({...p, [key]: { loading: false, error: "네트워크 오류: " + e.message + "\n\n⚙️ Vercel 배포 환경에서만 작동합니다. 로컬 테스트 시에는 응답이 오지 않습니다." }}));
+        return;
+      }
+      if (!resp.ok) {
+        let errMsg = `서버 오류 (${resp.status})`;
+        try {
+          const errData = await resp.json();
+          if (errData?.error) errMsg += ": " + JSON.stringify(errData.error).slice(0,200);
+          if (resp.status === 401) errMsg = "❌ API 키 오류\nVercel 대시보드 → Settings → Environment Variables\n→ ANTHROPIC_API_KEY 설정 필요";
+          if (resp.status === 500) errMsg = "❌ 서버 오류: API 키가 설정되지 않았을 수 있습니다\nVercel → Settings → Environment Variables → ANTHROPIC_API_KEY";
+        } catch {}
+        setAiResult(p => ({...p, [key]: { loading: false, error: errMsg }}));
+        return;
+      }
       const data = await resp.json();
-      const text = data?.content?.[0]?.text || "응답을 받지 못했습니다.";
+      const text = data?.content?.[0]?.text;
+      if (!text) {
+        const rawErr = JSON.stringify(data).slice(0, 300);
+        setAiResult(p => ({...p, [key]: { loading: false, error: "응답 파싱 실패: " + rawErr }}));
+        return;
+      }
       setAiResult(p => ({...p, [key]: { loading: false, analyst, opinion: text }}));
     } catch (e) {
-      setAiResult(p => ({...p, [key]: { loading: false, error: "AI 분석 요청 실패: " + e.message }}));
+      setAiResult(p => ({...p, [key]: { loading: false, error: "예외 발생: " + e.message }}));
     }
   };
 
@@ -5430,7 +5452,7 @@ ${analystSummary}
                       <div style={{fontSize:"13px"}}>애널리스트 데이터 조회 중 + AI 분석 생성 중...</div>
                     </div>
                   )}
-                  {res?.error&&<div style={{color:"#f87171",fontSize:"13px"}}>{res.error}</div>}
+                  {res?.error&&<div style={{color:"#f87171",fontSize:"13px",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{res.error}</div>}
                   {res?.opinion&&(
                     <div style={{fontSize:"13px",color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{res.opinion}</div>
                   )}
