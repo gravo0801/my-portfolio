@@ -367,6 +367,45 @@ function isUSHoliday(kstDate) {
 }
 
 
+// ── 애널리스트 목표주가 fetch (Yahoo Finance) ──────────────────────────────
+async function fetchAnalyst(ticker, market) {
+  // 국내 종목은 .KS/.KQ 심볼 사용
+  const sym = (market === "KR" || market === "ISA")
+    ? (ticker.replace(".KS","").replace(".KQ","") + ".KS")
+    : ticker;
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=financialData,recommendationTrend`;
+  const proxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const d = await r.json();
+      const fd = d?.quoteSummary?.result?.[0]?.financialData;
+      const rt = d?.quoteSummary?.result?.[0]?.recommendationTrend?.trend;
+      if (!fd && !rt) continue;
+      const trend = rt?.[0]; // 최신 트렌드
+      return {
+        targetLow:    fd?.targetLowPrice?.raw ?? null,
+        targetHigh:   fd?.targetHighPrice?.raw ?? null,
+        targetMean:   fd?.targetMeanPrice?.raw ?? null,
+        targetMedian: fd?.targetMedianPrice?.raw ?? null,
+        recommendation: fd?.recommendationKey ?? null,  // "buy","hold","sell" 등
+        numAnalysts:  fd?.numberOfAnalystOpinions?.raw ?? null,
+        strongBuy:  trend?.strongBuy ?? 0,
+        buy:        trend?.buy ?? 0,
+        hold:       trend?.hold ?? 0,
+        sell:       trend?.sell ?? 0,
+        strongSell: trend?.strongSell ?? 0,
+      };
+    } catch { continue; }
+  }
+  return null;
+}
+
+
 async function fetchKospiFutures() {
   const now = new Date();
   const m = now.getMonth() + 1; // 1~12
@@ -1883,6 +1922,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [tradePage, setTradePage] = useState(1);
   const TRADE_PAGE_SIZE = 10;
   const [sparklineData, setSparklineData] = useState({});
+  const [aiPanel, setAiPanel] = useState(null); // {ticker, name, market, price, avgPrice, pnlPct}
+  const [aiResult, setAiResult] = useState({}); // {ticker: {loading, analyst, opinion, error}}
   const [calSelectedDate, setCalSelectedDate] = useState(null);
   const [calStockTicker, setCalStockTicker] = useState(null);
   const [calShowSelector, setCalShowSelector] = useState(false);
@@ -2597,6 +2638,73 @@ function PortfolioApp({ syncKey, onLogout }) {
     return () => { cancelled = true; };
   }, [holdings.length, holdings2.length]); // 종목 수 바뀔 때만 재로딩
 
+
+  // ── AI 종목 분석 ─────────────────────────────────────────────────────────
+  const runAiAnalysis = async (h) => {
+    const key = h.ticker;
+    setAiPanel(h);
+    if (aiResult[key]?.opinion) return; // 캐시 있으면 재사용
+    setAiResult(p => ({...p, [key]: {loading: true}}));
+
+    // 1) 애널리스트 데이터 조회
+    let analyst = null;
+    try { analyst = await fetchAnalyst(h.ticker, h.market); } catch {}
+
+    // 2) Claude AI 의견 요청
+    const cur = h.market === "US" || (h.market === "ETF" && !/^[0-9]/.test(h.ticker)) ? "USD" : "KRW";
+    const priceStr = cur === "USD" ? `$${(h.price||0).toFixed(2)}` : `${Math.round(h.price||0).toLocaleString()}₩`;
+    const avgStr   = cur === "USD" ? `$${(h.avgPrice||0).toFixed(2)}` : `${Math.round(h.avgPrice||0).toLocaleString()}₩`;
+
+    let analystSummary = "애널리스트 데이터 없음";
+    if (analyst) {
+      const rec = {buy:"매수",hold:"보유",sell:"매도","strong-buy":"적극매수","strong-sell":"적극매도"}[analyst.recommendation] || analyst.recommendation || "-";
+      const total = (analyst.strongBuy||0)+(analyst.buy||0)+(analyst.hold||0)+(analyst.sell||0)+(analyst.strongSell||0);
+      analystSummary = [
+        analyst.targetMean ? `목표주가 평균: ${cur==="USD"?"$"+analyst.targetMean.toFixed(2):Math.round(analyst.targetMean).toLocaleString()+"₩"}` : null,
+        analyst.targetLow  ? `(하단 ${cur==="USD"?"$"+analyst.targetLow.toFixed(2):Math.round(analyst.targetLow).toLocaleString()+"₩"} ~ 상단 ${cur==="USD"?"$"+analyst.targetHigh.toFixed(2):Math.round(analyst.targetHigh).toLocaleString()+"₩"})` : null,
+        analyst.numAnalysts ? `커버 애널리스트: ${analyst.numAnalysts}명` : null,
+        rec !== "-" ? `컨센서스: ${rec}` : null,
+        total > 0 ? `(적극매수 ${analyst.strongBuy} / 매수 ${analyst.buy} / 보유 ${analyst.hold} / 매도 ${analyst.sell} / 적극매도 ${analyst.strongSell})` : null,
+      ].filter(Boolean).join("\n");
+    }
+
+    const prompt = `당신은 주식 투자 분석가입니다. 다음 종목에 대한 간결한 투자 의견을 한국어로 작성해주세요.
+
+종목: ${h.name || h.ticker} (${h.ticker})
+시장: ${h.market === "US" ? "미국주식" : h.market === "KR" ? "한국주식" : h.market}
+현재가: ${priceStr}
+내 평단가: ${avgStr}
+현재 손익률: ${(h.pnlPct||0).toFixed(2)}%
+
+애널리스트 데이터 (Yahoo Finance):
+${analystSummary}
+
+위 정보를 바탕으로 아래 형식으로 답변해주세요:
+1. **현황 요약**: 현재가와 목표주가 대비 업사이드/다운사이드
+2. **컨센서스 의견**: 애널리스트들의 종합 의견
+3. **투자 포인트**: 주요 긍정/부정 요인 (각 2~3개)
+4. **단기 전망**: 현재 시점 간단 의견 (2~3줄)
+
+⚠️ 이 분석은 참고용이며 투자 결정은 본인 판단으로 하세요.`;
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      const data = await resp.json();
+      const text = data?.content?.[0]?.text || "응답을 받지 못했습니다.";
+      setAiResult(p => ({...p, [key]: { loading: false, analyst, opinion: text }}));
+    } catch (e) {
+      setAiResult(p => ({...p, [key]: { loading: false, error: "AI 분석 요청 실패: " + e.message }}));
+    }
+  };
+
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, portfolio:"p1", quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -2685,8 +2793,9 @@ function PortfolioApp({ syncKey, onLogout }) {
       <td style={{...S.TD,fontWeight:700}}>{hide ? <span style={{color:"#334155",letterSpacing:"0.05em"}}>●●●</span> : currMode==="KRW"?fmtKRW(toKRWLive(h.value,h.cur)):fmtPrice(h.value,h.cur)}</td>
       <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:800}}>{hide ? <span style={{color:"#334155"}}>--%</span> : fmtPct(h.pnlPct)}</td>
       <td style={S.TD}>
-        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+        <div style={{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"}}>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
+          <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"6px",fontWeight:700}} title="AI 종목 분석">🤖</button>
         </div>
       </td>
     </tr>
@@ -2754,6 +2863,7 @@ function PortfolioApp({ syncKey, onLogout }) {
             <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
           </div>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
+          <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px",fontWeight:700}}>🤖</button>
           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
         </div>
       </div>
@@ -5231,6 +5341,115 @@ function PortfolioApp({ syncKey, onLogout }) {
             </div>
           );
         })()}
+
+        {/* ── AI 종목 분석 패널 ── */}
+        {aiPanel && (()=>{
+          const key = aiPanel.ticker;
+          const res = aiResult[key];
+          const cur = aiPanel.market==="US"||(aiPanel.market==="ETF"&&!/^[0-9]/.test(aiPanel.ticker))?"USD":"KRW";
+          const fmtPx = v => cur==="USD"?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
+          return (
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={()=>setAiPanel(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:"680px",maxHeight:"88vh",overflowY:"auto",background:"linear-gradient(135deg,#0f172a,#0c1a2e)",border:"1px solid rgba(99,102,241,0.3)",borderRadius:"20px 20px 0 0",padding:"20px",fontFamily:FONT}}>
+                {/* 헤더 */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
+                  <div>
+                    <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>🤖 AI 종목 분석</div>
+                    <div style={{fontSize:"14px",color:"#a5b4fc",fontWeight:700,marginTop:"3px"}}>{aiPanel.name||aiPanel.ticker} <span style={{color:"#64748b",fontSize:"12px"}}>({aiPanel.ticker})</span></div>
+                  </div>
+                  <button onClick={()=>setAiPanel(null)} style={{background:"rgba(255,255,255,0.08)",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"18px",borderRadius:"8px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                </div>
+                {/* 현재 보유 현황 */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",marginBottom:"16px"}}>
+                  {[
+                    ["현재가", fmtPx(aiPanel.price), "#f1f5f9"],
+                    ["평단가", fmtPx(aiPanel.avgPrice), "#94a3b8"],
+                    ["손익률", (aiPanel.pnlPct>=0?"+":"")+aiPanel.pnlPct?.toFixed(2)+"%", aiPanel.pnlPct>=0?"#34d399":"#f87171"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:"10px 12px"}}>
+                      <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
+                      <div style={{fontSize:"14px",fontWeight:800,color:c}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* 애널리스트 목표주가 (데이터 있을 때) */}
+                {res?.analyst && (()=>{
+                  const a = res.analyst;
+                  const total = (a.strongBuy||0)+(a.buy||0)+(a.hold||0)+(a.sell||0)+(a.strongSell||0);
+                  const bullPct = total>0?Math.round(((a.strongBuy||0)+(a.buy||0))/total*100):0;
+                  return (
+                    <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:"12px",padding:"14px",marginBottom:"14px"}}>
+                      <div style={{fontSize:"13px",fontWeight:700,color:"#a5b4fc",marginBottom:"10px"}}>📊 애널리스트 컨센서스</div>
+                      {a.targetMean&&(
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"8px",marginBottom:"10px"}}>
+                          {[
+                            ["목표 하단",fmtPx(a.targetLow),"#f87171"],
+                            ["목표 평균",fmtPx(a.targetMean),"#fbbf24"],
+                            ["목표 상단",fmtPx(a.targetHigh),"#34d399"],
+                          ].map(([l,v,c])=>(
+                            <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"8px 10px",textAlign:"center"}}>
+                              <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>{l}</div>
+                              <div style={{fontSize:"14px",fontWeight:800,color:c}}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* 업사이드 */}
+                      {a.targetMean&&aiPanel.price&&(()=>{
+                        const upside=((a.targetMean-aiPanel.price)/aiPanel.price*100);
+                        return <div style={{fontSize:"13px",fontWeight:700,color:upside>=0?"#34d399":"#f87171",marginBottom:"10px"}}>현재가 대비 목표주가 업사이드: {upside>=0?"+":""}{upside.toFixed(1)}%</div>;
+                      })()}
+                      {/* 매수/보유/매도 바 */}
+                      {total>0&&(
+                        <div>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:"11px",color:"#64748b",marginBottom:"4px"}}>
+                            <span>매수 {(a.strongBuy||0)+(a.buy||0)}명 ({bullPct}%)</span>
+                            <span>보유 {a.hold||0}명</span>
+                            <span>매도 {(a.sell||0)+(a.strongSell||0)}명</span>
+                          </div>
+                          <div style={{height:"8px",borderRadius:"4px",background:"rgba(255,255,255,0.08)",overflow:"hidden",display:"flex"}}>
+                            <div style={{width:bullPct+"%",background:"linear-gradient(90deg,#6366f1,#34d399)",borderRadius:"4px 0 0 4px"}}/>
+                            <div style={{width:(total>0?Math.round((a.hold||0)/total*100):0)+"%",background:"#fbbf24"}}/>
+                            <div style={{flex:1,background:"#f87171",borderRadius:"0 4px 4px 0"}}/>
+                          </div>
+                          <div style={{fontSize:"11px",color:"#475569",marginTop:"5px"}}>커버 애널리스트 {a.numAnalysts||total}명 · {({buy:"매수",hold:"보유",sell:"매도","strong-buy":"적극매수","strong-sell":"적극매도"}[a.recommendation]||a.recommendation||"")}</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                {/* AI 의견 */}
+                <div style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px",padding:"14px"}}>
+                  <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",marginBottom:"10px"}}>🤖 Claude AI 종합 의견</div>
+                  {res?.loading&&(
+                    <div style={{textAlign:"center",padding:"24px",color:"#475569"}}>
+                      <div style={{fontSize:"28px",marginBottom:"8px",animation:"spin 1.5s linear infinite",display:"inline-block"}}>⚙️</div>
+                      <div style={{fontSize:"13px"}}>애널리스트 데이터 조회 중 + AI 분석 생성 중...</div>
+                    </div>
+                  )}
+                  {res?.error&&<div style={{color:"#f87171",fontSize:"13px"}}>{res.error}</div>}
+                  {res?.opinion&&(
+                    <div style={{fontSize:"13px",color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{res.opinion}</div>
+                  )}
+                  {!res&&(
+                    <div style={{textAlign:"center",padding:"20px"}}>
+                      <button onClick={()=>runAiAnalysis(aiPanel)} style={S.btn("#6366f1",{fontSize:"14px",padding:"10px 24px"})}>
+                        🤖 AI 분석 시작
+                      </button>
+                    </div>
+                  )}
+                  {res?.opinion&&(
+                    <div style={{marginTop:"12px",paddingTop:"10px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+                      <button onClick={()=>{setAiResult(p=>({...p,[key]:undefined}));runAiAnalysis(aiPanel);}} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"5px 14px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>🔄 다시 분석</button>
+                      <span style={{fontSize:"11px",color:"#374151",marginLeft:"10px"}}>⚠️ 참고용 · 투자 결정은 본인 판단</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
       {selectedStock && <StockDetail holding={selectedStock} price={prices[selectedStock.ticker]} onClose={()=>setSelectedStock(null)} isMobile={isMobile} />}
       {selectedAccount && (
         <AccountDetail
