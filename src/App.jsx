@@ -4695,8 +4695,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                         {usProfits.map(t=>{
                           const isEditing=taxEditId===t.id;
                           const ov=taxOverrides[t.id]||{};
-                          return(<React.Fragment key={t.id}>
-                          <tr style={{background:isEditing?"rgba(99,102,241,0.08)":"transparent"}}>
+                          return([
+                          <tr key={t.id} style={{background:isEditing?"rgba(99,102,241,0.08)":"transparent"}}>
                             <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
                             <td style={{...S.TD,fontSize:"12px"}}>
                               <div style={{fontWeight:700}}>{getName(t.ticker)}</div>
@@ -4716,8 +4716,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                               </button>
                             </td>
                           </tr>
-                          {isEditing&&(
-                            <tr>
+                          isEditing?(
+                            <tr key={t.id+"_edit"}>
                               <td colSpan={8} style={{padding:"10px 12px",background:"rgba(251,191,36,0.06)",borderBottom:"1px solid rgba(251,191,36,0.15)"}}>
                                 <div style={{fontSize:"12px",color:"#fbbf24",fontWeight:700,marginBottom:"8px"}}>✏️ 평단가 수정 (이 거래만 적용)</div>
                                 <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
@@ -4743,8 +4743,8 @@ function PortfolioApp({ syncKey, onLogout }) {
                                 {ov.memo&&<div style={{fontSize:"11px",color:"#94a3b8",marginTop:"6px"}}>📝 {ov.memo}</div>}
                               </td>
                             </tr>
-                          )}
-                          </React.Fragment>);
+                          ):null
+                          ]);
                         })}
                         <tr style={{borderTop:"2px solid rgba(255,255,255,0.1)"}}>
                           <td colSpan={5} style={{...S.TD,fontSize:"12px",fontWeight:700,color:"#94a3b8"}}>합계(통산)</td>
