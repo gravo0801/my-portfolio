@@ -4631,7 +4631,8 @@ function PortfolioApp({ syncKey, onLogout }) {
           };
           const usProfits = usSells.map(t=>({...t,profitKRW:calcProfitKRW(t)}));
           const krProfits = krSells.map(t=>({...t,profitKRW:calcProfitKRW(t)}));
-          const usTotal = usProfits.reduce((s,t)=>s+t.profitKRW,0);
+          const usTotal    = usProfits.reduce((s,t)=>s+t.profitKRW,0);
+          const usTotalUSD = usProfits.reduce((s,t)=>s+(t.profitUSD??0),0);
           const krTotal = krProfits.reduce((s,t)=>s+t.profitKRW,0);
           const US_EXEMPT = 2_500_000;
           const usTaxable = Math.max(0, usTotal - US_EXEMPT);
