@@ -1871,6 +1871,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [taxYear, setTaxYear] = useState(()=>String(new Date().getFullYear()));
+  const [taxOverrides, setTaxOverrides] = useState({}); // {tradeId: {avgPrice, memo}}
+  const [taxEditId, setTaxEditId] = useState(null);
   const [editingTradeId, setEditingTradeId] = useState(null);
   const [editTradeForm, setEditTradeForm] = useState({});
   const [tradeFilterPeriod, setTradeFilterPeriod] = useState("all");
@@ -4649,13 +4651,14 @@ function PortfolioApp({ syncKey, onLogout }) {
                   </select>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:isMobile?"6px":"12px"}}>
-                  {[["🇺🇸 해외주식 손익(통산)",usTotal,usTotal>=0?"#34d399":"#f87171"],
-                    ["🇰🇷 국내주식 손익(참고)",krTotal,krTotal>=0?"#34d399":"#f87171"],
-                    ["납부 예상 세액",usTax,usTax>0?"#f87171":"#64748b"]
-                  ].map(([l,v,c])=>(
+                  {[["🇺🇸 해외주식 손익(통산)",usTotal,usTotalUSD,usTotal>=0?"#34d399":"#f87171"],
+                    ["🇰🇷 국내주식 손익(참고)",krTotal,null,krTotal>=0?"#34d399":"#f87171"],
+                    ["납부 예상 세액",usTax,null,usTax>0?"#f87171":"#64748b"]
+                  ].map(([l,v,usd,c])=>(
                     <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:isMobile?"10px":"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
                       <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700,letterSpacing:"0.04em",marginBottom:"4px"}}>{l}</div>
                       <div style={{fontSize:isMobile?"15px":"20px",fontWeight:800,color:c,letterSpacing:"-0.03em"}}>{fmt(v)}</div>
+                      {usd!==null&&<div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>(${fmtUSD2(usd)} USD)</div>}
                     </div>
                   ))}
                 </div>
@@ -4665,39 +4668,87 @@ function PortfolioApp({ syncKey, onLogout }) {
               <div style={S.card}>
                 <div style={{fontSize:"15px",fontWeight:800,marginBottom:"10px"}}>🇺🇸 해외주식 양도세</div>
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px",marginBottom:"12px"}}>
-                  {[["연간 총 수익(통산)",usTotal,usTotal>=0?"#34d399":"#f87171"],
-                    ["비과세 공제",-Math.min(US_EXEMPT,Math.max(0,usTotal)),"#94a3b8"],
-                    ["과세 대상",usTaxable,usTaxable>0?"#fbbf24":"#64748b"],
-                    ["예상 세액(22%)",usTax,usTax>0?"#f87171":"#64748b"]
-                  ].map(([l,v,c])=>(
+                  {[
+                    ["연간 총 수익(통산 KRW)",usTotal,usTotal>=0?"#34d399":"#f87171",null,usTotalUSD],
+                    ["비과세 공제",-Math.min(US_EXEMPT,Math.max(0,usTotal)),"#94a3b8",null,null],
+                    ["과세 대상",usTaxable,usTaxable>0?"#fbbf24":"#64748b",null,null],
+                    ["예상 세액(22%)",usTax,usTax>0?"#f87171":"#64748b",null,null]
+                  ].map(([l,v,c,,usd])=>(
                     <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"10px 12px"}}>
                       <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
                       <div style={{fontSize:"14px",fontWeight:800,color:c}}>{fmt(v)}</div>
+                      {usd!==null&&usd!==undefined&&<div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>${fmtUSD2(usd)} USD</div>}
                     </div>
                   ))}
                 </div>
                 <div style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.18)",borderRadius:"10px",padding:"10px",marginBottom:"12px",fontSize:"12px",color:"#94a3b8",lineHeight:1.8}}>
                   📌 <strong style={{color:"#fca5a5"}}>비과세 250만원</strong> · <strong style={{color:"#fca5a5"}}>세율 22%</strong> · <strong style={{color:"#86efac"}}>손익통산</strong> 적용
+                  · 현재 환율 <strong style={{color:"#fbbf24"}}>${"1"}={liveUsdKrw?Math.round(liveUsdKrw).toLocaleString():"-"}₩</strong>
                 </div>
                 {usSells.length===0 ? <div style={{textAlign:"center",padding:"14px",color:"#475569",fontSize:"13px"}}>해외주식 매도 기록 없음</div> : (
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
-                      <thead><tr>{["날짜","종목","매도가","수량","평단가","손익"].map(h=><th key={h} style={{...S.TH,fontSize:"11px"}}>{h}</th>)}</tr></thead>
+                      <thead><tr>{["날짜","종목","매도가","수량","평단가","달러손익","원화손익",""].map(h=><th key={h} style={{...S.TH,fontSize:"10px"}}>{h}</th>)}</tr></thead>
                       <tbody>
                         {usProfits.map(t=>{
-                          const h=allH.find(x=>x.ticker===t.ticker);const bp=h?.avgPrice||0;
-                          return(<tr key={t.id}>
+                          const isEditing=taxEditId===t.id;
+                          const ov=taxOverrides[t.id]||{};
+                          return(<React.Fragment key={t.id}>
+                          <tr style={{background:isEditing?"rgba(99,102,241,0.08)":"transparent"}}>
                             <td style={{...S.TD,fontSize:"12px"}}>{t.date}</td>
-                            <td style={{...S.TD,fontSize:"12px"}}><div style={{fontWeight:700}}>{getName(t.ticker)}</div><div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}</div></td>
-                            <td style={{...S.TD,fontSize:"12px"}}>{t.cur==="USD"?"$"+Number(t.price).toFixed(2):Number(t.price).toLocaleString()+"₩"}</td>
+                            <td style={{...S.TD,fontSize:"12px"}}>
+                              <div style={{fontWeight:700}}>{getName(t.ticker)}</div>
+                              <div style={{fontSize:"10px",color:"#64748b"}}>{t.ticker}{t.taxAccount?<span style={{marginLeft:"4px",color:"#f59e0b",fontSize:"9px"}}>{t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래")}</span>:""}</div>
+                            </td>
+                            <td style={{...S.TD,fontSize:"12px"}}>${Number(t.price).toFixed(2)}</td>
                             <td style={{...S.TD,fontSize:"12px"}}>{t.quantity.toLocaleString()}</td>
-                            <td style={{...S.TD,fontSize:"12px",color:"#64748b"}}>{bp>0?(t.cur==="USD"?"$"+bp.toFixed(2):bp.toLocaleString()+"₩"):"미상"}</td>
+                            <td style={{...S.TD,fontSize:"12px",color:ov.avgPrice?"#fbbf24":"#64748b"}}>
+                              ${t.bp>0?t.bp.toFixed(2):"0.00"}
+                              {ov.avgPrice&&<div style={{fontSize:"9px",color:"#fbbf24"}}>✏️ 수정됨</div>}
+                            </td>
+                            <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitUSD>=0?"#34d399":"#f87171"}}>${fmtUSD2(t.profitUSD??0)}</td>
                             <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
-                          </tr>);
+                            <td style={S.TD}>
+                              <button onClick={()=>setTaxEditId(isEditing?null:t.id)} style={{background:"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
+                                {isEditing?"닫기":"✏️"}
+                              </button>
+                            </td>
+                          </tr>
+                          {isEditing&&(
+                            <tr>
+                              <td colSpan={8} style={{padding:"10px 12px",background:"rgba(251,191,36,0.06)",borderBottom:"1px solid rgba(251,191,36,0.15)"}}>
+                                <div style={{fontSize:"12px",color:"#fbbf24",fontWeight:700,marginBottom:"8px"}}>✏️ 평단가 수정 (이 거래만 적용)</div>
+                                <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
+                                  <div>
+                                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>매수 평단가 (달러)</div>
+                                    <input type="number" step="0.01" placeholder={String(t.bp||0)} value={ov.avgPrice||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],avgPrice:e.target.value}}))} style={{...S.inp,width:"110px",fontSize:"13px",padding:"5px 8px"}}/>
+                                  </div>
+                                  <div>
+                                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>메모 (선택)</div>
+                                    <input placeholder="예: 토스증권 매수분" value={ov.memo||""} onChange={e=>setTaxOverrides(p=>({...p,[t.id]:{...p[t.id],memo:e.target.value}}))} style={{...S.inp,width:"150px",fontSize:"12px",padding:"5px 8px"}}/>
+                                  </div>
+                                  {ov.avgPrice&&(
+                                    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"6px 10px"}}>
+                                      <div style={{fontSize:"10px",color:"#64748b"}}>수정 후 달러 손익</div>
+                                      <div style={{fontSize:"13px",fontWeight:800,color:(t.price-(+ov.avgPrice||0))>=0?"#34d399":"#f87171"}}>
+                                        ${fmtUSD2((t.price-(+ov.avgPrice||0))*t.quantity)}
+                                      </div>
+                                      <div style={{fontSize:"11px",color:"#64748b"}}>{fmt((t.price-(+ov.avgPrice||0))*t.quantity*liveUsdKrw)}</div>
+                                    </div>
+                                  )}
+                                  {ov.avgPrice&&<button onClick={()=>setTaxOverrides(p=>{const n={...p};delete n[t.id];return n;})} style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:"5px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>초기화</button>}
+                                </div>
+                                {ov.memo&&<div style={{fontSize:"11px",color:"#94a3b8",marginTop:"6px"}}>📝 {ov.memo}</div>}
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>);
                         })}
                         <tr style={{borderTop:"2px solid rgba(255,255,255,0.1)"}}>
                           <td colSpan={5} style={{...S.TD,fontSize:"12px",fontWeight:700,color:"#94a3b8"}}>합계(통산)</td>
+                          <td style={{...S.TD,fontSize:"13px",fontWeight:800,color:usTotalUSD>=0?"#34d399":"#f87171"}}>${fmtUSD2(usTotalUSD)}</td>
                           <td style={{...S.TD,fontSize:"13px",fontWeight:800,color:usTotal>=0?"#34d399":"#f87171"}}>{fmt(usTotal)}</td>
+                          <td/>
                         </tr>
                       </tbody>
                     </table>
