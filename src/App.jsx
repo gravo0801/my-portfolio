@@ -1889,7 +1889,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [loaded, setLoaded]       = useState(false);
   const [showForm, setShowForm]   = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3"
+  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3" | "p4" | "tax" | "calendar"
   const [overviewTab, setOverviewTab] = useState("all"); // "all"|"account"|"broker"|"market"
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
@@ -1922,6 +1922,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [tradePage, setTradePage] = useState(1);
   const TRADE_PAGE_SIZE = 10;
   const [sparklineData, setSparklineData] = useState({});
+  const [editingId4, setEditingId4]  = useState(null);
+  const [editForm4,  setEditForm4]   = useState({});
   const [aiPanel, setAiPanel] = useState(null); // {ticker, name, market, price, avgPrice, pnlPct}
   const [aiResult, setAiResult] = useState({}); // {ticker: {loading, analyst, opinion, error}}
   const [calSelectedDate, setCalSelectedDate] = useState(null);
@@ -1930,6 +1932,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [stockHistory, setStockHistory] = useState({});
   const [liveIndices, setLiveIndices] = useState(null); // {kospi,sp500,nasdaq,futures}
   const [holdings2, setHoldings2] = useState([]);
+  const [holdings4, setHoldings4] = useState([]); // RIA 계좌
   const [watchlist, setWatchlist] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [showContrib, setShowContrib] = useState(false);
@@ -2021,6 +2024,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     attach("alerts",    setAlerts,    "a");
     attach("snapshots", setSnapshots, "s");
     attach("holdings2",  setHoldings2, "h2");
+    attach("holdings4",  setHoldings4, "h4");
     attach("watchlist",    setWatchlist,   "wl");
     // divInfo는 객체 형태로 저장 - 별도 처리
     const uDi = dbOn(`users/${syncKey}/divInfo`, val => {
@@ -2169,6 +2173,7 @@ function PortfolioApp({ syncKey, onLogout }) {
 
   useEffect(() => { if (loaded) saveData("holdings",  holdings.length  ? holdings  : [], "h");  }, [holdings,  loaded]);
   useEffect(() => { if (loaded) saveData("holdings2", holdings2.length ? holdings2 : [], "h2"); }, [holdings2, loaded]);
+  useEffect(() => { if (loaded) saveData("holdings4", holdings4.length ? holdings4 : [], "h4"); }, [holdings4, loaded]);
   useEffect(() => { if (loaded) saveData("watchlist",   watchlist.length   ? watchlist   : [],  "wl"); }, [watchlist,  loaded]);
   useEffect(() => {
     if(!loaded||!fbLoadedRef.current["di"]) return;
@@ -2729,6 +2734,16 @@ ${analystSummary}
     }
   };
 
+
+  const startEdit4 = (h) => { setEditingId4(h.id); setEditForm4({name:h.name||"",ticker:h.ticker||"",market:h.market||"US",quantity:String(h.quantity||""),avgPrice:String(h.avgPrice||""),broker:h.broker||""}); };
+  const saveEdit4  = () => {
+    const qty = +editForm4.quantity;
+    const avg = +editForm4.avgPrice;
+    if (!qty || isNaN(qty) || !avg || isNaN(avg)) return;
+    const { addQty:_a, addPrice:_b, calcQty:_c, calcAvg:_d, ...cleanForm } = editForm4;
+    setHoldings4(p => p.map(x => x.id === editingId4 ? { ...x, ...cleanForm, quantity: qty, avgPrice: avg } : x));
+    setEditingId4(null);
+  };
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, portfolio:"p1", quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -3251,13 +3266,13 @@ ${analystSummary}
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["tax","💰 양도세"],["calendar","📅 캘린더"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["tax","💰 양도세"],["calendar","📅 캘린더"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="tax"?"양도세":"캘린더"):label}
+              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="tax"?"양도세":"캘린더"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar") && (
+        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -4746,6 +4761,235 @@ ${analystSummary}
 
       </div>
 
+
+
+        {/* ── RIA 탭 (포트폴리오4) ── */}
+        {mainTab === "p4" && (()=>{
+          // RIA 포트폴리오 계산
+          const riaPortfolio = holdings4.map(h => {
+            const p = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
+            const cur = h.market === "US" || (h.market === "ETF" && !/^[0-9]/.test(h.ticker)) ? "USD" : "KRW";
+            const price = p?.price ?? h.avgPrice;
+            const value = price * h.quantity;
+            const cost  = h.avgPrice * h.quantity;
+            const chgPct = p?.changePercent ?? 0;
+            const chgAmt = p?.changeAmount ?? (price * chgPct / 100);
+            const regChgPct = p?.regularChangePercent ?? chgPct;
+            const regChgAmt = p?.regularChangeAmount ?? chgAmt;
+            const pnlAmt = value - cost;
+            const pnlPct = cost > 0 ? (pnlAmt / cost) * 100 : 0;
+            return { ...h, value, cost, cur, price, hasLive: !!p, chgPct, chgAmt, regChgPct, regChgAmt, pnlPct, pnlAmt };
+          });
+          const totalVal  = riaPortfolio.reduce((s,h) => s + (h.cur==="USD" ? h.value*(liveUsdKrw||1380) : h.value), 0);
+          const totalCost = riaPortfolio.reduce((s,h) => s + (h.cur==="USD" ? h.cost*(liveUsdKrw||1380) : h.cost), 0);
+          const totalPnL  = totalVal - totalCost;
+          const pnlPct4   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
+
+          const hForm4Init = { ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" };
+          const [hForm4, setHForm4] = React.useState(hForm4Init);
+
+          return (
+            <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingBottom:"20px"}}>
+              {/* 안내 배너 */}
+              <div style={{background:"linear-gradient(135deg,rgba(16,185,129,0.12),rgba(6,182,212,0.08))",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"12px",padding:"14px 16px"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:"12px",flexWrap:"wrap"}}>
+                  <div style={{fontSize:"24px"}}>🇰🇷</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:"15px",fontWeight:800,color:"#6ee7b7",marginBottom:"4px"}}>RIA — Reshoring Investment Account</div>
+                    <div style={{fontSize:"12px",color:"#94a3b8",lineHeight:1.7}}>
+                      미국주식 종목을 이 계좌로 이전 후 매도 → 국내주식 매수 → 1년 보유 시 <strong style={{color:"#34d399"}}>양도세 100% 면제</strong><br/>
+                      <span style={{color:"#fbbf24"}}>⚠️ 5월 말까지 이전 완료 필요 · 아직 검토 중인 정책</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 요약 카드 */}
+              {riaPortfolio.length > 0 && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
+                  {[
+                    ["총 평가금액", Math.round(totalVal).toLocaleString()+"₩", "#f1f5f9"],
+                    ["총 손익", (totalPnL>=0?"+":"")+Math.round(totalPnL).toLocaleString()+"₩", totalPnL>=0?"#34d399":"#f87171"],
+                    ["수익률", (pnlPct4>=0?"+":"")+pnlPct4.toFixed(2)+"%", pnlPct4>=0?"#34d399":"#f87171"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{...S.card,padding:"12px",textAlign:"center"}}>
+                      <div style={{fontSize:"10px",color:"#64748b",marginBottom:"4px",fontWeight:700}}>{l}</div>
+                      <div style={{fontSize:"16px",fontWeight:800,color:c}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 종목 추가 */}
+              <div style={S.card}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}>
+                  <div style={{fontSize:"15px",fontWeight:800}}>🇰🇷 RIA 보유종목</div>
+                  <button onClick={()=>setShowForm(showForm==="p4add"?null:"p4add")} style={S.btn("#10b981")}>+ 종목 추가</button>
+                </div>
+                {showForm==="p4add" && (
+                  <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.25)",borderRadius:"10px",padding:"14px",marginBottom:"14px"}}>
+                    <div style={{fontSize:"13px",color:"#6ee7b7",fontWeight:700,marginBottom:"10px"}}>➕ 종목 추가</div>
+                    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:"8px",marginBottom:"10px"}}>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>티커</div><input value={hForm4.ticker} onChange={e=>setHForm4(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={S.inp} placeholder="예: NVDA"/></div>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>종목명</div><input value={hForm4.name} onChange={e=>setHForm4(p=>({...p,name:e.target.value}))} style={S.inp} placeholder="예: 엔비디아"/></div>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>시장</div>
+                        <select value={hForm4.market} onChange={e=>setHForm4(p=>({...p,market:e.target.value}))} style={{...S.inp,appearance:"none"}}>
+                          <option value="US">미국주식</option><option value="KR">한국주식</option><option value="ETF">ETF</option>
+                        </select>
+                      </div>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수량</div><input type="number" value={hForm4.quantity} onChange={e=>setHForm4(p=>({...p,quantity:e.target.value}))} style={S.inp} placeholder="수량"/></div>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={hForm4.avgPrice} onChange={e=>setHForm4(p=>({...p,avgPrice:e.target.value}))} style={S.inp} placeholder="평단가"/></div>
+                      <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>증권사</div><input value={hForm4.broker} onChange={e=>setHForm4(p=>({...p,broker:e.target.value}))} style={S.inp} placeholder="증권사(선택)"/></div>
+                    </div>
+                    <div style={{display:"flex",gap:"8px"}}>
+                      <button onClick={()=>{
+                        if(!hForm4.ticker||!hForm4.quantity||!hForm4.avgPrice) return;
+                        setHoldings4(p=>[...p,{id:Date.now(),...hForm4,quantity:+hForm4.quantity,avgPrice:+hForm4.avgPrice}]);
+                        setHForm4(hForm4Init); setShowForm(null);
+                      }} style={S.btn("#10b981")}>✓ 추가</button>
+                      <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 종목 목록 */}
+                {riaPortfolio.length === 0 ? (
+                  <div style={{textAlign:"center",padding:"40px",color:"#475569"}}>
+                    <div style={{fontSize:"32px",marginBottom:"10px"}}>🇰🇷</div>
+                    <div>RIA 계좌에 종목을 추가하세요</div>
+                    <div style={{fontSize:"12px",color:"#374151",marginTop:"6px"}}>미국주식 → 이 계좌로 이전 후 매도 시 양도세 면제</div>
+                  </div>
+                ) : isMobile ? (
+                  <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+                    {riaPortfolio.map(h=>(
+                      <div key={h.id} style={{background:"rgba(16,185,129,0.05)",border:"1px solid rgba(16,185,129,0.15)",borderRadius:"10px",padding:"12px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"8px"}}>
+                          <div style={{cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
+                            <div style={{fontWeight:800,fontSize:"15px"}}>{h.name||h.ticker}</div>
+                            <div style={{fontSize:"11px",color:"#10b981"}}>{h.ticker} · {h.market}</div>
+                          </div>
+                          <div style={{display:"flex",gap:"6px"}}>
+                            <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px"}}>🤖</button>
+                            <button onClick={()=>editingId4===h.id?setEditingId4(null):startEdit4(h)} style={{background:"none",border:"1px solid rgba(16,185,129,0.4)",color:"#6ee7b7",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
+                            <button onClick={()=>setHoldings4(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"5px"}}>
+                          {[
+                            ["현재가", h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"],
+                            ["수량", h.quantity.toLocaleString()+"주"],
+                            ["평가금액", h.cur==="USD"?"$"+Math.round(h.value).toLocaleString():Math.round(h.value).toLocaleString()+"₩"],
+                            ["일변동", (h.regChgPct>=0?"+":"")+h.regChgPct.toFixed(2)+"%"],
+                            ["손익률", (h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"],
+                            ["평단가", h.cur==="USD"?"$"+h.avgPrice.toFixed(2):Math.round(h.avgPrice).toLocaleString()+"₩"],
+                          ].map(([l,v])=>(
+                            <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
+                              <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{l}</div>
+                              <div style={{fontSize:"12px",fontWeight:700,color:l==="일변동"||l==="손익률"?(v.startsWith("+")??"#34d399":"#f87171"):"#f1f5f9"}}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {editingId4===h.id&&(
+                          <div style={{marginTop:"10px",background:"rgba(16,185,129,0.07)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"10px",padding:"12px"}}>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"8px"}}>
+                              <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>종목명</div><input value={editForm4.name} onChange={e=>setEditForm4(p=>({...p,name:e.target.value}))} style={{...S.inp,fontSize:"12px"}}/></div>
+                              <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수량</div><input type="number" value={editForm4.quantity} onChange={e=>setEditForm4(p=>({...p,quantity:e.target.value}))} style={{...S.inp,fontSize:"12px"}}/></div>
+                              <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm4.avgPrice} onChange={e=>setEditForm4(p=>({...p,avgPrice:e.target.value}))} style={{...S.inp,fontSize:"12px"}}/></div>
+                              <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>증권사</div><input value={editForm4.broker||""} onChange={e=>setEditForm4(p=>({...p,broker:e.target.value}))} style={{...S.inp,fontSize:"12px"}}/></div>
+                            </div>
+                            <div style={{display:"flex",gap:"8px"}}>
+                              <button onClick={()=>{if(window.confirm("삭제?"))setHoldings4(p=>p.filter(x=>x.id!==h.id));setEditingId4(null);}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 10px"})}>🗑️</button>
+                              <div style={{marginLeft:"auto",display:"flex",gap:"6px"}}>
+                                <button onClick={()=>setEditingId4(null)} style={S.btn("#475569",{fontSize:"12px"})}>취소</button>
+                                <button onClick={saveEdit4} style={S.btn("#10b981",{fontSize:"12px"})}>✓ 저장</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse"}}>
+                      <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(c=><th key={c} style={S.TH}>{c}</th>)}</tr></thead>
+                      <tbody>
+                        {riaPortfolio.map(h=>(
+                          <tr key={h.id+"_r4"}>
+                            <td style={{...S.TD,cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
+                              <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                <div style={{width:"8px",height:"8px",borderRadius:"2px",background:"#10b981",flexShrink:0}}/>
+                                <div>
+                                  <div style={{fontWeight:700,fontSize:"14px"}}>{h.name||h.ticker}</div>
+                                  <div style={{fontSize:"10px",color:"#10b981"}}>{h.ticker}</div>
+                                  {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",marginTop:"2px"}}>{h.broker}</div>}
+                                </div>
+                                <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
+                              </div>
+                            </td>
+                            <td style={S.TD}>{h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</td>
+                            <td style={{...S.TD,color:h.regChgPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.regChgPct>=0?"+":"")+h.regChgPct.toFixed(2)+"%"}</td>
+                            <td style={S.TD}>{h.quantity.toLocaleString()}</td>
+                            <td style={S.TD}>{h.cur==="USD"?"$"+Math.round(h.value).toLocaleString():Math.round(h.value).toLocaleString()+"₩"}</td>
+                            <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"}</td>
+                            <td style={S.TD}>
+                              <div style={{display:"flex",gap:"5px"}}>
+                                <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px"}}>🤖</button>
+                                <button onClick={()=>editingId4===h.id?setEditingId4(null):startEdit4(h)} style={{background:"none",border:"1px solid rgba(16,185,129,0.4)",color:"#6ee7b7",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
+                              </div>
+                            </td>
+                          </tr>
+                          {editingId4===h.id&&(
+                            <tr key={h.id+"_e4"}>
+                              <td colSpan={7} style={{padding:"0 0 12px 0"}}>
+                                <div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"10px",padding:"16px",margin:"8px 14px"}}>
+                                  <div style={{fontSize:"13px",color:"#6ee7b7",fontWeight:700,marginBottom:"12px"}}>✏️ {h.ticker} 수정</div>
+                                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
+                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>종목명</div><input value={editForm4.name} onChange={e=>setEditForm4(p=>({...p,name:e.target.value}))} style={S.inp}/></div>
+                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>수량</div><input type="number" value={editForm4.quantity} onChange={e=>setEditForm4(p=>({...p,quantity:e.target.value}))} style={S.inp}/></div>
+                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>평단가</div><input type="number" value={editForm4.avgPrice} onChange={e=>setEditForm4(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
+                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>증권사</div><input value={editForm4.broker||""} onChange={e=>setEditForm4(p=>({...p,broker:e.target.value}))} style={S.inp}/></div>
+                                  </div>
+                                  <div style={{display:"flex",gap:"8px"}}>
+                                    <button onClick={()=>{if(window.confirm("삭제?"))setHoldings4(p=>p.filter(x=>x.id!==h.id));setEditingId4(null);}} style={S.btn("#dc2626",{padding:"6px 10px"})}>🗑️</button>
+                                    <div style={{marginLeft:"auto",display:"flex",gap:"8px"}}>
+                                      <button onClick={()=>setEditingId4(null)} style={S.btn("#475569")}>취소</button>
+                                      <button onClick={saveEdit4} style={S.btn("#10b981")}>✓ 저장</button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* RIA 절세 가이드 */}
+              <div style={S.card}>
+                <div style={{fontSize:"15px",fontWeight:800,marginBottom:"12px"}}>📋 RIA 절세 가이드</div>
+                {[
+                  ["1단계", "미국주식 종목을 RIA 계좌로 이전", "#6366f1"],
+                  ["2단계", "5월 말까지 이전 완료 후 해당 종목 매도", "#f59e0b"],
+                  ["3단계", "매도 대금으로 국내주식(KOSPI/KOSDAQ) 매수", "#10b981"],
+                  ["4단계", "1년간 국내주식 보유 유지", "#34d399"],
+                  ["결과", "양도소득세 100% 면제", "#a855f7"],
+                ].map(([step,desc,c])=>(
+                  <div key={step} style={{display:"flex",alignItems:"flex-start",gap:"12px",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                    <div style={{background:c+"22",border:"1px solid "+c+"55",color:c,padding:"3px 10px",borderRadius:"20px",fontSize:"12px",fontWeight:800,flexShrink:0,whiteSpace:"nowrap"}}>{step}</div>
+                    <div style={{fontSize:"13px",color:"#cbd5e1",paddingTop:"3px"}}>{desc}</div>
+                  </div>
+                ))}
+                <div style={{marginTop:"12px",background:"rgba(251,191,36,0.07)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:"8px",padding:"10px",fontSize:"12px",color:"#94a3b8",lineHeight:1.7}}>
+                  ⚠️ <strong style={{color:"#fbbf24"}}>주의사항</strong> 현재 검토 중인 정책입니다 · 확정 전 세무사 확인 권장 · 정책 변경 가능성 있음
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ── 양도세 탭 ── */}
         {mainTab === "tax" && (()=>{
