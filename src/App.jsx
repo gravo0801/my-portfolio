@@ -4914,54 +4914,59 @@ ${analystSummary}
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
                       <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(c=><th key={c} style={S.TH}>{c}</th>)}</tr></thead>
                       <tbody>
-                        {riaPortfolio.map(h=>[
-                          <tr key={h.id+"_r4"}>
-                            <td style={{...S.TD,cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
-                              <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-                                <div style={{width:"8px",height:"8px",borderRadius:"2px",background:"#10b981",flexShrink:0}}/>
-                                <div>
-                                  <div style={{fontWeight:700,fontSize:"14px"}}>{h.name||h.ticker}</div>
-                                  <div style={{fontSize:"10px",color:"#10b981"}}>{h.ticker}</div>
-                                  {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",marginTop:"2px"}}>{h.broker}</div>}
+                        {riaPortfolio.flatMap(h=>{
+                          const rows = [
+                            <tr key={h.id+"_r4"}>
+                              <td style={{...S.TD,cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
+                                <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                                  <div style={{width:"8px",height:"8px",borderRadius:"2px",background:"#10b981",flexShrink:0}}/>
+                                  <div>
+                                    <div style={{fontWeight:700,fontSize:"14px"}}>{h.name||h.ticker}</div>
+                                    <div style={{fontSize:"10px",color:"#10b981"}}>{h.ticker}</div>
+                                    {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",marginTop:"2px"}}>{h.broker}</div>}
+                                  </div>
+                                  <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
                                 </div>
-                                <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
-                              </div>
-                            </td>
-                            <td style={S.TD}>{h.cur==="USD"?"$"+h.price.toFixed(2):Math.round(h.price).toLocaleString()+"₩"}</td>
-                            <td style={{...S.TD,color:h.regChgPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.regChgPct>=0?"+":"")+h.regChgPct.toFixed(2)+"%"}</td>
-                            <td style={S.TD}>{h.quantity.toLocaleString()}</td>
-                            <td style={S.TD}>{h.cur==="USD"?"$"+Math.round(h.value).toLocaleString():Math.round(h.value).toLocaleString()+"₩"}</td>
-                            <td style={{...S.TD,color:h.pnlPct>=0?"#34d399":"#f87171",fontWeight:700}}>{(h.pnlPct>=0?"+":"")+h.pnlPct.toFixed(2)+"%"}</td>
-                            <td style={S.TD}>
-                              <div style={{display:"flex",gap:"5px"}}>
-                                <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px"}}>🤖</button>
-                                <button onClick={()=>editingId4===h.id?setEditingId4(null):startEdit4(h)} style={{background:"none",border:"1px solid rgba(16,185,129,0.4)",color:"#6ee7b7",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
-                              </div>
-                            </td>
-                          </tr>
-                          {editingId4===h.id&&(
-                            <tr key={h.id+"_e4"}>
-                              <td colSpan={7} style={{padding:"0 0 12px 0"}}>
-                                <div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"10px",padding:"16px",margin:"8px 14px"}}>
-                                  <div style={{fontSize:"13px",color:"#6ee7b7",fontWeight:700,marginBottom:"12px"}}>✏️ {h.ticker} 수정</div>
-                                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
-                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>종목명</div><input value={editForm4.name} onChange={e=>setEditForm4(p=>({...p,name:e.target.value}))} style={S.inp}/></div>
-                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>수량</div><input type="number" value={editForm4.quantity} onChange={e=>setEditForm4(p=>({...p,quantity:e.target.value}))} style={S.inp}/></div>
-                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>평단가</div><input type="number" value={editForm4.avgPrice} onChange={e=>setEditForm4(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
-                                    <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>증권사</div><input value={editForm4.broker||""} onChange={e=>setEditForm4(p=>({...p,broker:e.target.value}))} style={S.inp}/></div>
-                                  </div>
-                                  <div style={{display:"flex",gap:"8px"}}>
-                                    <button onClick={()=>{if(window.confirm("삭제?"))setHoldings4(p=>p.filter(x=>x.id!==h.id));setEditingId4(null);}} style={S.btn("#dc2626",{padding:"6px 10px"})}>🗑️</button>
-                                    <div style={{marginLeft:"auto",display:"flex",gap:"8px"}}>
-                                      <button onClick={()=>setEditingId4(null)} style={S.btn("#475569")}>취소</button>
-                                      <button onClick={saveEdit4} style={S.btn("#10b981")}>✓ 저장</button>
-                                    </div>
-                                  </div>
+                              </td>
+                              <td style={S.TD}>{h.cur==="USD"?"$"+(h.price||0).toFixed(2):Math.round(h.price||0).toLocaleString()+"₩"}</td>
+                              <td style={{...S.TD,color:(h.regChgPct||0)>=0?"#34d399":"#f87171",fontWeight:700}}>{((h.regChgPct||0)>=0?"+":"")+(h.regChgPct||0).toFixed(2)+"%"}</td>
+                              <td style={S.TD}>{h.quantity.toLocaleString()}</td>
+                              <td style={S.TD}>{h.cur==="USD"?"$"+Math.round(h.value||0).toLocaleString():Math.round(h.value||0).toLocaleString()+"₩"}</td>
+                              <td style={{...S.TD,color:(h.pnlPct||0)>=0?"#34d399":"#f87171",fontWeight:700}}>{((h.pnlPct||0)>=0?"+":"")+(h.pnlPct||0).toFixed(2)+"%"}</td>
+                              <td style={S.TD}>
+                                <div style={{display:"flex",gap:"5px"}}>
+                                  <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px"}}>🤖</button>
+                                  <button onClick={()=>editingId4===h.id?setEditingId4(null):startEdit4(h)} style={{background:"none",border:"1px solid rgba(16,185,129,0.4)",color:"#6ee7b7",cursor:"pointer",fontSize:"12px",padding:"3px 10px",borderRadius:"6px",fontWeight:700}}>수정</button>
                                 </div>
                               </td>
                             </tr>
-                          ) || null
-                        ])}
+                          ];
+                          if (editingId4===h.id) {
+                            rows.push(
+                              <tr key={h.id+"_e4"}>
+                                <td colSpan={7} style={{padding:"0 0 12px 0"}}>
+                                  <div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.3)",borderRadius:"10px",padding:"16px",margin:"8px 14px"}}>
+                                    <div style={{fontSize:"13px",color:"#6ee7b7",fontWeight:700,marginBottom:"12px"}}>✏️ {h.ticker} 수정</div>
+                                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginBottom:"12px"}}>
+                                      <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>종목명</div><input value={editForm4.name} onChange={e=>setEditForm4(p=>({...p,name:e.target.value}))} style={S.inp}/></div>
+                                      <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>수량</div><input type="number" value={editForm4.quantity} onChange={e=>setEditForm4(p=>({...p,quantity:e.target.value}))} style={S.inp}/></div>
+                                      <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>평단가</div><input type="number" value={editForm4.avgPrice} onChange={e=>setEditForm4(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
+                                      <div><div style={{fontSize:"12px",color:"#64748b",marginBottom:"4px"}}>증권사</div><input value={editForm4.broker||""} onChange={e=>setEditForm4(p=>({...p,broker:e.target.value}))} style={S.inp}/></div>
+                                    </div>
+                                    <div style={{display:"flex",gap:"8px"}}>
+                                      <button onClick={()=>{if(window.confirm("삭제?"))setHoldings4(p=>p.filter(x=>x.id!==h.id));setEditingId4(null);}} style={S.btn("#dc2626",{padding:"6px 10px"})}>🗑️</button>
+                                      <div style={{marginLeft:"auto",display:"flex",gap:"8px"}}>
+                                        <button onClick={()=>setEditingId4(null)} style={S.btn("#475569")}>취소</button>
+                                        <button onClick={saveEdit4} style={S.btn("#10b981")}>✓ 저장</button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return rows;
+                        })}
                       </tbody>
                     </table>
                   </div>
