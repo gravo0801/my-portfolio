@@ -4885,7 +4885,7 @@ ${analystSummary}
                           ].map(([l,v])=>(
                             <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"6px",padding:"6px 8px"}}>
                               <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>{l}</div>
-                              <div style={{fontSize:"12px",fontWeight:700,color:l==="일변동"||l==="손익률"?(v.startsWith("+")??"#34d399":"#f87171"):"#f1f5f9"}}>{v}</div>
+                              <div style={{fontSize:"12px",fontWeight:700,color:l==="일변동"||l==="손익률"?(v.startsWith("+")?"#34d399":"#f87171"):"#f1f5f9"}}>{v}</div>
                             </div>
                           ))}
                         </div>
