@@ -1924,6 +1924,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [sparklineData, setSparklineData] = useState({});
   const [editingId4, setEditingId4]  = useState(null);
   const [editForm4,  setEditForm4]   = useState({});
+  const [hForm4, setHForm4] = useState({ ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" });
   const [aiPanel, setAiPanel] = useState(null); // {ticker, name, market, price, avgPrice, pnlPct}
   const [aiResult, setAiResult] = useState({}); // {ticker: {loading, analyst, opinion, error}}
   const [calSelectedDate, setCalSelectedDate] = useState(null);
@@ -4786,7 +4787,6 @@ ${analystSummary}
           const pnlPct4   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
           const hForm4Init = { ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" };
-          const [hForm4, setHForm4] = React.useState(hForm4Init);
 
           return (
             <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingBottom:"20px"}}>
@@ -4845,7 +4845,7 @@ ${analystSummary}
                       <button onClick={()=>{
                         if(!hForm4.ticker||!hForm4.quantity||!hForm4.avgPrice) return;
                         setHoldings4(p=>[...p,{id:Date.now(),...hForm4,quantity:+hForm4.quantity,avgPrice:+hForm4.avgPrice}]);
-                        setHForm4(hForm4Init); setShowForm(null);
+                        setHForm4({ ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" }); setShowForm(null);
                       }} style={S.btn("#10b981")}>✓ 추가</button>
                       <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
                     </div>
