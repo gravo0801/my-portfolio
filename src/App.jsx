@@ -4914,7 +4914,7 @@ ${analystSummary}
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
                       <thead><tr>{["종목","현재가","일변동","수량","평가금액","손익률",""].map(c=><th key={c} style={S.TH}>{c}</th>)}</tr></thead>
                       <tbody>
-                        {riaPortfolio.map(h=>(
+                        {riaPortfolio.map(h=>[
                           <tr key={h.id+"_r4"}>
                             <td style={{...S.TD,cursor:"pointer"}} onClick={()=>setSelectedStock(h)}>
                               <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
@@ -4960,8 +4960,8 @@ ${analystSummary}
                                 </div>
                               </td>
                             </tr>
-                          )}
-                        ))}
+                          ) || null
+                        ])}
                       </tbody>
                     </table>
                   </div>
