@@ -833,7 +833,7 @@ const _chartCache = {};
 const _infoCache  = {};
 
 // ── 종목 상세 패널 ────────────────────────────────────────────────────────────
-function StockDetail({ holding, price, onClose, isMobile }) {
+function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings=[], liveUsdKrw=1380 }) {
   const [history, setHistory]   = useState([]);
   const [info, setInfo]         = useState({});
   const [loading, setLoading]   = useState(true);
@@ -1008,6 +1008,58 @@ function StockDetail({ holding, price, onClose, isMobile }) {
           )}
         </div>
 
+        {/* ── 내 매매 내역 ── */}
+        {(()=>{
+          const myTrades = [...trades].filter(t=>t.ticker===holding.ticker).sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
+          if (!myTrades.length) return null;
+          const isUS = holding.market==="US"||(holding.market==="ETF"&&!/^[0-9]/.test(holding.ticker));
+          const fmtPx = v => isUS?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
+          let remaining = holding.quantity;
+          const withRem = [...myTrades].sort((a,b)=>a.date?.localeCompare(b.date||"")||0).map(t=>{
+            const r=remaining;
+            remaining=t.type==="buy"?remaining-t.quantity:remaining+t.quantity;
+            return {...t,remaining:r};
+          }).reverse();
+          return (
+            <div style={{marginTop:"16px",background:"rgba(0,0,0,0.2)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
+              <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 내 매매 내역
+                <span style={{fontSize:"11px",color:"#64748b",fontWeight:400,marginLeft:"6px"}}>{myTrades.length}건</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:"6px",maxHeight:"260px",overflowY:"auto"}}>
+                {withRem.map(t=>{
+                  const isBuy=t.type==="buy";
+                  const chgPct=price?.price&&t.price?((price.price-t.price)/t.price)*100:null;
+                  const profit=price?.price?Math.round((price.price-t.price)*t.quantity*(isUS?liveUsdKrw:1)):null;
+                  const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p4"?"RIA":"";
+                  return(
+                    <div key={t.id} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`,borderRadius:"8px",padding:"10px 12px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"4px"}}>
+                        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                          <span style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.15)",color:isBuy?"#c7d2fe":"#fca5a5",padding:"2px 8px",borderRadius:"10px",fontSize:"11px",fontWeight:800}}>{isBuy?"매수":"매도"}</span>
+                          <span style={{fontSize:"12px",color:"#94a3b8"}}>{t.date}</span>
+                          {portLabel&&<span style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",padding:"1px 5px",borderRadius:"4px"}}>{portLabel}</span>}
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{t.quantity.toLocaleString()}주 × {fmtPx(t.price)}</div>
+                          <div style={{fontSize:"10px",color:"#64748b"}}>잔여 {Math.max(0,t.remaining||0).toLocaleString()}주</div>
+                        </div>
+                      </div>
+                      {isBuy&&chgPct!==null&&(
+                        <div style={{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between"}}>
+                          <span style={{fontSize:"11px",color:"#64748b"}}>매수가 대비 현재</span>
+                          <div>
+                            <span style={{fontSize:"12px",fontWeight:700,color:chgPct>=0?"#34d399":"#f87171"}}>{chgPct>=0?"+":""}{chgPct.toFixed(2)}%</span>
+                            {profit!==null&&<span style={{fontSize:"11px",color:profit>=0?"#34d399":"#f87171",marginLeft:"6px"}}>{profit>=0?"+":""}{profit.toLocaleString()}₩</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1118,8 +1170,44 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
   );
 }
 
+// ── 계좌 표시 토글 바 ────────────────────────────────────────────────────────
+function OverviewToggleBar({ hiddenAccounts=[], toggleAccount, portfolio=[], portfolio2=[] }) {
+  const accounts = [
+    { key:"일반종합계좌", label:"일반종합", color:"#6366f1" },
+    { key:"ISA계좌",       label:"ISA",     color:"#06b6d4" },
+    { key:"연금저축1(신한금융투자)", label:"연금저축1", color:"#10b981" },
+    { key:"연금저축2(미래에셋증권)", label:"연금저축2", color:"#8b5cf6" },
+    { key:"IRP(미래에셋증권)",       label:"IRP",      color:"#f59e0b" },
+  ];
+  const [open, setOpen] = useState(false);
+  const hiddenCount = hiddenAccounts.length;
+  return (
+    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"8px 14px",marginBottom:"4px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+      <button onClick={()=>setOpen(v=>!v)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",padding:0}}>
+        {open?"▴":"▾"} 계좌 표시 설정
+        {hiddenCount>0&&<span style={{background:"rgba(239,68,68,0.2)",color:"#f87171",fontSize:"10px",padding:"1px 6px",borderRadius:"10px",fontWeight:800}}>{hiddenCount}개 숨김</span>}
+      </button>
+      {open&&(
+        <div style={{display:"flex",gap:"6px",flexWrap:"wrap",width:"100%",marginTop:"6px"}}>
+          {accounts.map(a=>{
+            const hidden = hiddenAccounts.includes(a.key);
+            return (
+              <button key={a.key} onClick={()=>toggleAccount(a.key)}
+                style={{background:hidden?"rgba(0,0,0,0.3)":"rgba(255,255,255,0.06)",border:`1px solid ${hidden?"rgba(255,255,255,0.1)":a.color+"66"}`,color:hidden?"#475569":a.color,padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",opacity:hidden?0.5:1,transition:"all 0.15s"}}>
+                {hidden?"☐":"☑"} {a.label}
+              </button>
+            );
+          })}
+          {hiddenCount>0&&<button onClick={()=>{accounts.forEach(a=>hiddenAccounts.includes(a.key)&&toggleAccount(a.key));}} style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",color:"#a5b4fc",padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>전체 표시</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ── 전체 현황 Overview ────────────────────────────────────────────────────────
-function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: rawPrices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock }) {
+function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: rawPrices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock, hiddenAccounts=[] }) {
   const [ovCurrMode, setOvCurrMode] = useState("KRW");
   const prices = rawPrices || {};
   const [viewMode, setViewMode] = useState("account"); // account | broker | region
@@ -1127,13 +1215,20 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
   const fmtK   = (v) => v >= 1e8 ? (v/1e8).toFixed(1)+"억₩" : v >= 1e4 ? Math.round(v/1e4)+"만₩" : Math.round(v).toLocaleString("ko-KR")+"₩";
   const fmtP   = (n) => (n>=0?"+":"")+n.toFixed(2)+"%";
 
-  const allItems = [...portfolio, ...portfolio2];
+  const allItems = [...portfolio, ...portfolio2].filter(h => {
+    if (hiddenAccounts.includes("일반종합계좌") && h.market !== "ISA") return false;
+    if (hiddenAccounts.includes("ISA계좌") && h.market === "ISA") return false;
+    if (hiddenAccounts.includes("연금저축1(신한금융투자)") && h.taxAccount === "연금저축1(신한금융투자)") return false;
+    if (hiddenAccounts.includes("연금저축2(미래에셋증권)") && h.taxAccount === "연금저축2(미래에셋증권)") return false;
+    if (hiddenAccounts.includes("IRP(미래에셋증권)") && h.taxAccount === "IRP(미래에셋증권)") return false;
+    return true;
+  });
   const totalVal  = allItems.reduce((s,h)=>s+toKRWL(h.value,h.cur),0);
   const totalCost = allItems.reduce((s,h)=>s+toKRWL(h.cost, h.cur),0);
   const totalPnL  = totalVal - totalCost;
   const totalRet  = totalCost > 0 ? (totalPnL/totalCost)*100 : 0;
 
-  const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0)).slice(-14);
+  const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0));
 
   // 계좌별 그룹 - 일반종합계좌 / ISA / 절세계좌
   const isa_items   = portfolio.filter(h => h.market === "ISA");
@@ -1432,7 +1527,7 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
   const pieTotal = pieData.reduce((s, d) => s + d.value, 0);
 
   // 스냅샷 (해당 계좌의 것만 - 지금은 전체 공유, 추후 분리 가능)
-  const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0)).slice(-20);
+  const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0));
 
   const W = isMobile ? 320 : 480, H = 120, pad = {t:8,r:8,b:20,l:8};
   const minP = snap.length ? Math.min(...snap.map(d=>d.returnRate)) : 0;
@@ -1538,6 +1633,58 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
           </div>
         </div>
 
+        {/* ── 내 매매 내역 ── */}
+        {(()=>{
+          const myTrades = [...trades].filter(t=>t.ticker===holding.ticker).sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
+          if (!myTrades.length) return null;
+          const isUS = holding.market==="US"||(holding.market==="ETF"&&!/^[0-9]/.test(holding.ticker));
+          const fmtPx = v => isUS?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
+          let remaining = holding.quantity;
+          const withRem = [...myTrades].sort((a,b)=>a.date?.localeCompare(b.date||"")||0).map(t=>{
+            const r=remaining;
+            remaining=t.type==="buy"?remaining-t.quantity:remaining+t.quantity;
+            return {...t,remaining:r};
+          }).reverse();
+          return (
+            <div style={{marginTop:"16px",background:"rgba(0,0,0,0.2)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
+              <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 내 매매 내역
+                <span style={{fontSize:"11px",color:"#64748b",fontWeight:400,marginLeft:"6px"}}>{myTrades.length}건</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:"6px",maxHeight:"260px",overflowY:"auto"}}>
+                {withRem.map(t=>{
+                  const isBuy=t.type==="buy";
+                  const chgPct=price?.price&&t.price?((price.price-t.price)/t.price)*100:null;
+                  const profit=price?.price?Math.round((price.price-t.price)*t.quantity*(isUS?liveUsdKrw:1)):null;
+                  const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p4"?"RIA":"";
+                  return(
+                    <div key={t.id} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`,borderRadius:"8px",padding:"10px 12px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"4px"}}>
+                        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+                          <span style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.15)",color:isBuy?"#c7d2fe":"#fca5a5",padding:"2px 8px",borderRadius:"10px",fontSize:"11px",fontWeight:800}}>{isBuy?"매수":"매도"}</span>
+                          <span style={{fontSize:"12px",color:"#94a3b8"}}>{t.date}</span>
+                          {portLabel&&<span style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",padding:"1px 5px",borderRadius:"4px"}}>{portLabel}</span>}
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{t.quantity.toLocaleString()}주 × {fmtPx(t.price)}</div>
+                          <div style={{fontSize:"10px",color:"#64748b"}}>잔여 {Math.max(0,t.remaining||0).toLocaleString()}주</div>
+                        </div>
+                      </div>
+                      {isBuy&&chgPct!==null&&(
+                        <div style={{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between"}}>
+                          <span style={{fontSize:"11px",color:"#64748b"}}>매수가 대비 현재</span>
+                          <div>
+                            <span style={{fontSize:"12px",fontWeight:700,color:chgPct>=0?"#34d399":"#f87171"}}>{chgPct>=0?"+":""}{chgPct.toFixed(2)}%</span>
+                            {profit!==null&&<span style={{fontSize:"11px",color:profit>=0?"#34d399":"#f87171",marginLeft:"6px"}}>{profit>=0?"+":""}{profit.toLocaleString()}₩</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1910,6 +2057,16 @@ function PortfolioApp({ syncKey, onLogout }) {
   });
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [hiddenAccounts, setHiddenAccounts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("pm_hidden_accounts")||"[]"); } catch { return []; }
+  });
+  const toggleAccount = (key) => {
+    setHiddenAccounts(p => {
+      const next = p.includes(key) ? p.filter(k=>k!==key) : [...p,key];
+      try { localStorage.setItem("pm_hidden_accounts", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [taxYear, setTaxYear] = useState(()=>String(new Date().getFullYear()));
   const [taxOverrides, setTaxOverrides] = useState(()=>{
     try { const s=localStorage.getItem("pm_tax_overrides"); return s?JSON.parse(s):{}; } catch { return {}; }
@@ -2438,7 +2595,7 @@ function PortfolioApp({ syncKey, onLogout }) {
       totalValue: Math.round(totalVal),
     };
     const newSnaps = [...snapshotsRef.current, snap]
-      .sort((a,b)=>(a.id||0)-(b.id||0)).slice(-200);
+      .sort((a,b)=>(a.id||0)-(b.id||0)).slice(-1000);
     setSnapshots(newSnaps);
     dbSet(`users/${syncKey}/snapshots`, newSnaps);
   }, [priceAge]); // priceAge가 바뀔때마다(=가격갱신마다) 체크
@@ -3291,6 +3448,7 @@ ${analystSummary}
           <OverviewPanel
             portfolio={portfolio}
             portfolio2={portfolio2}
+            hiddenAccounts={hiddenAccounts}
             holdings={holdings}
             holdings2={holdings2}
             prices={prices}
@@ -4239,9 +4397,21 @@ ${analystSummary}
           const tf = v => {
             if (!v) return "";
             const parts = v.split(" "); // "MM-DD HH:mm"
-            return showTime ? (parts[1]||v) : (parts[0]||v);
+            if (showTime) return parts[1]||v;
+            // 날짜만 표시 시 중복 제거 위해 MM-DD
+            return parts[0]||v;
           };
-          const ti = hasData ? Math.max(1, Math.floor(n / (isMobile?3:6))) : 1;
+          // 기간별 최적 tick 간격
+          const ti = (() => {
+            if (!hasData) return 1;
+            if (chartPeriod==="1h") return Math.max(1, Math.floor(n/6));
+            if (chartPeriod==="1d") return Math.max(1, Math.floor(n/8));
+            if (chartPeriod==="7d") return Math.max(1, Math.floor(n/7));
+            if (chartPeriod==="30d") return Math.max(1, Math.floor(n/10));
+            if (chartPeriod==="180d") return Math.max(1, Math.floor(n/6));
+            if (chartPeriod==="365d") return Math.max(1, Math.floor(n/12));
+            return Math.max(1, Math.floor(n/(isMobile?4:8)));
+          })();
           const rl = hasData ? filteredSnaps[0].label + " ~ " + filteredSnaps[n-1].label : null;
           const BTNS = [["1h","1시간"],["1d","1일"],["7d","1주"],["30d","1달"],["180d","6달"],["365d","1년"],["1095d","3년"],["all","전체"]];
           return (
@@ -5724,7 +5894,7 @@ ${analystSummary}
           );
         })()}
 
-      {selectedStock && <StockDetail holding={selectedStock} price={prices[selectedStock.ticker]} onClose={()=>setSelectedStock(null)} isMobile={isMobile} />}
+      {selectedStock && <StockDetail holding={selectedStock} price={prices[selectedStock.ticker]} onClose={()=>setSelectedStock(null)} isMobile={isMobile} trades={trades} allHoldings={[...holdings,...holdings2]} liveUsdKrw={liveUsdKrw}/>}
       {selectedAccount && (
         <AccountDetail
           title={selectedAccount.title}
