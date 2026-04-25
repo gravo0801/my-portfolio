@@ -1008,58 +1008,6 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
           )}
         </div>
 
-        {/* ── 내 매매 내역 ── */}
-        {(()=>{
-          const myTrades = [...trades].filter(t=>t.ticker===holding.ticker).sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
-          if (!myTrades.length) return null;
-          const isUS = holding.market==="US"||(holding.market==="ETF"&&!/^[0-9]/.test(holding.ticker));
-          const fmtPx = v => isUS?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
-          let remaining = holding.quantity;
-          const withRem = [...myTrades].sort((a,b)=>a.date?.localeCompare(b.date||"")||0).map(t=>{
-            const r=remaining;
-            remaining=t.type==="buy"?remaining-t.quantity:remaining+t.quantity;
-            return {...t,remaining:r};
-          }).reverse();
-          return (
-            <div style={{marginTop:"16px",background:"rgba(0,0,0,0.2)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
-              <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 내 매매 내역
-                <span style={{fontSize:"11px",color:"#64748b",fontWeight:400,marginLeft:"6px"}}>{myTrades.length}건</span>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:"6px",maxHeight:"260px",overflowY:"auto"}}>
-                {withRem.map(t=>{
-                  const isBuy=t.type==="buy";
-                  const chgPct=price?.price&&t.price?((price.price-t.price)/t.price)*100:null;
-                  const profit=price?.price?Math.round((price.price-t.price)*t.quantity*(isUS?liveUsdKrw:1)):null;
-                  const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p4"?"RIA":"";
-                  return(
-                    <div key={t.id} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`,borderRadius:"8px",padding:"10px 12px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"4px"}}>
-                        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
-                          <span style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.15)",color:isBuy?"#c7d2fe":"#fca5a5",padding:"2px 8px",borderRadius:"10px",fontSize:"11px",fontWeight:800}}>{isBuy?"매수":"매도"}</span>
-                          <span style={{fontSize:"12px",color:"#94a3b8"}}>{t.date}</span>
-                          {portLabel&&<span style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",padding:"1px 5px",borderRadius:"4px"}}>{portLabel}</span>}
-                        </div>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{t.quantity.toLocaleString()}주 × {fmtPx(t.price)}</div>
-                          <div style={{fontSize:"10px",color:"#64748b"}}>잔여 {Math.max(0,t.remaining||0).toLocaleString()}주</div>
-                        </div>
-                      </div>
-                      {isBuy&&chgPct!==null&&(
-                        <div style={{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between"}}>
-                          <span style={{fontSize:"11px",color:"#64748b"}}>매수가 대비 현재</span>
-                          <div>
-                            <span style={{fontSize:"12px",fontWeight:700,color:chgPct>=0?"#34d399":"#f87171"}}>{chgPct>=0?"+":""}{chgPct.toFixed(2)}%</span>
-                            {profit!==null&&<span style={{fontSize:"11px",color:profit>=0?"#34d399":"#f87171",marginLeft:"6px"}}>{profit>=0?"+":""}{profit.toLocaleString()}₩</span>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
       </div>
     </div>
   );
@@ -1604,58 +1552,6 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
           </div>
         </div>
 
-        {/* ── 내 매매 내역 ── */}
-        {(()=>{
-          const myTrades = [...trades].filter(t=>t.ticker===holding.ticker).sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
-          if (!myTrades.length) return null;
-          const isUS = holding.market==="US"||(holding.market==="ETF"&&!/^[0-9]/.test(holding.ticker));
-          const fmtPx = v => isUS?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
-          let remaining = holding.quantity;
-          const withRem = [...myTrades].sort((a,b)=>a.date?.localeCompare(b.date||"")||0).map(t=>{
-            const r=remaining;
-            remaining=t.type==="buy"?remaining-t.quantity:remaining+t.quantity;
-            return {...t,remaining:r};
-          }).reverse();
-          return (
-            <div style={{marginTop:"16px",background:"rgba(0,0,0,0.2)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(255,255,255,0.07)"}}>
-              <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 내 매매 내역
-                <span style={{fontSize:"11px",color:"#64748b",fontWeight:400,marginLeft:"6px"}}>{myTrades.length}건</span>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:"6px",maxHeight:"260px",overflowY:"auto"}}>
-                {withRem.map(t=>{
-                  const isBuy=t.type==="buy";
-                  const chgPct=price?.price&&t.price?((price.price-t.price)/t.price)*100:null;
-                  const profit=price?.price?Math.round((price.price-t.price)*t.quantity*(isUS?liveUsdKrw:1)):null;
-                  const portLabel=t.portfolio==="p2"&&t.taxAccount?t.taxAccount.replace("연금저축","연금").replace("(신한금융투자)","신한").replace("(미래에셋증권)","미래"):t.portfolio==="p3"?"ISA":t.portfolio==="p4"?"RIA":"";
-                  return(
-                    <div key={t.id} style={{background:"rgba(255,255,255,0.03)",border:`1px solid ${isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.2)"}`,borderRadius:"8px",padding:"10px 12px"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"4px"}}>
-                        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
-                          <span style={{background:isBuy?"rgba(99,102,241,0.2)":"rgba(239,68,68,0.15)",color:isBuy?"#c7d2fe":"#fca5a5",padding:"2px 8px",borderRadius:"10px",fontSize:"11px",fontWeight:800}}>{isBuy?"매수":"매도"}</span>
-                          <span style={{fontSize:"12px",color:"#94a3b8"}}>{t.date}</span>
-                          {portLabel&&<span style={{fontSize:"10px",color:"#f59e0b",background:"rgba(245,158,11,0.1)",padding:"1px 5px",borderRadius:"4px"}}>{portLabel}</span>}
-                        </div>
-                        <div style={{textAlign:"right"}}>
-                          <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{t.quantity.toLocaleString()}주 × {fmtPx(t.price)}</div>
-                          <div style={{fontSize:"10px",color:"#64748b"}}>잔여 {Math.max(0,t.remaining||0).toLocaleString()}주</div>
-                        </div>
-                      </div>
-                      {isBuy&&chgPct!==null&&(
-                        <div style={{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",justifyContent:"space-between"}}>
-                          <span style={{fontSize:"11px",color:"#64748b"}}>매수가 대비 현재</span>
-                          <div>
-                            <span style={{fontSize:"12px",fontWeight:700,color:chgPct>=0?"#34d399":"#f87171"}}>{chgPct>=0?"+":""}{chgPct.toFixed(2)}%</span>
-                            {profit!==null&&<span style={{fontSize:"11px",color:profit>=0?"#34d399":"#f87171",marginLeft:"6px"}}>{profit>=0?"+":""}{profit.toLocaleString()}₩</span>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
       </div>
     </div>
   );
@@ -1848,7 +1744,7 @@ function MiniSparkline({ data, pnlPct=0, width=60, height=24 }) {
   }
   const prices = data.map(d=>d.price).filter(v=>typeof v==="number"&&isFinite(v));
   if (prices.length < 2) return null;
-  const mn=Math.min(...prices), mx=Math.max(...prices), range=mx-mn||1;
+  const mn=prices.reduce((a,b)=>b<a?b:a, prices[0]), mx=prices.reduce((a,b)=>b>a?b:a, prices[0]), range=mx-mn||1;
   const pad={t:2,b:2,l:2,r:2};
   const pts = prices.map((p,i)=>{
     const x=(pad.l+(i/(prices.length-1))*(width-pad.l-pad.r)).toFixed(1);
