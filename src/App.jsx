@@ -1171,41 +1171,6 @@ function OverviewCard({ title, subtitle, items, prices, liveUsdKrw, color, onCli
 }
 
 // ── 계좌 표시 토글 바 ────────────────────────────────────────────────────────
-function OverviewToggleBar({ hiddenAccounts=[], toggleAccount, portfolio=[], portfolio2=[] }) {
-  const accounts = [
-    { key:"일반종합계좌", label:"일반종합", color:"#6366f1" },
-    { key:"ISA계좌",       label:"ISA",     color:"#06b6d4" },
-    { key:"연금저축1(신한금융투자)", label:"연금저축1", color:"#10b981" },
-    { key:"연금저축2(미래에셋증권)", label:"연금저축2", color:"#8b5cf6" },
-    { key:"IRP(미래에셋증권)",       label:"IRP",      color:"#f59e0b" },
-  ];
-  const [open, setOpen] = useState(false);
-  const hiddenCount = hiddenAccounts.length;
-  return (
-    <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"8px 14px",marginBottom:"4px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
-      <button onClick={()=>setOpen(v=>!v)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",padding:0}}>
-        {open?"▴":"▾"} 계좌 표시 설정
-        {hiddenCount>0&&<span style={{background:"rgba(239,68,68,0.2)",color:"#f87171",fontSize:"10px",padding:"1px 6px",borderRadius:"10px",fontWeight:800}}>{hiddenCount}개 숨김</span>}
-      </button>
-      {open&&(
-        <div style={{display:"flex",gap:"6px",flexWrap:"wrap",width:"100%",marginTop:"6px"}}>
-          {accounts.map(a=>{
-            const hidden = hiddenAccounts.includes(a.key);
-            return (
-              <button key={a.key} onClick={()=>toggleAccount(a.key)}
-                style={{background:hidden?"rgba(0,0,0,0.3)":"rgba(255,255,255,0.06)",border:`1px solid ${hidden?"rgba(255,255,255,0.1)":a.color+"66"}`,color:hidden?"#475569":a.color,padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",opacity:hidden?0.5:1,transition:"all 0.15s"}}>
-                {hidden?"☐":"☑"} {a.label}
-              </button>
-            );
-          })}
-          {hiddenCount>0&&<button onClick={()=>{accounts.forEach(a=>hiddenAccounts.includes(a.key)&&toggleAccount(a.key));}} style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",color:"#a5b4fc",padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>전체 표시</button>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-
 // ── 전체 현황 Overview ────────────────────────────────────────────────────────
 function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: rawPrices, snapshots, liveUsdKrw, isMobile, onSelectAccount, setSelectedStock, hiddenAccounts=[] }) {
   const [ovCurrMode, setOvCurrMode] = useState("KRW");
@@ -1485,7 +1450,7 @@ function ContribProgressBar({ taxAccounts, holdings2, prices, liveUsdKrw, contri
 }
 
 // ── 계좌 상세 모달 ────────────────────────────────────────────────────────────
-function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liveUsdKrw, isISA, onEdit }) {
+function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liveUsdKrw, isISA, onEdit, trades=[] }) {
   const toKRWL = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
   const fmtK = (v) => Math.round(v).toLocaleString("ko-KR") + "₩";
   const fmtP = (n) => (n >= 0 ? "+" : "") + Number(n).toFixed(2) + "%";
@@ -2057,6 +2022,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   });
   const [groupBy, setGroupBy] = useState("none");
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [acctToggleOpen, setAcctToggleOpen] = useState(false);
   const [hiddenAccounts, setHiddenAccounts] = useState(() => {
     try { return JSON.parse(localStorage.getItem("pm_hidden_accounts")||"[]"); } catch { return []; }
   });
@@ -3445,6 +3411,39 @@ ${analystSummary}
 
         {/* ── OVERVIEW ── */}
         {mainTab === "overview" && (
+          <div>
+          {/* ── 계좌 표시 토글 바 ── */}
+          {(()=>{
+            const ACCTS = [
+              {key:"일반종합계좌",label:"일반종합",color:"#6366f1"},
+              {key:"ISA계좌",label:"ISA",color:"#06b6d4"},
+              {key:"연금저축1(신한금융투자)",label:"연금저축1",color:"#10b981"},
+              {key:"연금저축2(미래에셋증권)",label:"연금저축2",color:"#8b5cf6"},
+              {key:"IRP(미래에셋증권)",label:"IRP",color:"#f59e0b"},
+            ];
+            const hCnt = hiddenAccounts.length;
+            return (
+              <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"8px 14px",marginBottom:"8px",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+                <button onClick={()=>setAcctToggleOpen(v=>!v)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",padding:0}}>
+                  {acctToggleOpen?"▴":"▾"} 계좌 표시 설정
+                  {hCnt>0&&<span style={{background:"rgba(239,68,68,0.2)",color:"#f87171",fontSize:"10px",padding:"1px 6px",borderRadius:"10px",fontWeight:800,marginLeft:"4px"}}>{hCnt}개 숨김</span>}
+                </button>
+                {acctToggleOpen&&(
+                  <div style={{display:"flex",gap:"6px",flexWrap:"wrap",width:"100%",marginTop:"6px"}}>
+                    {ACCTS.map(a=>{
+                      const hidden=hiddenAccounts.includes(a.key);
+                      return(
+                        <button key={a.key} onClick={()=>toggleAccount(a.key)} style={{background:hidden?"rgba(0,0,0,0.3)":"rgba(255,255,255,0.06)",border:`1px solid ${hidden?"rgba(255,255,255,0.1)":a.color+"66"}`,color:hidden?"#475569":a.color,padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"12px",fontWeight:700,display:"flex",alignItems:"center",gap:"4px",opacity:hidden?0.5:1,transition:"all 0.15s"}}>
+                          {hidden?"☐":"☑"} {a.label}
+                        </button>
+                      );
+                    })}
+                    {hCnt>0&&<button onClick={()=>hiddenAccounts.forEach(k=>toggleAccount(k))} style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.3)",color:"#a5b4fc",padding:"4px 12px",borderRadius:"20px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>전체 표시</button>}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <OverviewPanel
             portfolio={portfolio}
             portfolio2={portfolio2}
@@ -3458,6 +3457,7 @@ ${analystSummary}
             onSelectAccount={setSelectedAccount}
             setSelectedStock={setSelectedStock}
           />
+          </div>
         )}
 
         {/* ── PORTFOLIO ── */}
@@ -5904,6 +5904,7 @@ ${analystSummary}
           onClose={()=>setSelectedAccount(null)}
           isMobile={isMobile}
           liveUsdKrw={liveUsdKrw}
+          trades={trades}
           onEdit={h=>{
             const isP2=holdings2.some(x=>x.id===h.id);
             if(isP2){startEdit2(h);setMainTab("p2");setTab("portfolio");}
