@@ -871,8 +871,8 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
   const fmtNum = (n) => n >= 1e12 ? (n/1e12).toFixed(2)+"조" : n >= 1e8 ? (n/1e8).toFixed(0)+"억" : n >= 1e6 ? (n/1e6).toFixed(0)+"백만" : n?.toLocaleString() ?? "-";
   const fmtUSD = (n) => n ? "$"+n.toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0}) : "-";
 
-  const minP = history.length ? Math.min(...history.map(d=>d.price)) : 0;
-  const maxP = history.length ? Math.max(...history.map(d=>d.price)) : 1;
+  const minP = history.length ? history.reduce((mn,d)=>d.price<mn?d.price:mn, history[0]?.price??0) : 0;
+  const maxP = history.length ? history.reduce((mx,d)=>d.price>mx?d.price:mx, history[0]?.price??1) : 1;
   const W = isMobile ? window.innerWidth - 80 : 520;
   const H = 160;
   const pad = { t:10, r:10, b:24, l:10 };
@@ -1241,8 +1241,8 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
   };
 
   const W = isMobile?300:460, H=80, pad={t:6,r:6,b:16,l:6};
-  const minP = snap.length ? Math.min(...snap.map(d=>d.returnRate)) : 0;
-  const maxP = snap.length ? Math.max(...snap.map(d=>d.returnRate)) : 1;
+  const minP = snap.length ? snap.reduce((mn,d)=>d.returnRate<mn?d.returnRate:mn, snap[0]?.returnRate??0) : 0;
+  const maxP = snap.length ? snap.reduce((mx,d)=>d.returnRate>mx?d.returnRate:mx, snap[0]?.returnRate??1) : 1;
   const pts = snap.map((d,i)=>{
     const x = pad.l+(i/(snap.length-1||1))*(W-pad.l-pad.r);
     const y = pad.t+(1-(d.returnRate-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
@@ -1478,7 +1478,9 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
               ? Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100))
               : Math.round(p.price / (1 + p.changePercent/100) * (p.changePercent/100) * 100) / 100)
           : 0);
-    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, hasLive: !!p, marketState: getLiveMarketState("KR", p?.marketState) };
+    const regChgAmt = p?.regularChangeAmount ?? chgAmt;
+    const regChgPct = p?.regularChangePercent ?? (p?.changePercent ?? 0);
+    return { ...h, price, value, cost, pnl, pnlPct, cur, chgPct: p?.changePercent ?? 0, chgAmt, regChgAmt, regChgPct, hasLive: !!p, marketState: getLiveMarketState("KR", p?.marketState) };
   });
 
   const totalVal  = portfolio.reduce((s, h) => s + toKRWL(h.value, h.cur), 0);
@@ -1499,8 +1501,8 @@ function AccountDetail({ title, items, prices, snapshots, onClose, isMobile, liv
   const snap = [...(snapshots||[])].sort((a,b)=>(a.id||0)-(b.id||0));
 
   const W = isMobile ? 320 : 480, H = 120, pad = {t:8,r:8,b:20,l:8};
-  const minP = snap.length ? Math.min(...snap.map(d=>d.returnRate)) : 0;
-  const maxP = snap.length ? Math.max(...snap.map(d=>d.returnRate)) : 1;
+  const minP = snap.length ? snap.reduce((mn,d)=>d.returnRate<mn?d.returnRate:mn, snap[0]?.returnRate??0) : 0;
+  const maxP = snap.length ? snap.reduce((mx,d)=>d.returnRate>mx?d.returnRate:mx, snap[0]?.returnRate??1) : 1;
   const pts  = snap.map((d,i) => {
     const x = pad.l + (i/(snap.length-1||1))*(W-pad.l-pad.r);
     const y = pad.t + (1-(d.returnRate-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
@@ -2556,7 +2558,7 @@ function PortfolioApp({ syncKey, onLogout }) {
     if (!loaded || totalVal <= 0) return;
     const now2 = Date.now();
     const lastSnap = snapshotsRef.current.length
-      ? Math.max(...snapshotsRef.current.map(s=>s.id||0)) : 0;
+      ? snapshotsRef.current.reduce((mx,s)=>(s.id||0)>mx?(s.id||0):mx, 0) : 0;
     if (now2 - lastSnap < 30000) return; // 30초 이내 중복 방지
     const snap = {
       id: now2,
