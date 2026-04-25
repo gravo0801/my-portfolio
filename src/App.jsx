@@ -1180,8 +1180,12 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
   const fmtK   = (v) => v >= 1e8 ? (v/1e8).toFixed(1)+"억₩" : v >= 1e4 ? Math.round(v/1e4)+"만₩" : Math.round(v).toLocaleString("ko-KR")+"₩";
   const fmtP   = (n) => (n>=0?"+":"")+n.toFixed(2)+"%";
 
+  // portfolio = ISA 포함 holdings + portfolio2
+  // 토글에 따른 계좌별 필터링
   const allItems = [...portfolio, ...portfolio2].filter(h => {
-    if (hiddenAccounts.includes("일반종합계좌") && h.market !== "ISA") return false;
+    // 일반종합: portfolio 중 ISA/펀드/연금 아닌 종목
+    const isGeneral = !["연금저축1(신한금융투자)","연금저축2(미래에셋증권)","IRP(미래에셋증권)"].includes(h.taxAccount) && h.market !== "ISA" && !h.taxAccount;
+    if (hiddenAccounts.includes("일반종합계좌") && isGeneral) return false;
     if (hiddenAccounts.includes("ISA계좌") && h.market === "ISA") return false;
     if (hiddenAccounts.includes("연금저축1(신한금융투자)") && h.taxAccount === "연금저축1(신한금융투자)") return false;
     if (hiddenAccounts.includes("연금저축2(미래에셋증권)") && h.taxAccount === "연금저축2(미래에셋증권)") return false;
@@ -1197,7 +1201,7 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
 
   // 계좌별 그룹 - 일반종합계좌 / ISA / 절세계좌
   const isa_items   = portfolio.filter(h => h.market === "ISA");
-  const gen_items   = portfolio.filter(h => h.market !== "ISA");
+  const gen_items   = portfolio.filter(h => h.market !== "ISA" && !["연금저축1(신한금융투자)","연금저축2(미래에셋증권)","IRP(미래에셋증권)"].includes(h.taxAccount));
   const ACCOUNT_GROUPS = [
     { key:"일반종합계좌", title:"일반종합계좌", subtitle:"주식·코인·금현물", color:"#6366f1", items: gen_items },
     { key:"ISA계좌", title:"ISA 계좌", subtitle:"중개형 ISA", color:"#06b6d4", items: isa_items },
@@ -2599,6 +2603,23 @@ function PortfolioApp({ syncKey, onLogout }) {
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   // P1: ISA 제외 (P3 탭으로 분리)
   const holdingsP1 = holdings.filter(h => h.market !== "ISA");
+  // ISA 포함 전체 포트폴리오 (전체현황용)
+  const portfolioAll = holdings.map(h => {
+    const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
+    const cur = h.market === "US" ? "USD"
+      : h.market === "ETF" ? (p?.currency || (h.ticker.includes(".KS")||h.ticker.includes(".KQ") ? "KRW" : "USD"))
+      : "KRW";
+    const price = p?.price ?? h.avgPrice;
+    const value = price * h.quantity;
+    const cost  = h.avgPrice * h.quantity;
+    const pnl   = value - cost;
+    const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+    const chgAmt = p?.changeAmount ? p.changeAmount : (p?.price&&p?.changePercent ? (cur==="KRW"?Math.round(p.price/(1+p.changePercent/100)*(p.changePercent/100)):Math.round(p.price/(1+p.changePercent/100)*(p.changePercent/100)*100)/100) : 0);
+    const chgPct = p?.changePercent ?? 0;
+    const regChgAmt = p?.regularChangeAmount ?? chgAmt;
+    const regChgPct = p?.regularChangePercent ?? chgPct;
+    return { ...h, value, cost, cur, price, hasLive:!!p, pnlPct, pnlAmt:pnl, chgAmt, chgPct, regChgAmt, regChgPct };
+  });
   const portfolio = holdingsP1.map(h => {
     const p   = prices[h.ticker] || prices[h.ticker+".KS"] || prices[h.ticker+".KQ"] || null;
     const cur = h.market === "US" ? "USD"
@@ -3445,7 +3466,7 @@ ${analystSummary}
             );
           })()}
           <OverviewPanel
-            portfolio={portfolio}
+            portfolio={portfolioAll}
             portfolio2={portfolio2}
             hiddenAccounts={hiddenAccounts}
             holdings={holdings}
