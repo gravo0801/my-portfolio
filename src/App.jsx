@@ -1936,6 +1936,9 @@ function PortfolioApp({ syncKey, onLogout }) {
     });
   };
   const [taxYear, setTaxYear] = useState(()=>String(new Date().getFullYear()));
+  // 사전 양도세 계산기
+  const [preTaxItems, setPreTaxItems] = useState({}); // {ticker: sellQty}
+  const [preTaxOpen, setPreTaxOpen] = useState(false);
   const [taxOverrides, setTaxOverrides] = useState(()=>{
     try { const s=localStorage.getItem("pm_tax_overrides"); return s?JSON.parse(s):{}; } catch { return {}; }
   }); // {tradeId: {avgPrice, memo}} - localStorage 영구 저장
@@ -5131,6 +5134,139 @@ ${analystSummary}
           const fmt = v => (v>=0?"+":"")+Math.round(v).toLocaleString()+"₩";
           return (
             <div style={{display:"flex",flexDirection:"column",gap:"16px",paddingBottom:"20px"}}>
+              {/* ── 사전 양도세 계산기 (매도 시뮬레이션) ── */}
+              {(()=>{
+                const usHoldings = [...holdings, ...holdings2, ...holdings4].filter(h =>
+                  h.market==="US" || (h.market==="ETF" && !/^[0-9]/.test(h.ticker))
+                ).filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i);
+
+                const simItems = usHoldings.filter(h => preTaxItems[h.ticker] > 0);
+                const simRows = simItems.map(h => {
+                  const qty = +preTaxItems[h.ticker] || 0;
+                  const px = prices[h.ticker]?.price || h.avgPrice;
+                  const profitUSD = (px - h.avgPrice) * qty;
+                  const profitKRW = profitUSD * (liveUsdKrw||1380);
+                  return { ...h, simQty: qty, px, profitUSD, profitKRW };
+                });
+                const totalUSD = simRows.reduce((s,r)=>s+r.profitUSD, 0);
+                const totalKRW = simRows.reduce((s,r)=>s+r.profitKRW, 0);
+                // 기존 당해 양도소득과 합산
+                const alreadyKRW = usProfits.reduce((s,t)=>s+t.profitKRW, 0);
+                const combinedKRW = alreadyKRW + totalKRW;
+                const taxableKRW = Math.max(0, combinedKRW - 2_500_000);
+                const estimatedTax = Math.round(taxableKRW * 0.22);
+
+                return (
+                  <div style={{...S.card, background:"linear-gradient(135deg,rgba(16,185,129,0.08),rgba(6,182,212,0.05))", borderColor:"rgba(16,185,129,0.25)", marginBottom:"0"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:preTaxOpen?"14px":"0",flexWrap:"wrap",gap:"8px"}}>
+                      <div>
+                        <div style={{fontSize:"16px",fontWeight:800,letterSpacing:"-0.02em"}}>🧮 사전 양도세 시뮬레이터</div>
+                        <div style={{fontSize:"12px",color:"#94a3b8",marginTop:"2px"}}>매도 전 양도세 예측 · 종목별 수량 입력</div>
+                      </div>
+                      <button onClick={()=>setPreTaxOpen(v=>!v)}
+                        style={{background:preTaxOpen?"rgba(16,185,129,0.2)":"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.4)",color:"#34d399",padding:"6px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
+                        {preTaxOpen?"▴ 닫기":"▾ 시뮬레이션 열기"}
+                      </button>
+                    </div>
+
+                    {preTaxOpen&&(<>
+                      {/* 종목별 수량 입력 */}
+                      <div style={{marginBottom:"14px"}}>
+                        <div style={{fontSize:"12px",color:"#64748b",fontWeight:700,marginBottom:"8px"}}>📌 매도 예정 수량 입력 (0이면 미포함)</div>
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:"8px"}}>
+                          {usHoldings.map(h=>{
+                            const px = prices[h.ticker]?.price || h.avgPrice;
+                            const qty = preTaxItems[h.ticker] || "";
+                            const simProfit = qty>0 ? (px-h.avgPrice)*(+qty) : null;
+                            const broker = h.broker || h.taxAccount || (h.market==="ISA"?"ISA":h.portfolio==="p4"?"RIA":"키움");
+                            return (
+                              <div key={h.ticker} style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"10px 12px",border:`1px solid ${simProfit>0?"rgba(52,211,153,0.25)":simProfit<0?"rgba(248,113,113,0.25)":"rgba(255,255,255,0.06)"}`}}>
+                                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"6px"}}>
+                                  <div>
+                                    <div style={{fontSize:"13px",fontWeight:700,color:"#f1f5f9"}}>{h.name||h.ticker}</div>
+                                    <div style={{fontSize:"10px",color:"#64748b"}}>{h.ticker} · {broker}</div>
+                                  </div>
+                                  <div style={{textAlign:"right",fontSize:"11px",color:"#64748b"}}>
+                                    <div>현재 ${(px||0).toFixed(2)}</div>
+                                    <div>평단 ${(h.avgPrice||0).toFixed(2)}</div>
+                                    <div style={{color:(px-h.avgPrice)>=0?"#34d399":"#f87171",fontWeight:600}}>{(px-h.avgPrice)>=0?"+":""}{h.avgPrice>0?((px-h.avgPrice)/h.avgPrice*100).toFixed(1):0}%</div>
+                                  </div>
+                                </div>
+                                <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                                  <input
+                                    type="number" min="0" max={h.quantity}
+                                    placeholder={`0 / ${h.quantity}주`}
+                                    value={qty}
+                                    onChange={e=>{
+                                      const v=Math.min(+e.target.value||0, h.quantity);
+                                      setPreTaxItems(p=>({...p,[h.ticker]:v||undefined}));
+                                    }}
+                                    style={{...S.inp,flex:1,fontSize:"13px",padding:"5px 8px"}}
+                                  />
+                                  <button onClick={()=>setPreTaxItems(p=>({...p,[h.ticker]:h.quantity}))}
+                                    style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"5px 8px",borderRadius:"6px",cursor:"pointer",fontSize:"10px",fontWeight:700,whiteSpace:"nowrap"}}>
+                                    전량
+                                  </button>
+                                </div>
+                                {simProfit!==null&&(
+                                  <div style={{marginTop:"5px",fontSize:"11px",fontWeight:700,color:simProfit>=0?"#34d399":"#f87171"}}>
+                                    예상 손익: {simProfit>=0?"+":""}{simProfit.toFixed(2)} USD
+                                    <span style={{color:"#64748b",fontWeight:400,marginLeft:"4px"}}>({Math.round(simProfit*(liveUsdKrw||1380)).toLocaleString()}₩)</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 시뮬레이션 결과 */}
+                      {simRows.length>0&&(
+                        <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(16,185,129,0.2)"}}>
+                          <div style={{fontSize:"13px",fontWeight:700,color:"#6ee7b7",marginBottom:"10px"}}>📊 시뮬레이션 결과</div>
+                          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px",marginBottom:"12px"}}>
+                            {[
+                              ["이번 매도 손익(USD)", (totalUSD>=0?"+":"")+totalUSD.toFixed(2)+" USD", totalUSD>=0?"#34d399":"#f87171"],
+                              ["이번 매도 손익(KRW)", (totalKRW>=0?"+":"")+Math.round(totalKRW).toLocaleString()+"₩", totalKRW>=0?"#34d399":"#f87171"],
+                              ["기존+이번 합산(KRW)", (combinedKRW>=0?"+":"")+Math.round(combinedKRW).toLocaleString()+"₩", combinedKRW>=0?"#34d399":"#f87171"],
+                              ["예상 세액(22%)", estimatedTax>0?Math.round(estimatedTax).toLocaleString()+"₩":"비과세", estimatedTax>0?"#f87171":"#34d399"],
+                            ].map(([l,v,c])=>(
+                              <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"10px 12px"}}>
+                                <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:600}}>{l}</div>
+                                <div style={{fontSize:"13px",fontWeight:800,color:c}}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{fontSize:"12px",color:"#94a3b8",lineHeight:1.7,background:"rgba(251,191,36,0.06)",borderRadius:"8px",padding:"8px 12px"}}>
+                            📌 비과세 한도 <strong style={{color:"#fbbf24"}}>250만원</strong> 적용 · 기존 당해 양도손익 <strong style={{color:alreadyKRW>=0?"#34d399":"#f87171"}}>{(alreadyKRW>=0?"+":"")+Math.round(alreadyKRW).toLocaleString()}₩</strong> 합산 ·
+                            환율 <strong style={{color:"#f1f5f9"}}>$1={Math.round(liveUsdKrw||1380).toLocaleString()}₩</strong>
+                          </div>
+                          {taxableKRW<=0&&combinedKRW>0&&(
+                            <div style={{marginTop:"8px",background:"rgba(52,211,153,0.1)",border:"1px solid rgba(52,211,153,0.3)",borderRadius:"8px",padding:"8px 12px",fontSize:"12px",color:"#6ee7b7",fontWeight:700}}>
+                              ✅ 비과세 한도(250만원) 이내 — 이 조합으로는 양도세 없음
+                            </div>
+                          )}
+                          {taxableKRW>0&&(
+                            <div style={{marginTop:"8px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:"8px",padding:"8px 12px",fontSize:"12px",color:"#fca5a5",fontWeight:700}}>
+                              ⚠️ 비과세 한도 초과 — 예상 납부세액 <strong style={{fontSize:"14px"}}>{Math.round(estimatedTax).toLocaleString()}₩</strong>
+                            </div>
+                          )}
+                          <button onClick={()=>setPreTaxItems({})}
+                            style={{marginTop:"10px",background:"none",border:"1px solid rgba(255,255,255,0.1)",color:"#64748b",padding:"5px 14px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>
+                            ✕ 초기화
+                          </button>
+                        </div>
+                      )}
+                      {simRows.length===0&&(
+                        <div style={{textAlign:"center",padding:"16px",color:"#475569",fontSize:"13px"}}>
+                          위 종목에서 매도 예정 수량을 입력하면 양도세를 미리 계산합니다
+                        </div>
+                      )}
+                    </>)}
+                  </div>
+                );
+              })()}
+
               {/* 연도 선택 */}
               <div style={{...S.card, background:"linear-gradient(135deg,rgba(239,68,68,0.1),rgba(251,146,60,0.06))", borderColor:"rgba(239,68,68,0.25)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"10px",marginBottom:"14px"}}>
