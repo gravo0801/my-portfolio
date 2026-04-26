@@ -5146,10 +5146,17 @@ ${analystSummary}
                   const px = prices[h.ticker]?.price || h.avgPrice;
                   const profitUSD = (px - h.avgPrice) * qty;
                   const profitKRW = profitUSD * (liveUsdKrw||1380);
-                  return { ...h, simQty: qty, px, profitUSD, profitKRW };
+                  const saleUSD = px * qty;                          // 매도금액(달러)
+                  const saleKRW = saleUSD * (liveUsdKrw||1380);     // 매도금액(원화)
+                  return { ...h, simQty: qty, px, profitUSD, profitKRW, saleUSD, saleKRW };
                 });
                 const totalUSD = simRows.reduce((s,r)=>s+r.profitUSD, 0);
                 const totalKRW = simRows.reduce((s,r)=>s+r.profitKRW, 0);
+                const totalSaleKRW = simRows.reduce((s,r)=>s+r.saleKRW, 0);  // 총 매도금액
+                const totalSaleUSD = simRows.reduce((s,r)=>s+r.saleUSD, 0);
+                const RIA_LIMIT = 50_000_000; // RIA 한도 5000만원
+                const riaRemain = Math.max(0, RIA_LIMIT - totalSaleKRW);
+                const riaOver   = Math.max(0, totalSaleKRW - RIA_LIMIT);
                 // 기존 당해 양도소득과 합산
                 const alreadyKRW = usProfits.reduce((s,t)=>s+t.profitKRW, 0);
                 const combinedKRW = alreadyKRW + totalKRW;
@@ -5208,10 +5215,16 @@ ${analystSummary}
                                     전량
                                   </button>
                                 </div>
-                                {simProfit!==null&&(
-                                  <div style={{marginTop:"5px",fontSize:"11px",fontWeight:700,color:simProfit>=0?"#34d399":"#f87171"}}>
-                                    예상 손익: {simProfit>=0?"+":""}{simProfit.toFixed(2)} USD
-                                    <span style={{color:"#64748b",fontWeight:400,marginLeft:"4px"}}>({Math.round(simProfit*(liveUsdKrw||1380)).toLocaleString()}₩)</span>
+                                {qty>0&&(
+                                  <div style={{marginTop:"5px",display:"flex",flexDirection:"column",gap:"2px"}}>
+                                    <div style={{fontSize:"11px",fontWeight:700,color:simProfit>=0?"#34d399":"#f87171"}}>
+                                      양도차익: {simProfit>=0?"+":""}{simProfit.toFixed(2)} USD
+                                      <span style={{color:"#64748b",fontWeight:400,marginLeft:"4px"}}>({Math.round(simProfit*(liveUsdKrw||1380)).toLocaleString()}₩)</span>
+                                    </div>
+                                    <div style={{fontSize:"11px",color:"#94a3b8"}}>
+                                      매도금액: ${(px*(+qty)).toFixed(0)}
+                                      <span style={{color:"#64748b",marginLeft:"4px"}}>({Math.round(px*(+qty)*(liveUsdKrw||1380)).toLocaleString()}₩)</span>
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -5224,6 +5237,39 @@ ${analystSummary}
                       {simRows.length>0&&(
                         <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"12px",padding:"14px",border:"1px solid rgba(16,185,129,0.2)"}}>
                           <div style={{fontSize:"13px",fontWeight:700,color:"#6ee7b7",marginBottom:"10px"}}>📊 시뮬레이션 결과</div>
+                          {/* 매도금액 총액 + RIA 한도 */}
+                          <div style={{background:"rgba(6,182,212,0.07)",border:"1px solid rgba(6,182,212,0.25)",borderRadius:"10px",padding:"12px",marginBottom:"10px"}}>
+                            <div style={{fontSize:"12px",color:"#06b6d4",fontWeight:700,marginBottom:"8px"}}>🏦 총 매도금액 (RIA 이전 한도 기준)</div>
+                            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:"8px"}}>
+                              {[
+                                ["총 매도금액(USD)", "$"+Math.round(totalSaleUSD).toLocaleString(), "#e2e8f0"],
+                                ["총 매도금액(KRW)", Math.round(totalSaleKRW).toLocaleString()+"₩", totalSaleKRW>RIA_LIMIT?"#f87171":"#e2e8f0"],
+                                ["RIA 잔여한도", riaRemain>0?Math.round(riaRemain).toLocaleString()+"₩ 남음":"한도 초과!", riaRemain>0?"#34d399":"#f87171"],
+                              ].map(([l,v,c])=>(
+                                <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"8px",padding:"8px 10px"}}>
+                                  <div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px",fontWeight:600}}>{l}</div>
+                                  <div style={{fontSize:"13px",fontWeight:800,color:c}}>{v}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {/* RIA 한도 게이지 바 */}
+                            <div style={{marginTop:"8px"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>
+                                <span>{Math.round(totalSaleKRW/10000).toLocaleString()}만원 / 5,000만원</span>
+                                <span>{Math.min(100,(totalSaleKRW/RIA_LIMIT*100)).toFixed(1)}%</span>
+                              </div>
+                              <div style={{height:"6px",background:"rgba(255,255,255,0.08)",borderRadius:"3px",overflow:"hidden"}}>
+                                <div style={{height:"100%",width:Math.min(100,totalSaleKRW/RIA_LIMIT*100)+"%",background:totalSaleKRW>RIA_LIMIT?"#f87171":"linear-gradient(90deg,#06b6d4,#6366f1)",borderRadius:"3px",transition:"width 0.3s"}}/>
+                              </div>
+                            </div>
+                            {riaOver>0&&(
+                              <div style={{marginTop:"6px",fontSize:"11px",color:"#fca5a5",fontWeight:700}}>
+                                ⚠️ RIA 한도 {Math.round(riaOver).toLocaleString()}₩ 초과 — 수량을 줄이거나 종목을 조정하세요
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 양도세 계산 결과 */}
                           <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px",marginBottom:"12px"}}>
                             {[
                               ["이번 매도 손익(USD)", (totalUSD>=0?"+":"")+totalUSD.toFixed(2)+" USD", totalUSD>=0?"#34d399":"#f87171"],
