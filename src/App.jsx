@@ -1953,7 +1953,10 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [editingId4, setEditingId4]  = useState(null);
   const [editForm4,  setEditForm4]   = useState({});
   const [hForm4, setHForm4] = useState({ ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" });
-  const [aiPanel, setAiPanel] = useState(null); // {ticker, name, market, price, avgPrice, pnlPct}
+  const [aiPanel, setAiPanel] = useState(null);
+  const [retroPanel, setRetroPanel] = useState(null); // {trade} - 매도 회고 패널
+  const [retroResults, setRetroResults] = useState({}); // {tradeId: {loading, score, analysis, currentPrice}}
+  const [retroTab, setRetroTab] = useState("pending"); // "pending" | "done" // {ticker, name, market, price, avgPrice, pnlPct}
   const [aiResult, setAiResult] = useState({}); // {ticker: {loading, analyst, opinion, error}}
   const [calSelectedDate, setCalSelectedDate] = useState(null);
   const [calStockTicker, setCalStockTicker] = useState(null);
@@ -1995,7 +1998,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", stockType:"일반주식", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
-  const [tForm, setTForm] = useState({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"", taxAccount:"" });
+  const [tForm, setTForm] = useState({ date:today(), ticker:"", type:"buy", quantity:"", price:"", fee:"", note:"", taxAccount:"", sellReason:"" });
   const [aForm, setAForm] = useState({ ticker:"", direction:"down", threshold:"" });
 
   useEffect(() => {
@@ -2790,6 +2793,83 @@ ${analystSummary}
     setHoldings4(p => p.map(x => x.id === editingId4 ? { ...x, ...cleanForm, quantity: qty, avgPrice: avg } : x));
     setEditingId4(null);
   };
+
+  // ── AI 매도 회고 분석 ──────────────────────────────────────────────────────
+  const runRetroAnalysis = async (trade) => {
+    const key = trade.id;
+    setRetroPanel(trade);
+    if (retroResults[key]?.score !== undefined) return; // 캐시
+    setRetroResults(p => ({...p, [key]: {loading: true}}));
+
+    // 현재 시세 조회
+    const allH = [...holdings, ...holdings2];
+    const h = allH.find(x => x.ticker === trade.ticker);
+    const isUS = trade.cur==="USD" || h?.market==="US" || (h?.market==="ETF"&&!/^[0-9]/.test(trade.ticker));
+    const cur = isUS ? "USD" : "KRW";
+    const fmtP = v => isUS ? "$"+Number(v).toFixed(2) : Math.round(v).toLocaleString()+"₩";
+
+    let currentPriceData = null;
+    try {
+      const sym = isUS ? trade.ticker : trade.ticker.replace(".KS","").replace(".KQ","");
+      const resp = await fetch(`/api/quote?symbols=${encodeURIComponent(isUS?sym:sym+".KS")}`);
+      const data = await resp.json();
+      const key2 = isUS ? sym : (sym+".KS");
+      currentPriceData = data[key2] || data[sym] || null;
+    } catch {}
+
+    const currentPrice = currentPriceData?.price || h?.avgPrice || 0;
+    const sellPrice = trade.price;
+    const daysAgo = Math.round((Date.now() - trade.id) / 86400000);
+    const priceChgPct = sellPrice > 0 ? ((currentPrice - sellPrice) / sellPrice * 100) : 0;
+
+    // 점수 계산: 매도 후 주가가 내렸으면 좋은 결정, 올랐으면 아쉬운 결정
+    const score = (() => {
+      if (Math.abs(priceChgPct) < 3) return { val: 3, label: "보통", color: "#fbbf24", emoji: "🟡" };
+      if (priceChgPct > 15) return { val: 1, label: "아쉬운 결정", color: "#f87171", emoji: "🔴" };
+      if (priceChgPct > 5)  return { val: 2, label: "다소 아쉬움", color: "#fb923c", emoji: "🟠" };
+      if (priceChgPct < -15) return { val: 5, label: "탁월한 결정", color: "#34d399", emoji: "🟢" };
+      if (priceChgPct < -5)  return { val: 4, label: "좋은 결정", color: "#6ee7b7", emoji: "🟢" };
+      return { val: 3, label: "보통", color: "#fbbf24", emoji: "🟡" };
+    })();
+
+    // Claude AI 회고 분석
+    const prompt = `당신은 투자 의사결정 코치입니다. 다음 매도 거래를 분석하고 한국어로 피드백을 작성해주세요.
+
+**거래 정보:**
+- 종목: ${h?.name||trade.ticker} (${trade.ticker})
+- 매도일: ${trade.date} (${daysAgo}일 전)
+- 매도가: ${fmtP(sellPrice)}
+- 매도 수량: ${trade.quantity}주
+- 매도 이유 (본인 기록): "${trade.sellReason||"기록 없음"}"
+
+**결과 확인 (${daysAgo}일 후):**
+- 현재가: ${fmtP(currentPrice)}
+- 매도 후 주가 변화: ${priceChgPct>=0?"+":""}${priceChgPct.toFixed(1)}%
+- 판단: ${score.label}
+
+**요청:**
+아래 형식으로 피드백을 작성해주세요 (총 200-300자):
+
+1. **결정 평가**: 매도 이유와 실제 결과를 비교한 간단한 평가
+2. **잘한 점 / 아쉬운 점**: 이 결정에서 배울 수 있는 1가지씩
+3. **다음 번 조언**: 비슷한 상황에서 더 나은 의사결정을 위한 짧은 조언
+
+⚠️ 이 분석은 참고용이며 투자 결정은 본인 판단으로 하세요.`;
+
+    try {
+      const resp = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max_tokens: 600, messages: [{ role: "user", content: prompt }] })
+      });
+      const data = await resp.json();
+      const text = data?.content?.[0]?.text || "분석을 받지 못했습니다.";
+      setRetroResults(p => ({...p, [key]: { loading: false, score, currentPrice, priceChgPct, daysAgo, analysis: text }}));
+    } catch (e) {
+      setRetroResults(p => ({...p, [key]: { loading: false, error: e.message, score, currentPrice, priceChgPct, daysAgo }}));
+    }
+  };
+
   const addT = () => {
     if (!tForm.ticker || !tForm.quantity || !tForm.price) return;
     setTrades(p => [...p, { id: Date.now(), ...tForm, portfolio:"p1", quantity: +tForm.quantity, price: +tForm.price, fee: +(tForm.fee||0) }]);
@@ -3987,6 +4067,22 @@ ${analystSummary}
           {/* P3 매매일지 */}
           {tab === "trades" && (
             <div style={S.card}>
+              {/* 회고 대기 배너 */}
+              {(()=>{
+                const pending=trades.filter(t=>t.type==="sell"&&t.sellReason&&!retroResults[t.id]?.score&&(Date.now()-t.id)>30*86400000);
+                if(!pending.length) return null;
+                return(
+                  <div style={{background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:"10px",padding:"10px 14px",marginBottom:"14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
+                    <div style={{fontSize:"13px",color:"#fbbf24",fontWeight:700}}>🔍 회고 대기 {pending.length}건<span style={{fontSize:"11px",color:"#94a3b8",fontWeight:400,marginLeft:"6px"}}>(30일 이상 지남)</span></div>
+                    <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                      {pending.slice(0,3).map(t=>(
+                        <button key={t.id} onClick={()=>runRetroAnalysis(t)} style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"3px 10px",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:700}}>{t.ticker} 회고</button>
+                      ))}
+                      {pending.length>3&&<span style={{fontSize:"11px",color:"#64748b",paddingTop:"4px"}}>외 {pending.length-3}건</span>}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px",flexWrap:"wrap",gap:"8px"}}>
                 <div><div style={{fontSize:"17px",fontWeight:800}}>ISA 매매일지</div>
                   <div style={{fontSize:"13px",color:"#475569",marginTop:"4px"}}>{trades.filter(t=>isaHoldings.some(h=>h.ticker===t.ticker)).length}건</div>
@@ -4014,11 +4110,18 @@ ${analystSummary}
                     <input placeholder="수량" type="number" value={tForm.quantity} onChange={e=>setTForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                     <input placeholder="체결가" type="number" value={tForm.price} onChange={e=>setTForm(p=>({...p,price:e.target.value}))} style={S.inp}/>
                     <input placeholder="수수료 (선택)" type="number" value={tForm.fee} onChange={e=>setTForm(p=>({...p,fee:e.target.value}))} style={S.inp}/>
+                    {tForm.type==="sell"&&(
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,marginBottom:"4px"}}>📝 매도 이유 (AI 회고에 활용됩니다)</div>
+                        <textarea placeholder="예: 목표가 도달, 실적 악화 우려, 포트폴리오 리밸런싱, 손절 등 구체적으로 기록하세요" value={tForm.sellReason} onChange={e=>setTForm(p=>({...p,sellReason:e.target.value}))}
+                          style={{...S.inp,gridColumn:"1/-1",minHeight:"64px",resize:"vertical",fontFamily:FONT}}/>
+                      </div>
+                    )}
                     <input placeholder="메모 (선택)" value={tForm.note} onChange={e=>setTForm(p=>({...p,note:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
                     <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
-                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:"p3",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",_mode:tForm._mode||"select"});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
+                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:"p3",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",sellReason:"",_mode:tForm._mode||"select"});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
                   </div>
                 </div>
               )}
@@ -4057,7 +4160,7 @@ ${analystSummary}
                           </div>
                         )}
                         <div style={{display:"flex",flexDirection:"column",gap:"4px",flexShrink:0}}>
-                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:""});}} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#67e8f9",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
+                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:"",sellReason:t.sellReason||""});}} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#67e8f9",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
                           <button onClick={()=>setTrades(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px"}}>✕</button>
                         </div>
                       </div>
@@ -4439,6 +4542,13 @@ ${analystSummary}
                     <input placeholder="수량" type="number" value={tForm.quantity} onChange={e=>setTForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                     <input placeholder="체결가" type="number" value={tForm.price} onChange={e=>setTForm(p=>({...p,price:e.target.value}))} style={S.inp}/>
                     <input placeholder="수수료" type="number" value={tForm.fee} onChange={e=>setTForm(p=>({...p,fee:e.target.value}))} style={S.inp}/>
+                    {tForm.type==="sell"&&(
+                      <div style={{gridColumn:"1/-1"}}>
+                        <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,marginBottom:"4px"}}>📝 매도 이유 (AI 회고에 활용됩니다)</div>
+                        <textarea placeholder="예: 목표가 도달, 실적 악화 우려, 포트폴리오 리밸런싱, 손절 등 구체적으로 기록하세요" value={tForm.sellReason} onChange={e=>setTForm(p=>({...p,sellReason:e.target.value}))}
+                          style={{...S.inp,gridColumn:"1/-1",minHeight:"64px",resize:"vertical",fontFamily:FONT}}/>
+                      </div>
+                    )}
                     <input placeholder="메모 (선택)" value={tForm.note} onChange={e=>setTForm(p=>({...p,note:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
@@ -4446,7 +4556,7 @@ ${analystSummary}
                     <button onClick={()=>{
                       if(!tForm.ticker||!tForm.quantity||!tForm.price) return;
                       setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:mainTab==="p1"?"p1":"p2",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);
-                      setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",taxAccount:"",_mode:tForm._mode||"select"});
+                      setTForm({date:today(),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",taxAccount:"",sellReason:"",_mode:tForm._mode||"select"});
                       setShowForm(null);
                     }} style={S.btn(mainTab==="p2"?"#f59e0b":"#10b981")}>✓ 저장</button>
                   </div>
@@ -5990,6 +6100,112 @@ ${analystSummary}
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          );
+        })()}
+
+
+        {/* ── AI 매도 회고 패널 ── */}
+        {retroPanel && (()=>{
+          const t = retroPanel;
+          const key = t.id;
+          const res = retroResults[key];
+          const allH2 = [...holdings,...holdings2];
+          const h = allH2.find(x=>x.ticker===t.ticker);
+          const isUS = t.cur==="USD"||h?.market==="US"||(h?.market==="ETF"&&!/^[0-9]/.test(t.ticker));
+          const fmtP = v => isUS?"$"+Number(v).toFixed(2):Math.round(v).toLocaleString()+"₩";
+          return (
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}} onClick={()=>setRetroPanel(null)}>
+              <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:"640px",maxHeight:"90vh",overflowY:"auto",background:"linear-gradient(135deg,#0f172a,#0c1a2e)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:"16px",padding:"20px",fontFamily:FONT,boxShadow:"0 24px 80px rgba(0,0,0,0.6)"}}>
+                {/* 헤더 */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"16px"}}>
+                  <div>
+                    <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>🔍 AI 매도 회고</div>
+                    <div style={{fontSize:"13px",color:"#fbbf24",fontWeight:600,marginTop:"3px"}}>{h?.name||t.ticker} · {t.date} 매도</div>
+                  </div>
+                  <button onClick={()=>setRetroPanel(null)} style={{background:"rgba(255,255,255,0.08)",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"18px",borderRadius:"8px",width:"32px",height:"32px",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                </div>
+
+                {/* 매도 정보 */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px",marginBottom:"14px"}}>
+                  {[
+                    ["매도가", fmtP(t.price), "#94a3b8"],
+                    ["수량", t.quantity.toLocaleString()+"주", "#e2e8f0"],
+                    ["매도금액", fmtP(t.price*t.quantity), "#f1f5f9"],
+                  ].map(([l,v,c])=>(
+                    <div key={l} style={{background:"rgba(0,0,0,0.25)",borderRadius:"10px",padding:"10px 12px"}}>
+                      <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
+                      <div style={{fontSize:"14px",fontWeight:800,color:c}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 매도 이유 */}
+                <div style={{background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:"10px",padding:"12px",marginBottom:"14px"}}>
+                  <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,marginBottom:"6px"}}>📝 당시 매도 이유</div>
+                  <div style={{fontSize:"13px",color:"#e2e8f0",lineHeight:1.6}}>
+                    {t.sellReason||<span style={{color:"#475569",fontStyle:"italic"}}>기록 없음 — 다음 매도 시 이유를 기록해보세요</span>}
+                  </div>
+                </div>
+
+                {/* 결과 + AI 분석 */}
+                {!res&&(
+                  <div style={{textAlign:"center",padding:"20px"}}>
+                    <button onClick={()=>runRetroAnalysis(t)} style={S.btn("#f59e0b",{fontSize:"14px",padding:"10px 24px"})}>
+                      🔍 결과 확인 + AI 회고 시작
+                    </button>
+                    <div style={{fontSize:"11px",color:"#475569",marginTop:"8px"}}>현재가 조회 후 판단력을 채점합니다</div>
+                  </div>
+                )}
+                {res?.loading&&(
+                  <div style={{textAlign:"center",padding:"24px",color:"#475569"}}>
+                    <div style={{fontSize:"24px",marginBottom:"8px"}}>⚙️</div>
+                    <div>현재가 조회 + AI 회고 생성 중...</div>
+                  </div>
+                )}
+                {res&&!res.loading&&(
+                  <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
+                    {/* 결과 */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"12px"}}>
+                        <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>현재가 ({res.daysAgo}일 후)</div>
+                        <div style={{fontSize:"16px",fontWeight:800,color:"#f1f5f9"}}>{fmtP(res.currentPrice)}</div>
+                      </div>
+                      <div style={{background:"rgba(0,0,0,0.2)",borderRadius:"10px",padding:"12px"}}>
+                        <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>매도 후 주가 변화</div>
+                        <div style={{fontSize:"16px",fontWeight:800,color:res.priceChgPct>=0?"#f87171":"#34d399"}}>
+                          {res.priceChgPct>=0?"▲+":"▼"}{Math.abs(res.priceChgPct).toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                    {/* 판단력 점수 */}
+                    {res.score&&(
+                      <div style={{background:`rgba(0,0,0,0.25)`,border:`1px solid ${res.score.color}44`,borderRadius:"12px",padding:"14px",display:"flex",alignItems:"center",gap:"14px"}}>
+                        <div style={{fontSize:"36px"}}>{res.score.emoji}</div>
+                        <div>
+                          <div style={{fontSize:"11px",color:"#64748b",fontWeight:700,marginBottom:"4px"}}>판단력 채점</div>
+                          <div style={{fontSize:"20px",fontWeight:800,color:res.score.color}}>{res.score.label}</div>
+                          <div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>
+                            {res.priceChgPct>=0?"매도 후 주가 상승 → 일찍 팔았을 수 있음":"매도 후 주가 하락 → 좋은 타이밍이었음"}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* AI 분석 */}
+                    {res.analysis&&(
+                      <div style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"12px",padding:"14px"}}>
+                        <div style={{fontSize:"13px",fontWeight:700,color:"#e2e8f0",marginBottom:"10px"}}>🤖 Claude AI 회고</div>
+                        <div style={{fontSize:"13px",color:"#cbd5e1",lineHeight:1.8,whiteSpace:"pre-wrap"}}>{res.analysis}</div>
+                      </div>
+                    )}
+                    {res.error&&<div style={{color:"#f87171",fontSize:"13px"}}>오류: {res.error}</div>}
+                    <div style={{display:"flex",gap:"8px"}}>
+                      <button onClick={()=>{setRetroResults(p=>({...p,[key]:undefined}));runRetroAnalysis(t);}} style={{background:"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"5px 14px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>🔄 다시 분석</button>
+                      <span style={{fontSize:"11px",color:"#374151",paddingTop:"7px"}}>⚠️ 참고용 · 투자 결정은 본인 판단</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
