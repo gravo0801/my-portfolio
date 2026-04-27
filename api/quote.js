@@ -111,7 +111,14 @@ async function fetchYahooChart(sym, crumb, cookie) {
       const isWE = etDow===0||etDow===6;
       const stateUS = (!isWE&&etM>=9*60+30&&etM<16*60)?'REGULAR':(!isWE&&etM>=4*60&&etM<9*60+30)?'PRE':(!isWE&&etM>=16*60&&etM<20*60)?'POST':'CLOSED';
 
-      return { price: displayPrice, regularPrice, changePercent: displayChg, changeAmount: displayAmt, regularChangePercent: regChg, regularChangeAmount: regularPrice - prevClose, currency: meta.currency || 'USD', marketState: stateUS };
+      // intraday: 1분봉 [{time(ms), price}] 배열
+      const intraday = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        if (closes[i] != null && isFinite(closes[i])) {
+          intraday.push({ time: timestamps[i] * 1000, price: closes[i] });
+        }
+      }
+      return { price: displayPrice, regularPrice, changePercent: displayChg, changeAmount: displayAmt, regularChangePercent: regChg, regularChangeAmount: regularPrice - prevClose, currency: meta.currency || 'USD', marketState: stateUS, intraday };
     } catch { continue; }
   }
   return null;
