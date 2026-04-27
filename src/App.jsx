@@ -174,7 +174,8 @@ async function fetchViaVercel(tickers) {
   });
   if (!r.ok) throw new Error('Vercel API failed: ' + r.status);
   const d = await r.json();
-  return d.results || {};
+  // quote.js는 결과를 직접 최상위 객체로 반환
+  return (d && typeof d === 'object' && !d.results) ? d : (d.results || {});
 }
 
 async function fetchYahoo(ticker) {
