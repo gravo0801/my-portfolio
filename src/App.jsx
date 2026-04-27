@@ -4160,6 +4160,13 @@ ${analystSummary}
                           </div>
                         )}
                         <div style={{display:"flex",flexDirection:"column",gap:"4px",flexShrink:0}}>
+                          {t.type==="sell"&&(
+                            <button onClick={()=>runRetroAnalysis(t)}
+                              title="AI 매도 회고"
+                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"5px",fontWeight:700}}>
+                              🔍
+                            </button>
+                          )}
                           <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:"",sellReason:t.sellReason||""});}} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#67e8f9",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
                           <button onClick={()=>setTrades(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px"}}>✕</button>
                         </div>
@@ -4638,6 +4645,13 @@ ${analystSummary}
                         )}
                         {/* 버튼 */}
                         <div style={{display:"flex",flexDirection:"column",gap:"4px",flexShrink:0}}>
+                          {t.type==="sell"&&(
+                            <button onClick={()=>runRetroAnalysis(t)}
+                              title="AI 매도 회고"
+                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"5px",fontWeight:700}}>
+                              🔍
+                            </button>
+                          )}
                           <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:t.taxAccount||"",portfolio:t.portfolio||""});}} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
                           <button onClick={()=>setTrades(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px"}}>✕</button>
                         </div>
