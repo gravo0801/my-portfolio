@@ -165,6 +165,46 @@ async function fetchKRStock(ticker) {
   return await fetchYahoo(ticker);
 }
 
+// ── 당일 장중 1분봉 데이터 fetch ─────────────────────────────────────────
+async function fetchIntraday(ticker, market) {
+  const sym = (market==="KR"||market==="ISA")
+    ? (ticker.replace(".KS","").replace(".KQ","").padStart(6,"0") + ".KS")
+    : ticker;
+  // Vercel API에서 v8/chart 1분봉 가져오기
+  try {
+    const r = await fetch(`/api/quote?symbols=${encodeURIComponent(sym)}&intraday=1`, {
+      signal: AbortSignal.timeout(8000), cache: "no-store"
+    });
+    if (!r.ok) throw new Error("status "+r.status);
+    const d = await r.json();
+    const item = d[sym] || d[ticker];
+    if (item?.intraday && item.intraday.length > 1) return item.intraday;
+  } catch {}
+
+  // fallback: allorigins 통해 Yahoo v8/chart 직접
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1m&range=1d&includePrePost=false`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw new Error("allorigins failed");
+    const d = await r.json();
+    const result = d?.chart?.result?.[0];
+    if (!result) throw new Error("no result");
+    const timestamps = result.timestamp || [];
+    const closes = result.indicators?.quote?.[0]?.close || [];
+    const prevClose = result.meta?.previousClose || result.meta?.regularMarketPrice || 0;
+    const pts = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (closes[i] != null && isFinite(closes[i])) {
+        pts.push({ time: timestamps[i] * 1000, price: closes[i] });
+      }
+    }
+    if (pts.length > 1) return pts;
+  } catch {}
+  return null;
+}
+
+
 async function fetchViaVercel(tickers) {
   // tickers: string[] → { ticker: result } 반환
   const syms = tickers.join(',');
@@ -1729,7 +1769,10 @@ const TICKER_DOMAIN = {
 
 
 // ── 미니 스파크라인 (순수 SVG, props로 받은 data 렌더링) ──────────────────
-function MiniSparkline({ data, pnlPct=0, width=60, height=24 }) {
+function MiniSparkline({ data, pnlPct=0, width=60, height=24, market="KR" }) {
+  // data: [{time(ms), price}] 당일 장중 1분봉 데이터
+  const pad = {t:3, b:3, l:2, r:2};
+
   if (!data || data.length < 2) {
     // 데이터 없을 때: pnlPct 기반 간단 바
     const up = pnlPct >= 0;
@@ -1737,32 +1780,91 @@ function MiniSparkline({ data, pnlPct=0, width=60, height=24 }) {
     const mid = height / 2;
     const barH = Math.min(Math.abs(pnlPct) * 1.5, mid - 3);
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.5}}>
-        <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
-        <rect x={4} y={up?mid-barH:mid} width={width-8} height={Math.max(1,barH)} fill={c} opacity="0.5" rx="1"/>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.4}}>
+        <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+        <rect x={4} y={up?mid-barH:mid} width={width-8} height={Math.max(1,barH)} fill={c} opacity="0.4" rx="1"/>
       </svg>
     );
   }
-  const prices = data.map(d=>d.price).filter(v=>typeof v==="number"&&isFinite(v));
-  if (prices.length < 2) return null;
-  const mn=prices.reduce((a,b)=>b<a?b:a, prices[0]), mx=prices.reduce((a,b)=>b>a?b:a, prices[0]), range=mx-mn||1;
-  const pad={t:2,b:2,l:2,r:2};
-  const pts = prices.map((p,i)=>{
-    const x=(pad.l+(i/(prices.length-1))*(width-pad.l-pad.r)).toFixed(1);
-    const y=(pad.t+(1-(p-mn)/range)*(height-pad.t-pad.b)).toFixed(1);
-    return x+","+y;
-  }).join(" ");
-  const up = prices[prices.length-1] >= prices[0];
+
+  // 장 시간 범위 계산
+  const isUS = market === "US" || (market === "ETF" && data[0]?.time && new Date(data[0].time).getUTCHours() < 9);
+  const isDST = isUSDST();
+  const nowMs = Date.now();
+
+  // 장 시작/종료 시각 (UTC ms)
+  let marketOpen, marketClose;
+  if (isUS) {
+    // ET 기준 9:30~16:00 → UTC 변환
+    const etOff = isDST ? 4 : 5;
+    const d = new Date(nowMs);
+    const etDate = new Date(d.toISOString().slice(0,10) + "T00:00:00Z");
+    marketOpen  = etDate.getTime() + (9*60+30)*60000 + etOff*3600000;
+    marketClose = etDate.getTime() + 16*60*60000       + etOff*3600000;
+  } else {
+    // KST 기준 9:00~15:30 → UTC 변환
+    const kstDate = new Date(new Date(nowMs+9*3600000).toISOString().slice(0,10) + "T00:00:00Z");
+    marketOpen  = kstDate.getTime() +  9*60*60000 - 9*3600000;
+    marketClose = kstDate.getTime() + (15*60+30)*60000 - 9*3600000;
+  }
+
+  // 현재 시각까지만 필터 (진행 중인 장)
+  const cutoff = Math.min(nowMs, marketClose);
+  const filtered = data.filter(d => d.time >= marketOpen && d.time <= cutoff);
+
+  if (filtered.length < 2) {
+    // 장 시작 전이거나 데이터 없음 → 간단 평선
+    const mid = height / 2;
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.3}}>
+        <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="2,2"/>
+      </svg>
+    );
+  }
+
+  const totalMs = marketClose - marketOpen;
+  const prices = filtered.map(d => d.price);
+  const openPrice = filtered[0].price;
+  const mn = prices.reduce((a,b)=>b<a?b:a, prices[0]);
+  const mx = prices.reduce((a,b)=>b>a?b:a, prices[0]);
+  const range = Math.max(mx - mn, openPrice * 0.001, 0.01); // 최소 range
+
+  // 전체 장 기간 대비 현재 진행률 → X축 위치 계산
+  const toX = (timeMs) => {
+    const ratio = (timeMs - marketOpen) / totalMs;
+    return (pad.l + ratio * (width - pad.l - pad.r));
+  };
+  const toY = (price) => {
+    return (pad.t + (1 - (price - mn) / range) * (height - pad.t - pad.b));
+  };
+
+  const pts = filtered.map(d => `${toX(d.time).toFixed(1)},${toY(d.price).toFixed(1)}`).join(" ");
+  const lastP = filtered[filtered.length - 1].price;
+  const up = lastP >= openPrice;
   const c  = up ? "#34d399" : "#f87171";
+
+  // 기준선(시가) Y 위치
+  const baseY = toY(openPrice).toFixed(1);
+  // 현재 마지막 점
+  const lastX = toX(filtered[filtered.length-1].time).toFixed(1);
+  const lastY = toY(lastP).toFixed(1);
+
+  // fill 영역 (area chart)
+  const areaPath = `M ${toX(filtered[0].time).toFixed(1)},${baseY} ` +
+    filtered.map(d=>`L ${toX(d.time).toFixed(1)},${toY(d.price).toFixed(1)}`).join(" ") +
+    ` L ${lastX},${baseY} Z`;
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.85}}>
+    <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.9}}>
+      {/* 기준선 (시가) */}
+      <line x1={pad.l} y1={baseY} x2={width-pad.r} y2={baseY}
+        stroke="rgba(255,255,255,0.12)" strokeWidth="0.8" strokeDasharray="2,2"/>
+      {/* fill 영역 */}
+      <path d={areaPath} fill={c} opacity="0.08"/>
+      {/* 라인 */}
       <polyline points={pts} fill="none" stroke={c} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round"/>
-      {(()=>{
-        const lp=prices[prices.length-1];
-        const lx=(pad.l+(width-pad.l-pad.r)).toFixed(1);
-        const ly=(pad.t+(1-(lp-mn)/range)*(height-pad.t-pad.b)).toFixed(1);
-        return <circle cx={lx} cy={ly} r="2" fill={c}/>;
-      })()}
+      {/* 현재 위치 점 */}
+      <circle cx={lastX} cy={lastY} r="2" fill={c} opacity="0.9"/>
     </svg>
   );
 }
@@ -1951,6 +2053,7 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [tradePage, setTradePage] = useState(1);
   const TRADE_PAGE_SIZE = 10;
   const [sparklineData, setSparklineData] = useState({});
+  const [intradayData, setIntradayData] = useState({}); // {ticker: [{time, price}...]} 당일 장중
   const [editingId4, setEditingId4]  = useState(null);
   const [editForm4,  setEditForm4]   = useState({});
   const [hForm4, setHForm4] = useState({ ticker:"", name:"", market:"US", quantity:"", avgPrice:"", broker:"" });
@@ -2282,14 +2385,23 @@ function PortfolioApp({ syncKey, onLogout }) {
         try {
           const batchRes = await fetchViaVercel(tickers);
           let hit = 0;
+          const newIntraday = {};
           tickers.forEach(tk => {
             if (batchRes[tk]) {
-              next[tk] = batchRes[tk];
-              if (tk.endsWith(".KS")) next[tk.replace(".KS","")] = batchRes[tk];
-              if (tk.endsWith(".KQ")) next[tk.replace(".KQ","")] = batchRes[tk];
+              const item = batchRes[tk];
+              next[tk] = item;
+              const base = tk.replace(".KS","").replace(".KQ","");
+              if (tk.endsWith(".KS") || tk.endsWith(".KQ")) next[base] = item;
+              // intraday 배열 추출
+              if (item.intraday && item.intraday.length > 1) {
+                newIntraday[base] = item.intraday;
+              }
               hit++;
             }
           });
+          if (Object.keys(newIntraday).length > 0) {
+            setIntradayData(p => ({...p, ...newIntraday}));
+          }
           console.log(`[시세] Vercel API ${hit}/${tickers.length}개 성공`);
           // KR 종목 중 데이터 없는 것 → 별도로 allorigins 직접 호출
           const missingKR = krTickers.filter(tk => !batchRes[tk]);
@@ -2661,37 +2773,39 @@ function PortfolioApp({ syncKey, onLogout }) {
   }, []);
 
 
-  // ── 스파크라인: 보유종목 변경 시 순차 지연 로딩 ─────────────────────────
+  // ── 당일 장중 스파크라인 로딩 (P1/P2/P3/P4 모두) ────────────────────────
   useEffect(() => {
     const allTickers = [
       ...holdings.map(h=>({ticker:h.ticker, market:h.market})),
       ...holdings2.map(h=>({ticker:h.ticker, market:h.market})),
-    ].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i); // 중복 제거
+      ...holdings4.map(h=>({ticker:h.ticker, market:h.market})),
+    ].filter((v,i,arr)=>arr.findIndex(x=>x.ticker===v.ticker)===i);
+
     let cancelled = false;
-    const load = async () => {
-      for (let i=0; i<allTickers.length; i++) {
+    let refreshTimer = null;
+
+    const loadIntraday = async () => {
+      for (let i = 0; i < allTickers.length; i++) {
         if (cancelled) break;
-        const {ticker, market} = allTickers[i];
-        const key = ticker+"_"+market;
-        if (_chartCache[key]) {
-          setSparklineData(p=>({...p,[ticker]:_chartCache[key]}));
-          continue;
-        }
-        // 종목당 400ms 간격으로 순차 로딩 (동시 요청 방지)
-        await new Promise(r=>setTimeout(r, i===0?100:400));
+        const { ticker, market } = allTickers[i];
+        await new Promise(r => setTimeout(r, i === 0 ? 200 : 500));
         if (cancelled) break;
         try {
-          const data = await fetchHistory(ticker, market, "1mo");
-          if (data && data.length >= 2) {
-            _chartCache[key] = data;
-            if (!cancelled) setSparklineData(p=>({...p,[ticker]:data}));
+          const data = await fetchIntraday(ticker, market);
+          if (data && data.length > 1 && !cancelled) {
+            setIntradayData(p => ({ ...p, [ticker]: data }));
           }
         } catch {}
       }
+      // 5분마다 자동 갱신
+      if (!cancelled) {
+        refreshTimer = setTimeout(loadIntraday, 5 * 60 * 1000);
+      }
     };
-    load();
-    return () => { cancelled = true; };
-  }, [holdings.length, holdings2.length]); // 종목 수 바뀔 때만 재로딩
+
+    loadIntraday();
+    return () => { cancelled = true; if (refreshTimer) clearTimeout(refreshTimer); };
+  }, [holdings.length, holdings2.length, holdings4.length]);
 
 
   // ── AI 종목 분석 ─────────────────────────────────────────────────────────
@@ -2907,7 +3021,7 @@ ${analystSummary}
             {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
           {!compact&&<div style={{flexShrink:0,marginLeft:"8px",borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"10px"}}>
-            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={64} height={24}/>
+            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={64} height={24}/>
           </div>}
         </div>
       </td>
@@ -3026,7 +3140,7 @@ ${analystSummary}
         </div>
         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
           <div style={{borderLeft:"1px solid rgba(255,255,255,0.08)",paddingLeft:"8px",marginRight:"4px"}}>
-            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
+            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={56} height={22}/>
           </div>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
           <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px",fontWeight:700}}>🤖</button>
@@ -3587,7 +3701,7 @@ ${analystSummary}
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
-                              {!isMobile&&<div style={{flexShrink:0,borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"8px",marginLeft:"4px"}}><MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={52} height={22}/></div>}
+                              {!isMobile&&<div style={{flexShrink:0,borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"8px",marginLeft:"4px"}}><MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={52} height={22}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -3958,7 +4072,7 @@ ${analystSummary}
                         </div>
                         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
                           <div style={{borderLeft:"1px solid rgba(6,182,212,0.15)",paddingLeft:"8px",marginRight:"4px"}}>
-                            <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={52} height={20}/>
+                            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={52} height={20}/>
                           </div>
                           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#06b6d4",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
                           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
@@ -5140,7 +5254,7 @@ ${analystSummary}
                                     <div style={{fontSize:"10px",color:"#10b981"}}>{h.ticker}</div>
                                     {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",marginTop:"2px"}}>{h.broker}</div>}
                                   </div>
-                                  <MiniSparkline data={sparklineData[h.ticker]} pnlPct={h.pnlPct||0} width={56} height={22}/>
+                                  <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={56} height={22}/>
                                 </div>
                               </td>
                               <td style={S.TD}>{h.cur==="USD"?"$"+(h.price||0).toFixed(2):Math.round(h.price||0).toLocaleString()+"₩"}</td>
