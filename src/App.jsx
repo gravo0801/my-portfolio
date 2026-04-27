@@ -4159,16 +4159,15 @@ ${analystSummary}
                             <div style={{fontSize:"12px",fontWeight:700,color:chgD>=0?"#34d399":"#f87171",whiteSpace:"nowrap"}}>{chgD>=0?"+":""}{chgP.toFixed(1)}%</div>
                           </div>
                         )}
-                        <div style={{display:"flex",flexDirection:"column",gap:"4px",flexShrink:0}}>
+                        <div style={{display:"flex",flexDirection:"row",gap:"3px",flexShrink:0,alignItems:"center"}}>
                           {t.type==="sell"&&(
-                            <button onClick={()=>runRetroAnalysis(t)}
-                              title="AI 매도 회고"
-                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"5px",fontWeight:700}}>
-                              🔍
-                            </button>
+                            <button onClick={()=>runRetroAnalysis(t)} title="AI 매도 회고"
+                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.35)",color:"#fbbf24",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>🔍</button>
                           )}
-                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:"",sellReason:t.sellReason||""});}} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#67e8f9",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
-                          <button onClick={()=>setTrades(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px"}}>✕</button>
+                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:"",sellReason:t.sellReason||""});}}
+                            style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✏️</button>
+                          <button onClick={()=>{if(window.confirm("삭제?"))setTrades(p=>p.filter(x=>x.id!==t.id));}}
+                            style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✕</button>
                         </div>
                       </div>
                       {editingTradeId===t.id&&(<div style={{background:"rgba(6,182,212,0.06)",border:"1px solid rgba(6,182,212,0.25)",borderRadius:"10px",padding:"12px",marginBottom:"8px"}}><div style={{fontSize:"11px",color:"#67e8f9",fontWeight:700,marginBottom:"8px"}}>✏️ ISA 수정</div><div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:"7px"}}><input type="date" value={editTradeForm.date} onChange={e=>setEditTradeForm(p=>({...p,date:e.target.value}))} style={S.inp}/><select value={editTradeForm.ticker} onChange={e=>setEditTradeForm(p=>({...p,ticker:e.target.value}))} style={{...S.inp,appearance:"none"}}><option value="">종목 선택</option>{isaHoldings.map(h=><option key={h.ticker} value={h.ticker}>{h.name||h.ticker}</option>)}</select><select value={editTradeForm.type} onChange={e=>setEditTradeForm(p=>({...p,type:e.target.value}))} style={{...S.inp,appearance:"none"}}><option value="buy">매수</option><option value="sell">매도</option></select><input placeholder="수량" type="number" value={editTradeForm.quantity} onChange={e=>setEditTradeForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/><input placeholder="체결가" type="number" value={editTradeForm.price} onChange={e=>setEditTradeForm(p=>({...p,price:e.target.value}))} style={S.inp}/><input placeholder="수수료" type="number" value={editTradeForm.fee} onChange={e=>setEditTradeForm(p=>({...p,fee:e.target.value}))} style={S.inp}/></div><div style={{display:"flex",gap:"8px",marginTop:"8px"}}><button onClick={()=>setEditingTradeId(null)} style={S.btn("#475569",{fontSize:"12px"})}>취소</button><button onClick={()=>{if(!editTradeForm.ticker||!editTradeForm.quantity||!editTradeForm.price)return;setTrades(p=>p.map(x=>x.id===t.id?{...x,...editTradeForm,quantity:+editTradeForm.quantity,price:+editTradeForm.price,fee:+(editTradeForm.fee||0)}:x));setEditingTradeId(null);}} style={S.btn("#06b6d4",{fontSize:"12px"})}>✓ 저장</button></div></div>)}
@@ -4644,16 +4643,15 @@ ${analystSummary}
                           </div>
                         )}
                         {/* 버튼 */}
-                        <div style={{display:"flex",flexDirection:"column",gap:"4px",flexShrink:0}}>
+                        <div style={{display:"flex",flexDirection:"row",gap:"3px",flexShrink:0,alignItems:"center"}}>
                           {t.type==="sell"&&(
-                            <button onClick={()=>runRetroAnalysis(t)}
-                              title="AI 매도 회고"
-                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"5px",fontWeight:700}}>
-                              🔍
-                            </button>
+                            <button onClick={()=>runRetroAnalysis(t)} title="AI 매도 회고"
+                              style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.35)",color:"#fbbf24",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>🔍</button>
                           )}
-                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:t.taxAccount||"",portfolio:t.portfolio||""});}} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px",fontWeight:700}}>✏️</button>
-                          <button onClick={()=>setTrades(p=>p.filter(x=>x.id!==t.id))} style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"11px",padding:"3px 8px",borderRadius:"5px"}}>✕</button>
+                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),note:t.note||"",taxAccount:t.taxAccount||"",portfolio:t.portfolio||""});}}
+                            style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✏️</button>
+                          <button onClick={()=>{if(window.confirm("삭제?"))setTrades(p=>p.filter(x=>x.id!==t.id));}}
+                            style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✕</button>
                         </div>
                       </div>
                       {/* 수정 폼 */}
@@ -6155,12 +6153,24 @@ ${analystSummary}
                   ))}
                 </div>
 
-                {/* 매도 이유 */}
+                {/* 매도 이유 - 편집 가능 */}
                 <div style={{background:"rgba(251,191,36,0.08)",border:"1px solid rgba(251,191,36,0.2)",borderRadius:"10px",padding:"12px",marginBottom:"14px"}}>
-                  <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,marginBottom:"6px"}}>📝 당시 매도 이유</div>
-                  <div style={{fontSize:"13px",color:"#e2e8f0",lineHeight:1.6}}>
-                    {t.sellReason||<span style={{color:"#475569",fontStyle:"italic"}}>기록 없음 — 다음 매도 시 이유를 기록해보세요</span>}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
+                    <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700}}>📝 당시 매도 이유</div>
+                    {!t.sellReason&&<span style={{fontSize:"10px",color:"#64748b"}}>아래에 지금 기록하세요</span>}
                   </div>
+                  <textarea
+                    placeholder="매도 이유를 기록하세요 (예: 목표가 도달, 실적 악화, 리밸런싱 등)"
+                    defaultValue={t.sellReason||""}
+                    onBlur={e=>{
+                      const v = e.target.value.trim();
+                      if(v !== (t.sellReason||"")) {
+                        setTrades(p=>p.map(x=>x.id===t.id?{...x,sellReason:v}:x));
+                        setRetroPanel(prev=>prev?.id===t.id?{...prev,sellReason:v}:prev);
+                      }
+                    }}
+                    style={{width:"100%",background:"rgba(0,0,0,0.2)",border:"1px solid rgba(251,191,36,0.25)",borderRadius:"7px",color:"#e2e8f0",padding:"8px 10px",fontSize:"13px",lineHeight:1.6,resize:"vertical",minHeight:"64px",fontFamily:FONT,boxSizing:"border-box",outline:"none"}}
+                  />
                 </div>
 
                 {/* 결과 + AI 분석 */}
