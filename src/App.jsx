@@ -2006,18 +2006,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [loaded, setLoaded]       = useState(false);
   const [showForm, setShowForm]   = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3" | "p4" | "tax" | "calendar" | "simulator"
+  const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3" | "p4" | "tax" | "calendar"
   const [overviewTab, setOverviewTab] = useState("all"); // "all"|"account"|"broker"|"market"
-  // ── 자산 시뮬레이터 ──
-  const [simPortfolio, setSimPortfolio] = useState("all");   // "all" | "p1" | "p2" | "p3"
-  const [simInitial, setSimInitial]     = useState("");      // 초기 투자금 (자동 채움)
-  const [simMonthly, setSimMonthly]     = useState("500000");
-  const [simYears, setSimYears]         = useState("25");
-  const [simInflation, setSimInflation] = useState("2.5");
-  const [simReturnMode, setSimReturnMode] = useState("scenario"); // "current" | "scenario" | "custom"
-  const [simCustomReturn, setSimCustomReturn] = useState("8");
-  const [simScenarios, setSimScenarios] = useState({ low:"4", mid:"7", high:"10" });
-  const [simInitialAuto, setSimInitialAuto] = useState(true); // 초기금 자동/수동
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
   const [selectedStock, setSelectedStock] = useState(null);
@@ -3517,13 +3507,13 @@ ${analystSummary}
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["tax","💰 양도세"],["calendar","📅 캘린더"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="tax"?"양도세":id==="calendar"?"캘린더":"시뮬"):label}
+              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="tax"?"양도세":"캘린더"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator") && (
+        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -4168,6 +4158,23 @@ ${analystSummary}
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수량</div><input type="number" value={editForm.quantity} onChange={e=>setEditForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/></div>
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>평단가</div><input type="number" value={editForm.avgPrice} onChange={e=>setEditForm(p=>({...p,avgPrice:e.target.value}))} style={S.inp}/></div>
                                 <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>증권사</div><input value={editForm.broker||""} onChange={e=>setEditForm(p=>({...p,broker:e.target.value}))} style={S.inp}/></div>
+                              </div>
+                              {/* P3 데스크톱 추가매수 계산기 */}
+                              <div style={{marginTop:"10px",background:"rgba(52,211,153,0.06)",border:"1px solid rgba(52,211,153,0.2)",borderRadius:"8px",padding:"12px"}}>
+                                <div style={{fontSize:"12px",color:"#34d399",fontWeight:700,marginBottom:"8px"}}>➕ 추가매수 계산기</div>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                                  <input type="number" placeholder="추가 수량" value={editForm.addQty||""} onChange={e=>{const addQty=e.target.value;const addPrice=editForm.addPrice||0;const curQty=+editForm.quantity||0;const curAvg=+editForm.avgPrice||0;const newQty=curQty+(+addQty||0);const newAvg=newQty>0?((curQty*curAvg)+((+addQty||0)*(+addPrice||0)))/newQty:curAvg;setEditForm(p=>({...p,addQty,calcQty:newQty,calcAvg:Math.round(newAvg*100)/100}));}} style={{...S.inp,borderColor:"rgba(52,211,153,0.35)"}} title="추가매수 수량"/>
+                                  <input type="number" placeholder="추가매수 단가" value={editForm.addPrice||""} onChange={e=>{const addPrice=e.target.value;const addQty=editForm.addQty||0;const curQty=+editForm.quantity||0;const curAvg=+editForm.avgPrice||0;const newQty=curQty+(+addQty||0);const newAvg=newQty>0?((curQty*curAvg)+((+addQty||0)*(+addPrice||0)))/newQty:curAvg;setEditForm(p=>({...p,addPrice,calcQty:newQty,calcAvg:Math.round(newAvg*100)/100}));}} style={{...S.inp,borderColor:"rgba(52,211,153,0.35)"}} title="추가매수 단가"/>
+                                </div>
+                                {editForm.addQty&&editForm.addPrice&&(
+                                  <>
+                                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px",marginTop:"8px"}}>
+                                      <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"6px",padding:"8px 10px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>총 수량</div><div style={{fontSize:"15px",fontWeight:800,color:"#34d399"}}>{editForm.calcQty?.toLocaleString()}주</div></div>
+                                      <div style={{background:"rgba(0,0,0,0.25)",borderRadius:"6px",padding:"8px 10px"}}><div style={{fontSize:"10px",color:"#64748b",marginBottom:"2px"}}>새 평단가</div><div style={{fontSize:"15px",fontWeight:800,color:"#34d399"}}>{editForm.calcAvg?.toLocaleString()}₩</div></div>
+                                    </div>
+                                    <button onClick={()=>setEditForm(p=>{if(!p.calcQty||!p.calcAvg)return p;return{...p,quantity:String(p.calcQty),avgPrice:String(p.calcAvg),addQty:"",addPrice:"",calcQty:undefined,calcAvg:undefined};})} style={S.btn("#34d399",{fontSize:"12px",padding:"6px 14px",width:"100%",marginTop:"8px"})}>↑ 위 값으로 적용하기</button>
+                                  </>
+                                )}
                               </div>
                               <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
                                 <button onClick={()=>{if(window.confirm(`"${h.name||h.ticker}" 삭제?`)){setHoldings(p=>p.filter(x=>x.id!==h.id));setEditingId(null);}}} style={S.btn("#dc2626",{fontSize:"12px",padding:"6px 14px"})}>🗑️ 삭제</button>
@@ -6129,370 +6136,6 @@ ${analystSummary}
                   </div>
                 </div>
               )}
-            </div>
-          );
-        })()}
-
-        {/* ──────────── 자산 시뮬레이터 ──────────── */}
-        {mainTab === "simulator" && (() => {
-          // 1) 포트폴리오별 현재 평가금액 / 누적 수익률
-          const allCost = portfolioAll.reduce((s,h)=>s+toKRWLive(h.cost,h.cur),0) + total2Cost;
-          const allVal  = portfolioAll.reduce((s,h)=>s+toKRWLive(h.value,h.cur),0) + total2Val;
-          const allRet  = allCost > 0 ? ((allVal - allCost) / allCost) * 100 : 0;
-          const isaRows = portfolioAll.filter(h => h.market === "ISA");
-          const isaCost = isaRows.reduce((s,h)=>s+h.cost,0);
-          const isaVal  = isaRows.reduce((s,h)=>s+h.value,0);
-          const isaRet  = isaCost > 0 ? ((isaVal - isaCost) / isaCost) * 100 : 0;
-
-          const portMeta = {
-            all: { label:"전체",  color:"#6366f1", value: allVal,    ret: allRet  },
-            p1:  { label:"P1",    color:"#10b981", value: totalVal,  ret: totalRet },
-            p2:  { label:"P2",    color:"#f59e0b", value: total2Val, ret: total2Ret},
-            p3:  { label:"P3",    color:"#06b6d4", value: isaVal,    ret: isaRet  },
-          };
-          const cur = portMeta[simPortfolio];
-
-          // 2) 입력값 정규화
-          const initial   = simInitialAuto ? Math.round(cur.value) : (parseFloat(simInitial) || 0);
-          const monthly   = parseFloat(simMonthly) || 0;
-          const years     = Math.max(1, Math.min(60, parseInt(simYears) || 1));
-          const inflation = (parseFloat(simInflation) || 0) / 100;
-
-          // 3) 미래가치 (월복리, 월초 적립 = 엑셀 FV(rate,nper,-pmt,-pv,1))
-          const fv = (annualRate, yrs) => {
-            const r = annualRate / 12;
-            const n = yrs * 12;
-            if (Math.abs(r) < 1e-12) return initial + monthly * n;
-            const fvPV  = initial * Math.pow(1 + r, n);
-            const fvPMT = monthly * (Math.pow(1 + r, n) - 1) / r * (1 + r);
-            return fvPV + fvPMT;
-          };
-
-          // 4) 사용 수익률 결정
-          const lowR  = (parseFloat(simScenarios.low)  || 0) / 100;
-          const midR  = (parseFloat(simScenarios.mid)  || 0) / 100;
-          const highR = (parseFloat(simScenarios.high) || 0) / 100;
-          const customR = (parseFloat(simCustomReturn) || 0) / 100;
-          const currentR = cur.ret / 100; // 현재 누적 수익률(연수익률 가정)
-
-          // 5) 차트 데이터
-          const moneyValueAt = y => Math.pow(1 - inflation, y - 1); // 엑셀과 동일: 1년차=1
-          const chartData = [];
-          for (let y = 1; y <= years; y++) {
-            const principal = initial + monthly * 12 * y;
-            const mv = moneyValueAt(y);
-            const row = { year: y, 원금: Math.round(principal) };
-            if (simReturnMode === "scenario") {
-              row["보수"] = Math.round(fv(lowR,  y));
-              row["중립"] = Math.round(fv(midR,  y));
-              row["공격"] = Math.round(fv(highR, y));
-              row["보수실질"] = Math.round(fv(lowR,  y) * mv);
-              row["중립실질"] = Math.round(fv(midR,  y) * mv);
-              row["공격실질"] = Math.round(fv(highR, y) * mv);
-            } else {
-              const rUse = simReturnMode === "current" ? currentR : customR;
-              row["명목"] = Math.round(fv(rUse, y));
-              row["실질"] = Math.round(fv(rUse, y) * mv);
-            }
-            chartData.push(row);
-          }
-
-          // 6) 최종 결과 (목표 시점)
-          const finalPrincipal = initial + monthly * 12 * years;
-          const finalMV = moneyValueAt(years);
-          const buildResult = (annualRate, label, color) => {
-            const total = fv(annualRate, years);
-            const profit = total - finalPrincipal;
-            const profitPct = finalPrincipal > 0 ? (profit / finalPrincipal) * 100 : 0;
-            const real = total * finalMV;
-            return { label, color, rate: annualRate*100, total, profit, profitPct, real };
-          };
-          const results = simReturnMode === "scenario"
-            ? [
-                buildResult(lowR,  "보수", "#06b6d4"),
-                buildResult(midR,  "중립", "#10b981"),
-                buildResult(highR, "공격", "#f59e0b"),
-              ]
-            : [ buildResult(simReturnMode==="current" ? currentR : customR, simReturnMode==="current"?"현재 누적":"커스텀", "#6366f1") ];
-
-          // 7) 요약 테이블 시점 (1·5·10·15·20·25·30 중 years 이하)
-          const tableYears = [1, 5, 10, 15, 20, 25, 30].filter(y => y <= years);
-          if (!tableYears.includes(years)) tableYears.push(years);
-
-          const fmt = n => Math.round(n).toLocaleString("ko-KR") + "₩";
-          const fmtCompact = n => {
-            const v = Math.round(n);
-            if (v >= 100000000) return (v/100000000).toFixed(2)+"억";
-            if (v >= 10000)     return Math.round(v/10000).toLocaleString()+"만";
-            return v.toLocaleString();
-          };
-
-          return (
-            <div style={{display:"flex",flexDirection:"column",gap:isMobile?"10px":"14px"}}>
-              {/* 헤더 */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:"8px",marginTop:"4px"}}>
-                <div>
-                  <div style={{fontSize:isMobile?"17px":"21px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>🧮 자산 시뮬레이터</div>
-                  <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>월복리 · 월초 적립 · 인플레이션 반영 실질가치</div>
-                </div>
-              </div>
-
-              {/* 포트폴리오 선택 */}
-              <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
-                {Object.entries(portMeta).map(([k,m])=>(
-                  <button key={k} onClick={()=>{setSimPortfolio(k); setSimInitialAuto(true);}} style={{
-                    background: simPortfolio===k ? `${m.color}33` : "rgba(255,255,255,0.04)",
-                    border: simPortfolio===k ? `1px solid ${m.color}88` : "1px solid rgba(255,255,255,0.08)",
-                    color: simPortfolio===k ? m.color : "#64748b",
-                    padding: isMobile?"6px 12px":"7px 16px", borderRadius:"10px", cursor:"pointer",
-                    fontSize:isMobile?"12px":"13px", fontWeight: simPortfolio===k ? 800 : 600, fontFamily:FONT,
-                  }}>
-                    {m.label} <span style={{fontSize:"10px",opacity:0.7,marginLeft:"4px"}}>{fmtCompact(m.value)}</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* 입력 영역 */}
-              <div style={{...S.card, padding:isMobile?"12px":"16px"}}>
-                <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,marginBottom:"10px",textTransform:"uppercase",letterSpacing:"0.05em"}}>입력 조건</div>
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"10px"}}>
-                  <div>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px"}}>
-                      <div style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>초기 투자금</div>
-                      <button onClick={()=>{setSimInitialAuto(a=>!a); if(!simInitialAuto) setSimInitial(String(Math.round(cur.value)));}} style={{background:simInitialAuto?"rgba(16,185,129,0.18)":"rgba(255,255,255,0.06)",border:"1px solid "+(simInitialAuto?"rgba(16,185,129,0.4)":"rgba(255,255,255,0.12)"),color:simInitialAuto?"#34d399":"#64748b",fontSize:"9px",fontWeight:700,padding:"2px 7px",borderRadius:"6px",cursor:"pointer"}}>
-                        {simInitialAuto ? "✓ 자동" : "수동"}
-                      </button>
-                    </div>
-                    <input type="number" value={simInitialAuto ? Math.round(cur.value) : simInitial}
-                      onChange={e=>{setSimInitial(e.target.value); setSimInitialAuto(false);}}
-                      disabled={simInitialAuto}
-                      style={{...S.inp, fontSize:"14px", fontWeight:700, opacity: simInitialAuto?0.7:1}}/>
-                    <div style={{fontSize:"10px",color:"#475569",marginTop:"3px"}}>{fmtCompact(initial)}원</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:"11px",color:"#64748b",fontWeight:700,marginBottom:"4px"}}>월 투자금</div>
-                    <input type="number" value={simMonthly} onChange={e=>setSimMonthly(e.target.value)} style={{...S.inp, fontSize:"14px", fontWeight:700}}/>
-                    <div style={{fontSize:"10px",color:"#475569",marginTop:"3px"}}>{fmtCompact(monthly)}원/월</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:"11px",color:"#64748b",fontWeight:700,marginBottom:"4px"}}>투자 기간 (년)</div>
-                    <input type="number" min="1" max="60" value={simYears} onChange={e=>setSimYears(e.target.value)} style={{...S.inp, fontSize:"14px", fontWeight:700}}/>
-                    <div style={{fontSize:"10px",color:"#475569",marginTop:"3px"}}>{years}년</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:"11px",color:"#64748b",fontWeight:700,marginBottom:"4px"}}>물가상승률 (%)</div>
-                    <input type="number" step="0.1" value={simInflation} onChange={e=>setSimInflation(e.target.value)} style={{...S.inp, fontSize:"14px", fontWeight:700}}/>
-                    <div style={{fontSize:"10px",color:"#475569",marginTop:"3px"}}>연 {(inflation*100).toFixed(1)}%</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 수익률 모드 선택 */}
-              <div style={{...S.card, padding:isMobile?"12px":"16px"}}>
-                <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,marginBottom:"10px",textTransform:"uppercase",letterSpacing:"0.05em"}}>수익률 가정</div>
-                <div style={{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"12px"}}>
-                  {[
-                    ["current", "📈 현재 누적", "보유 포트폴리오의 현재 누적 수익률"],
-                    ["scenario","🎯 시나리오 비교", "보수 / 중립 / 공격 동시 비교"],
-                    ["custom",  "✏️ 커스텀", "직접 입력"],
-                  ].map(([id,label,desc])=>(
-                    <button key={id} onClick={()=>setSimReturnMode(id)} style={{
-                      flex: isMobile?"1 1 100%":"1",
-                      background: simReturnMode===id ? "rgba(99,102,241,0.22)" : "rgba(255,255,255,0.04)",
-                      border: simReturnMode===id ? "1px solid rgba(99,102,241,0.55)" : "1px solid rgba(255,255,255,0.08)",
-                      color: simReturnMode===id ? "#c7d2fe" : "#94a3b8",
-                      padding:"10px 12px", borderRadius:"10px", cursor:"pointer", textAlign:"left", fontFamily:FONT,
-                    }}>
-                      <div style={{fontSize:"13px",fontWeight:800,marginBottom:"2px"}}>{label}</div>
-                      <div style={{fontSize:"10px",opacity:0.75}}>{desc}</div>
-                    </button>
-                  ))}
-                </div>
-
-                {/* 모드별 인풋 */}
-                {simReturnMode === "current" && (
-                  <div style={{background:`${cur.color}14`, border:`1px solid ${cur.color}44`, borderRadius:"10px", padding:"12px"}}>
-                    <div style={{fontSize:"11px",color:"#94a3b8",marginBottom:"4px"}}>{cur.label} 현재 누적 수익률 (연수익률로 가정)</div>
-                    <div style={{fontSize:"22px",fontWeight:800,color:cur.ret>=0?"#34d399":"#f87171",letterSpacing:"-0.02em"}}>
-                      {(cur.ret>=0?"+":"") + cur.ret.toFixed(2)}%
-                    </div>
-                    {cur.value === 0 && (
-                      <div style={{fontSize:"10px",color:"#f87171",marginTop:"6px"}}>⚠ 보유 자산이 없어 0%로 계산됩니다. 종목을 먼저 추가하세요.</div>
-                    )}
-                    <div style={{fontSize:"10px",color:"#475569",marginTop:"6px",lineHeight:1.5}}>
-                      ※ 누적 수익률을 그대로 연수익률로 적용합니다. 보유 기간이 짧으면 비현실적으로 높을 수 있어요.
-                    </div>
-                  </div>
-                )}
-                {simReturnMode === "scenario" && (
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"8px"}}>
-                    {[
-                      ["low",  "보수", "#06b6d4", "🛡️"],
-                      ["mid",  "중립", "#10b981", "⚖️"],
-                      ["high", "공격", "#f59e0b", "🚀"],
-                    ].map(([k,label,color,icon])=>(
-                      <div key={k} style={{background:`${color}14`, border:`1px solid ${color}44`, borderRadius:"10px", padding:"10px"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:"4px",marginBottom:"4px"}}>
-                          <span style={{fontSize:"13px"}}>{icon}</span>
-                          <span style={{fontSize:"11px",fontWeight:800,color}}>{label}</span>
-                        </div>
-                        <div style={{display:"flex",alignItems:"baseline",gap:"3px"}}>
-                          <input type="number" step="0.5" value={simScenarios[k]}
-                            onChange={e=>setSimScenarios(p=>({...p,[k]:e.target.value}))}
-                            style={{...S.inp, fontSize:"16px", fontWeight:800, color, padding:"5px 6px", textAlign:"right", width:"100%"}}/>
-                          <span style={{fontSize:"12px",color,fontWeight:700}}>%</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {simReturnMode === "custom" && (
-                  <div style={{background:"rgba(99,102,241,0.1)", border:"1px solid rgba(99,102,241,0.35)", borderRadius:"10px", padding:"12px"}}>
-                    <div style={{fontSize:"11px",color:"#94a3b8",marginBottom:"4px"}}>커스텀 연수익률</div>
-                    <div style={{display:"flex",alignItems:"baseline",gap:"6px"}}>
-                      <input type="number" step="0.5" value={simCustomReturn}
-                        onChange={e=>setSimCustomReturn(e.target.value)}
-                        style={{...S.inp, fontSize:"22px", fontWeight:800, color:"#a5b4fc", padding:"6px 10px", maxWidth:"140px"}}/>
-                      <span style={{fontSize:"15px",color:"#a5b4fc",fontWeight:700}}>%</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 결과 카드 */}
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":(results.length===1?"1fr":"repeat(3,1fr)"),gap:"10px"}}>
-                {results.map((r,i)=>(
-                  <div key={i} style={{...S.card, padding:isMobile?"12px":"16px", background:`linear-gradient(135deg,${r.color}10,${r.color}04)`, borderColor:`${r.color}44`}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
-                      <div style={{fontSize:"12px",fontWeight:800,color:r.color}}>{r.label}</div>
-                      <div style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>연 {r.rate.toFixed(2)}%</div>
-                    </div>
-                    <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px"}}>{years}년 후 명목가치</div>
-                    <div style={{fontSize:isMobile?"22px":"26px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>{fmtCompact(r.total)}원</div>
-                    <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"2px"}}>{fmt(r.total)}</div>
-                    <div style={{height:"1px",background:"rgba(255,255,255,0.08)",margin:"10px 0"}}/>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"4px"}}>
-                      <div style={{fontSize:"10px",color:"#64748b"}}>실질가치 (現)</div>
-                      <div style={{fontSize:"15px",fontWeight:800,color:"#a5b4fc"}}>{fmtCompact(r.real)}원</div>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:"4px"}}>
-                      <div style={{fontSize:"10px",color:"#64748b"}}>총 원금</div>
-                      <div style={{fontSize:"12px",fontWeight:700,color:"#94a3b8"}}>{fmtCompact(finalPrincipal)}원</div>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                      <div style={{fontSize:"10px",color:"#64748b"}}>총 수익금</div>
-                      <div style={{fontSize:"12px",fontWeight:800,color:r.profit>=0?"#34d399":"#f87171"}}>
-                        +{fmtCompact(r.profit)}원 <span style={{fontSize:"10px",fontWeight:600}}>({r.profitPct.toFixed(0)}%)</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* 그래프 */}
-              <div style={{...S.card, padding:isMobile?"10px":"16px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px",flexWrap:"wrap",gap:"6px"}}>
-                  <div style={{fontSize:"12px",fontWeight:800,color:"#e2e8f0"}}>📈 자산 성장 곡선</div>
-                  <div style={{fontSize:"10px",color:"#64748b"}}>실선=명목 / 점선=실질 (인플레 반영)</div>
-                </div>
-                <div style={{height:isMobile?260:340}}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{top:10,right:10,left:0,bottom:0}}>
-                      <defs>
-                        <linearGradient id="simG1" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.35}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/></linearGradient>
-                        <linearGradient id="simG2" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35}/><stop offset="95%" stopColor="#06b6d4" stopOpacity={0}/></linearGradient>
-                        <linearGradient id="simG3" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35}/><stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/></linearGradient>
-                        <linearGradient id="simG4" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.35}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/></linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)"/>
-                      <XAxis dataKey="year" tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v+"년"}/>
-                      <YAxis tick={{fill:"#64748b",fontSize:11}} tickFormatter={v=>v>=100000000?(v/100000000).toFixed(1)+"억":v>=10000?Math.round(v/10000).toLocaleString()+"만":v}/>
-                      <Tooltip {...TT} formatter={(v,n)=>[fmt(v), n]} labelFormatter={l=>l+"년차"}/>
-                      <Area type="monotone" dataKey="원금" stroke="#475569" strokeWidth={1.5} strokeDasharray="4 4" fill="none" dot={false}/>
-                      {simReturnMode === "scenario" ? (
-                        <>
-                          <Area type="monotone" dataKey="공격" stroke="#f59e0b" strokeWidth={2.5} fill="url(#simG3)" dot={false}/>
-                          <Area type="monotone" dataKey="중립" stroke="#10b981" strokeWidth={2.5} fill="url(#simG1)" dot={false}/>
-                          <Area type="monotone" dataKey="보수" stroke="#06b6d4" strokeWidth={2.5} fill="url(#simG2)" dot={false}/>
-                          <Line type="monotone" dataKey="공격실질" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 3" dot={false}/>
-                          <Line type="monotone" dataKey="중립실질" stroke="#10b981" strokeWidth={1.5} strokeDasharray="3 3" dot={false}/>
-                          <Line type="monotone" dataKey="보수실질" stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="3 3" dot={false}/>
-                        </>
-                      ) : (
-                        <>
-                          <Area type="monotone" dataKey="명목" stroke="#6366f1" strokeWidth={2.5} fill="url(#simG4)" dot={false}/>
-                          <Line type="monotone" dataKey="실질" stroke="#a5b4fc" strokeWidth={1.8} strokeDasharray="4 4" dot={false}/>
-                        </>
-                      )}
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* 주요 시점 테이블 */}
-              <div style={{...S.card, padding:isMobile?"8px":"14px", overflowX:"auto"}}>
-                <div style={{fontSize:"12px",fontWeight:800,color:"#e2e8f0",marginBottom:"10px"}}>📋 주요 시점 요약</div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?"11px":"13px",fontFamily:FONT}}>
-                  <thead>
-                    <tr style={{borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
-                      <th style={{padding:"7px 6px",textAlign:"left",color:"#64748b",fontWeight:700}}>경과</th>
-                      <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>원금</th>
-                      {simReturnMode === "scenario" ? (
-                        <>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#06b6d4",fontWeight:700}}>보수</th>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#10b981",fontWeight:700}}>중립</th>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#f59e0b",fontWeight:700}}>공격</th>
-                          {!isMobile && <th style={{padding:"7px 6px",textAlign:"right",color:"#a5b4fc",fontWeight:700}}>중립(실질)</th>}
-                        </>
-                      ) : (
-                        <>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#6366f1",fontWeight:700}}>총자산</th>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#34d399",fontWeight:700}}>수익금</th>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#94a3b8",fontWeight:700}}>수익률</th>
-                          <th style={{padding:"7px 6px",textAlign:"right",color:"#a5b4fc",fontWeight:700}}>실질가치</th>
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableYears.map(y => {
-                      const principal = initial + monthly * 12 * y;
-                      const mv = moneyValueAt(y);
-                      const isLast = y === years;
-                      const rUse = simReturnMode === "current" ? currentR : customR;
-                      return (
-                        <tr key={y} style={{borderBottom:"1px solid rgba(255,255,255,0.04)", background: isLast?"rgba(99,102,241,0.06)":"transparent"}}>
-                          <td style={{padding:"8px 6px",color:isLast?"#c7d2fe":"#e2e8f0",fontWeight:isLast?800:600}}>
-                            {y}년 {isLast && <span style={{fontSize:"9px",color:"#a5b4fc",marginLeft:"3px"}}>★</span>}
-                          </td>
-                          <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8",fontFamily:"ui-monospace, monospace"}}>{fmtCompact(principal)}</td>
-                          {simReturnMode === "scenario" ? (
-                            <>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#67e8f9",fontWeight:700,fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(lowR,y))}</td>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#34d399",fontWeight:700,fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(midR,y))}</td>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#fbbf24",fontWeight:700,fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(highR,y))}</td>
-                              {!isMobile && <td style={{padding:"8px 6px",textAlign:"right",color:"#a5b4fc",fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(midR,y)*mv)}</td>}
-                            </>
-                          ) : (
-                            <>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#a5b4fc",fontWeight:700,fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(rUse,y))}</td>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#34d399",fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(rUse,y)-principal)}</td>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8",fontFamily:"ui-monospace, monospace"}}>+{((fv(rUse,y)-principal)/principal*100).toFixed(0)}%</td>
-                              <td style={{padding:"8px 6px",textAlign:"right",color:"#a5b4fc",fontFamily:"ui-monospace, monospace"}}>{fmtCompact(fv(rUse,y)*mv)}</td>
-                            </>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* 도움말 */}
-              <div style={{fontSize:"10px",color:"#475569",lineHeight:1.6, padding:"4px 4px 12px"}}>
-                ※ 계산 가정: 매월 초 적립, 월복리 / 세금·수수료 미반영 / 실질가치 = 명목 × (1−물가상승률)<sup>경과연수−1</sup>
-                <br/>※ 시뮬레이션 결과는 추정치이며, 실제 투자 성과는 시장 변동에 따라 달라집니다.
-              </div>
             </div>
           );
         })()}
