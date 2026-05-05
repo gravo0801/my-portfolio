@@ -13,6 +13,205 @@ const CRYPTO_IDS = {
 };
 const MARKET_LABEL = { KR:"한국주식", ISA:"한국주식(ISA)", US:"미국주식", ETF:"ETF", CRYPTO:"암호화폐", GOLD:"금현물" };
 const MARKET_COLOR = { KR:"#6366f1", ISA:"#06b6d4", US:"#10b981", ETF:"#f59e0b", CRYPTO:"#a855f7", GOLD:"#eab308" };
+
+// ──────────── 섹터/스타일 분류 시스템 ────────────
+const SECTOR_MAP = {
+  tech:             { label:"첨단기술/IT",   color:"#6366f1", icon:"💻" },
+  comm:             { label:"커뮤니케이션",  color:"#ec4899", icon:"📡" },
+  consumer_disc:    { label:"임의소비재",    color:"#f97316", icon:"🛍️" },
+  consumer_staples: { label:"필수소비재",    color:"#ef4444", icon:"🛒" },
+  health:           { label:"헬스케어",      color:"#10b981", icon:"⚕️" },
+  financial:        { label:"금융",          color:"#3b82f6", icon:"🏦" },
+  industrial:       { label:"산업재",        color:"#64748b", icon:"🏭" },
+  energy:           { label:"에너지",        color:"#f59e0b", icon:"⛽" },
+  materials:        { label:"원자재",        color:"#eab308", icon:"⛏️" },
+  utilities:        { label:"유틸리티",      color:"#06b6d4", icon:"⚡" },
+  realestate:       { label:"부동산",        color:"#84cc16", icon:"🏢" },
+  unknown:          { label:"미분류",        color:"#475569", icon:"❓" },
+};
+const STYLE_MAP = {
+  growth:   { label:"성장주", color:"#a855f7", icon:"🚀" },
+  dividend: { label:"배당주", color:"#fbbf24", icon:"💰" },
+  value:    { label:"가치주", color:"#06b6d4", icon:"💎" },
+  blend:    { label:"혼합",   color:"#94a3b8", icon:"⚖️" },
+  unknown:  { label:"미분류", color:"#475569", icon:"❓" },
+};
+// 자산군 분류 (ETF/CRYPTO/GOLD는 산업/스타일 분석에서 분리)
+const ASSET_CLASS = {
+  stock:  { label:"개별주식", color:"#6366f1", icon:"📊" },
+  etf:    { label:"ETF",      color:"#f59e0b", icon:"📦" },
+  crypto: { label:"암호화폐", color:"#a855f7", icon:"₿" },
+  gold:   { label:"금/원자재", color:"#eab308", icon:"🥇" },
+};
+const getAssetClass = (h) => {
+  if (h.market === "CRYPTO") return "crypto";
+  if (h.market === "GOLD")   return "gold";
+  if (h.market === "ETF" || h.stockType === "ETF") return "etf";
+  return "stock";
+};
+// 사전 매핑 사전 - 글로벌 시총 Top 100 + KOSPI 50 + 주요 ETF
+// 형식: ticker → [sector, style]
+const STOCK_TAGS = {
+  // ─── US 빅테크/Tech ───
+  AAPL:["tech","growth"], MSFT:["tech","growth"], NVDA:["tech","growth"],
+  GOOGL:["comm","growth"], GOOG:["comm","growth"], META:["comm","growth"],
+  AMZN:["consumer_disc","growth"], TSLA:["consumer_disc","growth"],
+  AVGO:["tech","growth"], ORCL:["tech","blend"], ADBE:["tech","growth"],
+  AMD:["tech","growth"], CRM:["tech","growth"], CSCO:["tech","dividend"],
+  ACN:["tech","blend"], INTC:["tech","dividend"], TXN:["tech","dividend"],
+  QCOM:["tech","dividend"], IBM:["tech","dividend"], INTU:["tech","growth"],
+  NOW:["tech","growth"], AMAT:["tech","growth"], LRCX:["tech","growth"],
+  KLAC:["tech","blend"], ASML:["tech","growth"], TSM:["tech","growth"],
+  MU:["tech","growth"], ARM:["tech","growth"], PLTR:["tech","growth"],
+  SMCI:["tech","growth"], ANET:["tech","growth"], DELL:["tech","blend"],
+  HPE:["tech","dividend"], SNOW:["tech","growth"], DDOG:["tech","growth"],
+  NET:["tech","growth"], CRWD:["tech","growth"], ZS:["tech","growth"],
+  PANW:["tech","growth"], MDB:["tech","growth"], TEAM:["tech","growth"],
+  WDAY:["tech","blend"], ADP:["tech","dividend"], SHOP:["tech","growth"],
+  // ─── US 통신/미디어 ───
+  NFLX:["comm","growth"], DIS:["comm","blend"], TMUS:["comm","growth"],
+  VZ:["comm","dividend"], T:["comm","dividend"], CMCSA:["comm","dividend"],
+  // ─── US 금융 ───
+  "BRK.B":["financial","value"], "BRK.A":["financial","value"],
+  JPM:["financial","blend"], V:["financial","growth"], MA:["financial","growth"],
+  BAC:["financial","blend"], WFC:["financial","dividend"], GS:["financial","dividend"],
+  MS:["financial","dividend"], C:["financial","dividend"], AXP:["financial","blend"],
+  BLK:["financial","blend"], BX:["financial","growth"], SCHW:["financial","blend"],
+  COIN:["financial","growth"], HOOD:["financial","growth"], PYPL:["financial","blend"],
+  // ─── US 헬스케어 ───
+  LLY:["health","growth"], JNJ:["health","dividend"], ABBV:["health","dividend"],
+  MRK:["health","dividend"], TMO:["health","growth"], ABT:["health","dividend"],
+  PFE:["health","dividend"], DHR:["health","growth"], AMGN:["health","dividend"],
+  BMY:["health","dividend"], UNH:["health","blend"], CVS:["health","dividend"],
+  // ─── US 소비재 ───
+  WMT:["consumer_staples","blend"], COST:["consumer_staples","growth"],
+  PG:["consumer_staples","dividend"], KO:["consumer_staples","dividend"],
+  PEP:["consumer_staples","dividend"], MO:["consumer_staples","dividend"],
+  PM:["consumer_staples","dividend"], BTI:["consumer_staples","dividend"],
+  CL:["consumer_staples","dividend"], KMB:["consumer_staples","dividend"],
+  HD:["consumer_disc","blend"], MCD:["consumer_disc","dividend"],
+  SBUX:["consumer_disc","dividend"], NKE:["consumer_disc","blend"],
+  LULU:["consumer_disc","growth"], TJX:["consumer_disc","blend"],
+  F:["consumer_disc","dividend"], GM:["consumer_disc","dividend"],
+  ABNB:["consumer_disc","growth"], BKNG:["consumer_disc","growth"],
+  DASH:["consumer_disc","growth"],
+  // ─── US 산업재 ───
+  BA:["industrial","blend"], CAT:["industrial","dividend"], DE:["industrial","dividend"],
+  HON:["industrial","dividend"], LMT:["industrial","dividend"], RTX:["industrial","dividend"],
+  GE:["industrial","blend"], MMM:["industrial","dividend"], UPS:["industrial","dividend"],
+  FDX:["industrial","dividend"], UBER:["industrial","growth"], VRT:["industrial","growth"],
+  // ─── US 에너지 ───
+  XOM:["energy","dividend"], CVX:["energy","dividend"], COP:["energy","dividend"],
+  SLB:["energy","dividend"], EOG:["energy","dividend"], MPC:["energy","dividend"],
+  PSX:["energy","dividend"], OXY:["energy","dividend"], KMI:["energy","dividend"],
+  ENB:["energy","dividend"], EPD:["energy","dividend"],
+  // ─── US 원자재/유틸리티/리츠 ───
+  LIN:["materials","dividend"], APD:["materials","dividend"], ECL:["materials","dividend"],
+  NEM:["materials","dividend"], FCX:["materials","blend"],
+  SO:["utilities","dividend"], DUK:["utilities","dividend"], NEE:["utilities","dividend"],
+  AEP:["utilities","dividend"], EXC:["utilities","dividend"],
+  TLN:["utilities","blend"], VST:["utilities","blend"], CEG:["utilities","blend"],
+  O:["realestate","dividend"], AMT:["realestate","dividend"], PLD:["realestate","dividend"],
+  SPG:["realestate","dividend"], VICI:["realestate","dividend"],
+  // ─── KOSPI 시총 상위 ───
+  "005930":["tech","dividend"], "005935":["tech","dividend"],            // 삼성전자/우
+  "000660":["tech","growth"],                                            // SK하이닉스
+  "207940":["health","growth"],                                          // 삼성바이오로직스
+  "373220":["industrial","growth"],                                      // LG에너지솔루션
+  "035420":["comm","growth"],                                            // NAVER
+  "035720":["comm","blend"],                                             // 카카오
+  "005380":["consumer_disc","dividend"], "005385":["consumer_disc","dividend"], // 현대차/우
+  "000270":["consumer_disc","dividend"],                                 // 기아
+  "012330":["consumer_disc","dividend"],                                 // 현대모비스
+  "068270":["health","blend"],                                           // 셀트리온
+  "091990":["health","blend"],                                           // 셀트리온헬스케어
+  "326030":["health","growth"],                                          // SK바이오팜
+  "196170":["health","growth"],                                          // 알테오젠
+  "145020":["health","growth"],                                          // 휴젤
+  "214450":["health","growth"],                                          // 파마리서치
+  "105560":["financial","dividend"],                                     // KB금융
+  "055550":["financial","dividend"],                                     // 신한지주
+  "086790":["financial","dividend"],                                     // 하나금융지주
+  "316140":["financial","dividend"],                                     // 우리금융지주
+  "024110":["financial","dividend"],                                     // 기업은행
+  "138930":["financial","dividend"],                                     // BNK금융지주
+  "138040":["financial","blend"],                                        // 메리츠금융지주
+  "000810":["financial","dividend"],                                     // 삼성화재
+  "088350":["financial","dividend"],                                     // 한화생명
+  "005490":["materials","dividend"],                                     // POSCO홀딩스
+  "003670":["materials","growth"],                                       // 포스코퓨처엠
+  "247540":["materials","growth"],                                       // 에코프로비엠
+  "086520":["materials","growth"],                                       // 에코프로
+  "051910":["materials","blend"],                                        // LG화학
+  "010130":["materials","blend"],                                        // 고려아연
+  "009830":["materials","blend"],                                        // 한화솔루션
+  "028260":["industrial","dividend"],                                    // 삼성물산
+  "006400":["industrial","growth"],                                      // 삼성SDI
+  "267260":["industrial","growth"],                                      // HD현대일렉트릭
+  "034020":["industrial","blend"],                                       // 두산에너빌리티
+  "267250":["industrial","dividend"],                                    // HD현대
+  "329180":["industrial","blend"],                                       // HD현대중공업
+  "010140":["industrial","blend"],                                       // 삼성중공업
+  "042660":["industrial","blend"],                                       // 한화오션
+  "010620":["industrial","blend"],                                       // 현대미포조선
+  "012450":["industrial","growth"],                                      // 한화에어로스페이스
+  "272210":["industrial","growth"],                                      // 한화시스템
+  "079550":["industrial","growth"],                                      // LIG넥스원
+  "047810":["industrial","blend"],                                       // 한국항공우주
+  "064350":["industrial","growth"],                                      // 현대로템
+  "086280":["industrial","blend"],                                       // 현대글로비스
+  "003490":["industrial","blend"],                                       // 대한항공
+  "011200":["industrial","blend"],                                       // HMM
+  "017670":["comm","dividend"],                                          // SK텔레콤
+  "030200":["comm","dividend"],                                          // KT
+  "032640":["comm","dividend"],                                          // LG유플러스
+  "036570":["comm","blend"],                                             // 엔씨소프트
+  "251270":["comm","blend"],                                             // 넷마블
+  "259960":["comm","growth"],                                            // 크래프톤
+  "263750":["comm","blend"],                                             // 펄어비스
+  "293490":["comm","blend"],                                             // 카카오게임즈
+  "066570":["tech","blend"],                                              // LG전자
+  "009150":["tech","blend"],                                              // 삼성전기
+  "042700":["tech","growth"],                                            // 한미반도체
+  "032500":["tech","blend"],                                             // 케이엠더블유
+  "357780":["tech","blend"],                                             // 솔브레인
+  "281820":["tech","blend"],                                             // 케이씨텍
+  "277810":["industrial","growth"],                                      // 레인보우로보틱스
+  "015760":["utilities","dividend"],                                     // 한국전력
+  "036460":["utilities","dividend"],                                     // 한국가스공사
+  "096770":["energy","dividend"],                                        // SK이노베이션
+  "010950":["energy","dividend"],                                        // S-Oil
+  "271560":["consumer_staples","dividend"],                              // 오리온
+  "097950":["consumer_staples","dividend"],                              // CJ제일제당
+  "282330":["consumer_staples","dividend"],                              // BGF리테일
+  "023530":["consumer_disc","dividend"],                                 // 롯데쇼핑
+  "069960":["consumer_disc","dividend"],                                 // 현대백화점
+  "035250":["consumer_disc","blend"],                                    // 강원랜드
+  "003550":["industrial","dividend"],                                    // LG
+};
+// Yahoo Finance sector → 우리 스키마 매핑
+const YAHOO_SECTOR_MAP = {
+  "Technology":"tech", "Communication Services":"comm",
+  "Consumer Cyclical":"consumer_disc", "Consumer Defensive":"consumer_staples",
+  "Healthcare":"health", "Financial Services":"financial", "Financial":"financial",
+  "Industrials":"industrial", "Energy":"energy", "Basic Materials":"materials",
+  "Utilities":"utilities", "Real Estate":"realestate",
+};
+// 보유 종목에 sector/style 자동 부여 (사전 매핑 우선, Yahoo sector fallback)
+const autoClassify = (holding) => {
+  const t = holding.ticker;
+  if (STOCK_TAGS[t]) {
+    const [sector, style] = STOCK_TAGS[t];
+    return { sector, style };
+  }
+  // Yahoo Finance sector 정보가 _infoCache에 있으면 활용
+  const info = (typeof window !== "undefined" && window._infoCache) ? window._infoCache[t] : null;
+  if (info?.sector && YAHOO_SECTOR_MAP[info.sector]) {
+    return { sector: YAHOO_SECTOR_MAP[info.sector], style: holding.style || null };
+  }
+  return { sector: holding.sector || null, style: holding.style || null };
+};
+
 const USD_KRW = 1380;
 const TAX_ACCOUNTS = ["연금저축1(신한금융투자)", "연금저축2(미래에셋증권)", "IRP(미래에셋증권)"];
 const fmtPrice = (n, cur) => cur === "KRW" ? Math.round(n).toLocaleString("ko-KR") + "₩" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 });
@@ -2018,6 +2217,11 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [simCustomReturn, setSimCustomReturn] = useState("8");
   const [simScenarios, setSimScenarios] = useState({ low:"4", mid:"7", high:"10" });
   const [simInitialAuto, setSimInitialAuto] = useState(true);
+  // ── 섹터분석 ──
+  const [sectorAxis, setSectorAxis] = useState("sector");   // "sector" | "style"
+  const [sectorPort, setSectorPort] = useState("all");      // "all" | "p1" | "p2" | "p3"
+  const [sectorDrill, setSectorDrill] = useState(null);     // 드릴다운 그룹 키
+  const [showUnclassified, setShowUnclassified] = useState(true);
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
   const [selectedStock, setSelectedStock] = useState(null);
@@ -3517,13 +3721,13 @@ ${analystSummary}
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px" }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["sectors","🎯 섹터분석"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
-              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="tax"?"양도세":id==="calendar"?"캘린더":"시뮬"):label}
+              {isMobile?(id==="overview"?"전체현황":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="sectors"?"섹터":id==="tax"?"양도세":id==="calendar"?"캘린더":"시뮬"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator") && (
+        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator" && mainTab !== "sectors") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -6146,6 +6350,339 @@ ${analystSummary}
                   </div>
                 </div>
               )}
+            </div>
+          );
+        })()}
+
+        {/* ──────────── 섹터 분석 ──────────── */}
+        {mainTab === "sectors" && (() => {
+          // 1) 포트폴리오 필터링 - 모든 종목을 KRW 기준으로 정규화
+          const allRows = [
+            ...portfolioAll.map(h => ({ ...h, _port: h.market === "ISA" ? "p3" : "p1",
+              _value: toKRWLive(h.value, h.cur), _cost: toKRWLive(h.cost, h.cur) })),
+            ...holdings2.map(h => ({ ...h, _port: "p2", _value: h.value, _cost: h.cost })),
+          ];
+          const filtered = sectorPort === "all" ? allRows : allRows.filter(r => r._port === sectorPort);
+
+          // 2) 자산군 분리 - ETF/CRYPTO/GOLD는 산업/스타일 분석에서 제외
+          const byAssetClass = { stock:[], etf:[], crypto:[], gold:[] };
+          filtered.forEach(r => byAssetClass[getAssetClass(r)].push(r));
+          const assetClassStats = Object.entries(byAssetClass).map(([k, rows]) => ({
+            key: k, ...ASSET_CLASS[k],
+            value: rows.reduce((s,r)=>s+r._value,0),
+            cost:  rows.reduce((s,r)=>s+r._cost,0),
+            count: rows.length,
+          })).filter(s => s.count > 0);
+          const assetTotal = assetClassStats.reduce((s,a)=>s+a.value,0);
+
+          // 3) 개별주식만 대상으로 sector/style 그룹화
+          const stockRows = byAssetClass.stock.map(r => {
+            const auto = autoClassify(r);
+            return {
+              ...r,
+              _sector: r.sector || auto.sector || "unknown",
+              _style:  r.style  || auto.style  || "unknown",
+            };
+          });
+
+          // 그룹별 통계 계산
+          const groupBy = (axis) => {
+            const map = new Map();
+            const tagMap = axis === "sector" ? SECTOR_MAP : STYLE_MAP;
+            stockRows.forEach(r => {
+              const k = axis === "sector" ? r._sector : r._style;
+              if (!map.has(k)) map.set(k, { key:k, ...tagMap[k] || tagMap.unknown, items:[], value:0, cost:0 });
+              const g = map.get(k);
+              g.items.push(r); g.value += r._value; g.cost += r._cost;
+            });
+            const total = stockRows.reduce((s,r)=>s+r._value,0);
+            return Array.from(map.values()).map(g => ({
+              ...g,
+              count: g.items.length,
+              pnl: g.value - g.cost,
+              pnlPct: g.cost > 0 ? ((g.value - g.cost) / g.cost) * 100 : 0,
+              ratio: total > 0 ? (g.value / total) * 100 : 0,
+            })).sort((a,b) => b.value - a.value);
+          };
+          const groups = groupBy(sectorAxis);
+          const stockTotal = stockRows.reduce((s,r)=>s+r._value,0);
+          const stockCost  = stockRows.reduce((s,r)=>s+r._cost,0);
+          const unclassifiedRows = stockRows.filter(r => sectorAxis === "sector" ? r._sector === "unknown" : r._style === "unknown");
+
+          // 사용자가 직접 분류 변경 (양쪽 holdings 배열 모두 처리)
+          const updateClassification = (id, field, value) => {
+            const updater = (arr) => arr.map(x => x.id === id ? { ...x, [field]: value || undefined } : x);
+            setHoldings(updater);
+            setHoldings2(updater);
+          };
+
+          const fmtC = n => {
+            const v = Math.round(n);
+            if (v >= 100000000) return (v/100000000).toFixed(2)+"억";
+            if (v >= 10000)     return Math.round(v/10000).toLocaleString()+"만";
+            return v.toLocaleString();
+          };
+
+          const drillRows = sectorDrill ? groups.find(g => g.key === sectorDrill)?.items || [] : [];
+
+          return (
+            <div style={{display:"flex",flexDirection:"column",gap:isMobile?"10px":"14px"}}>
+              {/* 헤더 */}
+              <div style={{marginTop:"4px"}}>
+                <div style={{fontSize:isMobile?"17px":"21px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.03em"}}>🎯 섹터 분석</div>
+                <div style={{fontSize:"11px",color:"#64748b",marginTop:"2px"}}>산업·스타일별 비중·수익률 분석 · 자산군 별도 통계</div>
+              </div>
+
+              {/* 포트폴리오 필터 */}
+              <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                {[["all","전체","#6366f1"],["p1","P1","#10b981"],["p2","P2","#f59e0b"],["p3","P3","#06b6d4"]].map(([k,label,color])=>(
+                  <button key={k} onClick={()=>{setSectorPort(k);setSectorDrill(null);}} style={{
+                    background: sectorPort===k ? `${color}33` : "rgba(255,255,255,0.04)",
+                    border: sectorPort===k ? `1px solid ${color}88` : "1px solid rgba(255,255,255,0.08)",
+                    color: sectorPort===k ? color : "#64748b",
+                    padding:isMobile?"6px 12px":"7px 16px", borderRadius:"10px", cursor:"pointer",
+                    fontSize:isMobile?"12px":"13px", fontWeight:sectorPort===k?800:600, fontFamily:FONT,
+                  }}>{label}</button>
+                ))}
+              </div>
+
+              {/* 자산군 비중 카드 */}
+              <div style={{...S.card,padding:isMobile?"12px":"16px"}}>
+                <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,marginBottom:"10px",textTransform:"uppercase",letterSpacing:"0.05em"}}>자산군 구성</div>
+                {assetClassStats.length === 0 ? (
+                  <div style={{textAlign:"center",padding:"24px",color:"#475569",fontSize:"12px"}}>해당 포트폴리오에 보유 종목이 없습니다</div>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"8px"}}>
+                    {assetClassStats.map(a => {
+                      const ratio = assetTotal > 0 ? (a.value / assetTotal) * 100 : 0;
+                      const pnl = a.value - a.cost;
+                      const pnlPct = a.cost > 0 ? (pnl / a.cost) * 100 : 0;
+                      return (
+                        <div key={a.key} style={{background:`${a.color}10`,border:`1px solid ${a.color}40`,borderRadius:"10px",padding:"10px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"4px"}}>
+                            <div style={{fontSize:"12px",color:a.color,fontWeight:800}}>{a.icon} {a.label}</div>
+                            <div style={{fontSize:"10px",color:"#64748b"}}>{a.count}종목</div>
+                          </div>
+                          <div style={{fontSize:"15px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.02em"}}>{fmtC(a.value)}원</div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginTop:"3px"}}>
+                            <div style={{fontSize:"11px",color:a.color,fontWeight:700}}>{ratio.toFixed(1)}%</div>
+                            <div style={{fontSize:"10px",color:pnlPct>=0?"#34d399":"#f87171",fontWeight:700}}>{pnlPct>=0?"+":""}{pnlPct.toFixed(1)}%</div>
+                          </div>
+                          {/* 비중 바 */}
+                          <div style={{height:"3px",background:"rgba(255,255,255,0.06)",borderRadius:"2px",marginTop:"6px",overflow:"hidden"}}>
+                            <div style={{height:"100%",width:ratio+"%",background:a.color,borderRadius:"2px"}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 개별주식 분석 - 산업/스타일 토글 */}
+              {byAssetClass.stock.length > 0 && (
+                <>
+                  <div style={{...S.card,padding:isMobile?"12px":"16px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",flexWrap:"wrap",gap:"8px"}}>
+                      <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>개별주식 분석 ({byAssetClass.stock.length}종목)</div>
+                      <div style={{display:"flex",gap:"4px"}}>
+                        {[["sector","🏭 산업"],["style","💎 스타일"]].map(([k,label])=>(
+                          <button key={k} onClick={()=>{setSectorAxis(k);setSectorDrill(null);}} style={{
+                            background: sectorAxis===k ? "rgba(99,102,241,0.22)" : "rgba(255,255,255,0.04)",
+                            border: sectorAxis===k ? "1px solid rgba(99,102,241,0.55)" : "1px solid rgba(255,255,255,0.08)",
+                            color: sectorAxis===k ? "#c7d2fe" : "#64748b",
+                            padding:"5px 12px", borderRadius:"8px", cursor:"pointer",
+                            fontSize:"12px", fontWeight: sectorAxis===k ? 800 : 600, fontFamily:FONT,
+                          }}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 도넛 차트 + 범례 */}
+                    {groups.length > 0 && stockTotal > 0 && (
+                      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"260px 1fr",gap:isMobile?"12px":"16px",alignItems:"center"}}>
+                        <div style={{height:isMobile?220:240,position:"relative"}}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={groups} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={isMobile?55:60} outerRadius={isMobile?85:95} paddingAngle={2}>
+                                {groups.map((g,i)=><Cell key={i} fill={g.color} stroke={sectorDrill===g.key?"#fff":"transparent"} strokeWidth={2} style={{cursor:"pointer"}} onClick={()=>setSectorDrill(d => d===g.key ? null : g.key)}/>)}
+                              </Pie>
+                              <Tooltip {...TT} formatter={(v,n,p)=>[fmtC(v)+"원 (" + p.payload.ratio.toFixed(1) + "%)", p.payload.label]}/>
+                            </PieChart>
+                          </ResponsiveContainer>
+                          {/* 중앙 텍스트 */}
+                          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
+                            <div style={{fontSize:"10px",color:"#64748b"}}>총 평가액</div>
+                            <div style={{fontSize:isMobile?"15px":"17px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.02em"}}>{fmtC(stockTotal)}</div>
+                            <div style={{fontSize:"11px",color:stockTotal>=stockCost?"#34d399":"#f87171",fontWeight:700,marginTop:"2px"}}>
+                              {stockCost>0 ? (stockTotal>=stockCost?"+":"") + (((stockTotal-stockCost)/stockCost)*100).toFixed(1)+"%" : "-"}
+                            </div>
+                          </div>
+                        </div>
+                        {/* 범례 */}
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr",gap:"6px"}}>
+                          {groups.map(g => (
+                            <div key={g.key} onClick={()=>setSectorDrill(d => d===g.key ? null : g.key)} style={{
+                              cursor:"pointer", padding:"6px 8px", borderRadius:"7px",
+                              background: sectorDrill===g.key ? `${g.color}25` : "rgba(255,255,255,0.03)",
+                              border: sectorDrill===g.key ? `1px solid ${g.color}77` : "1px solid rgba(255,255,255,0.06)",
+                              transition:"all 0.15s",
+                            }}>
+                              <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"2px"}}>
+                                <div style={{width:"8px",height:"8px",borderRadius:"50%",background:g.color}}/>
+                                <div style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.icon} {g.label}</div>
+                                <div style={{fontSize:"11px",fontWeight:800,color:g.color}}>{g.ratio.toFixed(1)}%</div>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:"10px",color:"#64748b"}}>
+                                <span>{g.count}종목</span>
+                                <span style={{color:g.pnlPct>=0?"#34d399":"#f87171",fontWeight:700}}>{g.pnlPct>=0?"+":""}{g.pnlPct.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 그룹별 상세 테이블 */}
+                  <div style={{...S.card,padding:isMobile?"8px":"14px",overflowX:"auto"}}>
+                    <div style={{fontSize:"12px",fontWeight:800,color:"#e2e8f0",marginBottom:"10px"}}>📋 {sectorAxis==="sector"?"산업":"스타일"}별 손익</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?"11px":"13px",fontFamily:FONT}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                          <th style={{padding:"7px 6px",textAlign:"left",color:"#64748b",fontWeight:700}}>{sectorAxis==="sector"?"산업":"스타일"}</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>비중</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>평가액</th>
+                          {!isMobile && <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>원금</th>}
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>손익</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>수익률</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>종목</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groups.map(g => (
+                          <tr key={g.key} onClick={()=>setSectorDrill(d => d===g.key ? null : g.key)} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background: sectorDrill===g.key ? `${g.color}10` : "transparent"}}>
+                            <td style={{padding:"8px 6px"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                                <div style={{width:"6px",height:"22px",borderRadius:"2px",background:g.color}}/>
+                                <div>
+                                  <div style={{fontSize:isMobile?"11px":"13px",fontWeight:700,color:"#e2e8f0"}}>{g.icon} {g.label}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.color,fontWeight:800,fontFamily:"ui-monospace,monospace"}}>{g.ratio.toFixed(1)}%</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:"#f1f5f9",fontWeight:700,fontFamily:"ui-monospace,monospace"}}>{fmtC(g.value)}</td>
+                            {!isMobile && <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8",fontFamily:"ui-monospace,monospace"}}>{fmtC(g.cost)}</td>}
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.pnl>=0?"#34d399":"#f87171",fontWeight:700,fontFamily:"ui-monospace,monospace"}}>{g.pnl>=0?"+":""}{fmtC(Math.abs(g.pnl))}</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.pnlPct>=0?"#34d399":"#f87171",fontWeight:800,fontFamily:"ui-monospace,monospace"}}>{g.pnlPct>=0?"+":""}{g.pnlPct.toFixed(1)}%</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8"}}>{g.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 드릴다운 - 그룹 클릭 시 그 안의 종목들 */}
+                  {sectorDrill && drillRows.length > 0 && (() => {
+                    const g = groups.find(x => x.key === sectorDrill);
+                    return (
+                      <div style={{...S.card,padding:isMobile?"10px":"14px",borderColor:`${g.color}55`,background:`linear-gradient(135deg,${g.color}08,transparent)`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+                          <div style={{fontSize:"13px",fontWeight:800,color:g.color}}>{g.icon} {g.label} 내부 종목</div>
+                          <button onClick={()=>setSectorDrill(null)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"16px"}}>✕</button>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+                          {drillRows.sort((a,b)=>b._value-a._value).map(r => {
+                            const pnl = r._value - r._cost;
+                            const pnlPct = r._cost > 0 ? (pnl/r._cost)*100 : 0;
+                            return (
+                              <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1.5fr 1fr 1fr":"2fr 1fr 1fr 1fr",gap:"6px",padding:"8px 10px",background:"rgba(255,255,255,0.025)",borderRadius:"7px",alignItems:"center"}}>
+                                <div>
+                                  <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                                  <div style={{fontSize:"10px",color:"#64748b"}}>{r.ticker} · {MARKET_LABEL[r.market]} · {r._port.toUpperCase()}</div>
+                                </div>
+                                <div style={{textAlign:"right",fontSize:"11px",color:"#94a3b8"}}>{fmtC(r._value)}</div>
+                                {!isMobile && <div style={{textAlign:"right",fontSize:"11px",color:pnl>=0?"#34d399":"#f87171",fontWeight:700}}>{pnl>=0?"+":""}{fmtC(Math.abs(pnl))}</div>}
+                                <div style={{textAlign:"right",fontSize:"12px",fontWeight:800,color:pnl>=0?"#34d399":"#f87171"}}>{pnl>=0?"+":""}{pnlPct.toFixed(1)}%</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 미분류 종목 일괄 편집 */}
+                  {unclassifiedRows.length > 0 && (
+                    <div style={{...S.card,padding:isMobile?"10px":"14px",borderColor:"rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.04)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+                        <div style={{fontSize:"12px",fontWeight:800,color:"#fbbf24"}}>⚠️ 미분류 종목 {unclassifiedRows.length}개 — {sectorAxis==="sector"?"산업":"스타일"}을 지정해 주세요</div>
+                        <button onClick={()=>setShowUnclassified(s=>!s)} style={{background:"none",border:"none",color:"#fbbf24",cursor:"pointer",fontSize:"11px",fontWeight:700}}>{showUnclassified?"접기":"펼치기"}</button>
+                      </div>
+                      {showUnclassified && (
+                        <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                          {unclassifiedRows.map(r => {
+                            const tagMap = sectorAxis === "sector" ? SECTOR_MAP : STYLE_MAP;
+                            const fieldName = sectorAxis === "sector" ? "sector" : "style";
+                            return (
+                              <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1.2fr":"2fr 1.2fr 1fr",gap:"6px",padding:"8px 10px",background:"rgba(0,0,0,0.2)",borderRadius:"7px",alignItems:"center"}}>
+                                <div>
+                                  <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                                  <div style={{fontSize:"10px",color:"#64748b"}}>{r.ticker} · {MARKET_LABEL[r.market]} · {r._port.toUpperCase()}</div>
+                                </div>
+                                <select value={r[fieldName]||""} onChange={e=>updateClassification(r.id, fieldName, e.target.value)} style={{...S.inp,fontSize:"11px",padding:"5px 7px",appearance:"none"}}>
+                                  <option value="">선택 안함</option>
+                                  {Object.entries(tagMap).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                                    <option key={k} value={k}>{m.icon} {m.label}</option>
+                                  ))}
+                                </select>
+                                {!isMobile && <div style={{fontSize:"11px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 분류 변경 (전체 보기/편집) */}
+                  <details style={{...S.card,padding:isMobile?"10px":"14px"}}>
+                    <summary style={{cursor:"pointer",fontSize:"12px",fontWeight:700,color:"#94a3b8",listStyle:"none"}}>
+                      ✏️ 모든 종목 분류 편집 ({stockRows.length}종목)
+                    </summary>
+                    <div style={{marginTop:"10px",display:"flex",flexDirection:"column",gap:"4px",maxHeight:"400px",overflowY:"auto"}}>
+                      {stockRows.sort((a,b)=>b._value-a._value).map(r => (
+                        <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1.4fr 1fr 1fr":"1.6fr 1fr 1fr 0.7fr",gap:"6px",padding:"6px 8px",background:"rgba(255,255,255,0.025)",borderRadius:"6px",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                            <div style={{fontSize:"9px",color:"#64748b"}}>{r.ticker} · {r._port.toUpperCase()}</div>
+                          </div>
+                          <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}}>
+                            <option value="">산업 미정</option>
+                            {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                              <option key={k} value={k}>{m.icon} {m.label}</option>
+                            ))}
+                          </select>
+                          <select value={r.style||""} onChange={e=>updateClassification(r.id,"style",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}}>
+                            <option value="">스타일 미정</option>
+                            {Object.entries(STYLE_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                              <option key={k} value={k}>{m.icon} {m.label}</option>
+                            ))}
+                          </select>
+                          {!isMobile && <div style={{fontSize:"10px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </>
+              )}
+
+              {/* 도움말 */}
+              <div style={{fontSize:"10px",color:"#475569",lineHeight:1.6,padding:"4px 4px 12px"}}>
+                ※ 자동분류: 글로벌 시총 Top 100·KOSPI 50 등 약 200개 종목은 자동 인식됩니다 (NVDA·삼성전자 등).
+                <br/>※ ETF·암호화폐·금은 자산군 카드에서만 표시되며 산업/스타일 분석에서는 분리됩니다.
+                <br/>※ Phase 2에서는 사용자 정의 테마(예: AI→반도체/원전/데이터센터/SW)를 추가할 예정입니다.
+              </div>
             </div>
           );
         })()}
