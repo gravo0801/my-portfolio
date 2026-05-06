@@ -197,19 +197,131 @@ const YAHOO_SECTOR_MAP = {
   "Industrials":"industrial", "Energy":"energy", "Basic Materials":"materials",
   "Utilities":"utilities", "Real Estate":"realestate",
 };
-// 보유 종목에 sector/style 자동 부여 (사전 매핑 우선, Yahoo sector fallback)
+// ETF 카테고리 분류
+const ETF_CAT_MAP = {
+  market:    { label:"시장지수",     color:"#6366f1", icon:"🌐" },
+  sector:    { label:"섹터형",       color:"#10b981", icon:"🏭" },
+  theme:     { label:"테마형",       color:"#a855f7", icon:"🎯" },
+  dividend:  { label:"고배당",       color:"#fbbf24", icon:"💰" },
+  infra:     { label:"인프라/리츠",  color:"#84cc16", icon:"🏢" },
+  bond:      { label:"채권",         color:"#06b6d4", icon:"🔗" },
+  commodity: { label:"원자재",       color:"#eab308", icon:"🥇" },
+  unknown:   { label:"미분류",       color:"#475569", icon:"❓" },
+};
+// ETF 사전 매핑: ticker → [etfCategory, sector(섹터형 ETF만)]
+const ETF_TAGS = {
+  // ─── US 시장지수 ───
+  SPY:["market",null], VOO:["market",null], IVV:["market",null], VTI:["market",null],
+  QQQ:["market",null], QQQM:["market",null], IWM:["market",null], DIA:["market",null],
+  EFA:["market",null], EEM:["market",null], VEA:["market",null], VWO:["market",null],
+  // ─── US 섹터형 (sector도 함께 매핑) ───
+  XLK:["sector","tech"], XLF:["sector","financial"], XLE:["sector","energy"],
+  XLV:["sector","health"], XLY:["sector","consumer_disc"], XLP:["sector","consumer_staples"],
+  XLI:["sector","industrial"], XLB:["sector","materials"], XLU:["sector","utilities"],
+  XLRE:["sector","realestate"], XLC:["sector","comm"],
+  SOXL:["sector","tech"], SOXX:["sector","tech"], SMH:["sector","tech"], SOXS:["sector","tech"],
+  KBE:["sector","financial"], XBI:["sector","health"], IBB:["sector","health"],
+  // ─── US 고배당 ───
+  SCHD:["dividend",null], JEPI:["dividend",null], JEPQ:["dividend",null],
+  DIVO:["dividend",null], DGRO:["dividend",null], VYM:["dividend",null], HDV:["dividend",null],
+  // ─── US 테마형 ───
+  ARKK:["theme",null], ARKQ:["theme",null], ARKW:["theme",null], ARKG:["theme",null],
+  IBIT:["theme",null], FBTC:["theme",null], BITO:["theme",null], BITX:["theme",null],
+  ICLN:["theme",null], TAN:["theme",null], DRIV:["theme",null], BOTZ:["theme",null],
+  // ─── US 인프라/리츠 ───
+  VNQ:["infra",null], REET:["infra",null], IYR:["infra",null], SCHH:["infra",null],
+  PAVE:["infra",null], IGF:["infra",null],
+  // ─── US 채권 ───
+  AGG:["bond",null], BND:["bond",null], TLT:["bond",null], IEF:["bond",null],
+  SHY:["bond",null], TIP:["bond",null], LQD:["bond",null], HYG:["bond",null], TLTW:["bond",null],
+  // ─── US 원자재 ───
+  IAU:["commodity",null], GLD:["commodity",null], IAUM:["commodity",null], SLV:["commodity",null],
+  USO:["commodity",null], DBA:["commodity",null], PDBC:["commodity",null],
+  // ─── 한국 시장지수 ETF ───
+  "069500":["market",null],   // KODEX 200
+  "102110":["market",null],   // TIGER 200
+  "232080":["market",null],   // TIGER 코스닥150
+  "133690":["market",null],   // TIGER 미국나스닥100
+  "379800":["market",null],   // KODEX 미국S&P500TR
+  "379810":["market",null],   // KODEX 미국나스닥100TR
+  "360750":["market",null],   // TIGER 미국S&P500
+  "143850":["market",null],   // TIGER 미국S&P500선물
+  "143860":["market",null],   // TIGER 미국나스닥100 (구)
+  "381180":["market",null],   // TIGER 미국필라델피아반도체나스닥
+  "200030":["market",null],   // KODEX MSCI Korea TR
+  // ─── 한국 섹터형 ETF ───
+  "091160":["sector","tech"],            // KODEX 반도체
+  "139260":["sector","tech"],            // TIGER 200IT
+  "228810":["sector","comm"],            // TIGER 미디어컨텐츠
+  "266360":["sector","health"],          // KODEX 헬스케어
+  "227540":["sector","health"],          // TIGER 헬스케어
+  "305720":["sector","industrial"],      // KODEX 2차전지산업
+  "364980":["sector","industrial"],      // TIGER KRX2차전지K-뉴딜
+  "091170":["sector","financial"],       // KODEX 은행
+  "117700":["sector","financial"],       // KODEX 보험
+  "091180":["sector","consumer_disc"],   // KODEX 자동차
+  "139250":["sector","industrial"],      // TIGER 200중공업
+  "139230":["sector","industrial"],      // TIGER 200건설
+  "228790":["sector","consumer_staples"],// TIGER 화장품
+  "098560":["sector","comm"],            // TIGER 방송통신
+  "117460":["sector","energy"],          // KODEX 에너지화학
+  "139220":["sector","consumer_staples"],// TIGER 200생활소비재
+  // ─── 한국 테마형 ETF ───
+  "371460":["theme",null],   // TIGER 차이나전기차SOLACTIVE
+  "475030":["theme",null],   // TIGER 코리아밸류업
+  "449450":["theme",null],   // PLUS K방산
+  "385520":["theme",null],   // KODEX K-Defense
+  "445290":["theme",null],   // TIGER 글로벌AI&로보틱스
+  "411420":["theme",null],   // KODEX K-신재생에너지액티브
+  "456600":["theme",null],   // KODEX AI반도체핵심장비
+  "490090":["theme",null],   // TIGER 미국AI빅테크10
+  // ─── 한국 고배당 ETF ───
+  "458730":["dividend",null],// TIGER 미국배당+7%프리미엄다우존스
+  "441640":["dividend",null],// KODEX 미국배당커버드콜액티브
+  "475080":["dividend",null],// SOL 미국배당다우존스
+  "279530":["dividend",null],// KODEX 고배당
+  "210780":["dividend",null],// TIGER 코스피고배당
+  "446720":["dividend",null],// SOL 미국배당다우존스(H)
+  // ─── 한국 인프라/리츠 ETF ───
+  "088980":["infra",null],   // 맥쿼리인프라 (인프라 펀드)
+  "182480":["infra",null],   // TIGER 미국MSCI리츠(합성H)
+  "351590":["infra",null],   // TIGER KIS부동산인프라채권TR
+  "411060":["infra",null],   // ACE 미국30년국채액티브
+  // ─── 한국 채권 ETF ───
+  "153130":["bond",null],    // KODEX 단기채권
+  "114260":["bond",null],    // KODEX 국고채3년
+  "470600":["bond",null],    // TIGER 미국30년국채커버드콜액티브(H)
+  "439870":["bond",null],    // KODEX 미국30년국채커버드콜
+  "451530":["bond",null],    // ACE 미국30년국채액티브(H)
+  // ─── 한국 원자재 ETF ───
+  "132030":["commodity",null],// KODEX 골드선물(H)
+  "319640":["commodity",null],// TIGER 골드선물(H)
+  "130680":["commodity",null],// TIGER 원유선물Enhanced(H)
+};
+// 보유 종목에 sector/style/etfCategory 자동 부여 (사전 매핑 우선)
 const autoClassify = (holding) => {
   const t = holding.ticker;
+  const isETF = holding.market === "ETF" || holding.stockType === "ETF";
+  // ETF 우선 매핑
+  if (isETF && ETF_TAGS[t]) {
+    const [etfCategory, sector] = ETF_TAGS[t];
+    return {
+      sector: sector || holding.sector || null,
+      style: holding.style || null,
+      etfCategory,
+    };
+  }
+  // 일반 주식 매핑
   if (STOCK_TAGS[t]) {
     const [sector, style] = STOCK_TAGS[t];
-    return { sector, style };
+    return { sector, style, etfCategory: null };
   }
-  // Yahoo Finance sector 정보가 _infoCache에 있으면 활용
+  // Yahoo Finance fallback
   const info = (typeof window !== "undefined" && window._infoCache) ? window._infoCache[t] : null;
   if (info?.sector && YAHOO_SECTOR_MAP[info.sector]) {
-    return { sector: YAHOO_SECTOR_MAP[info.sector], style: holding.style || null };
+    return { sector: YAHOO_SECTOR_MAP[info.sector], style: holding.style || null, etfCategory: null };
   }
-  return { sector: holding.sector || null, style: holding.style || null };
+  return { sector: holding.sector || null, style: holding.style || null, etfCategory: holding.etfCategory || null };
 };
 
 const USD_KRW = 1380;
@@ -2222,6 +2334,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [sectorPort, setSectorPort] = useState("all");      // "all" | "p1" | "p2" | "p3"
   const [sectorDrill, setSectorDrill] = useState(null);     // 드릴다운 그룹 키
   const [showUnclassified, setShowUnclassified] = useState(true);
+  const [includeSectorETF, setIncludeSectorETF] = useState(false); // 섹터형 ETF를 산업 도넛에 포함
+  const [etfDrill, setEtfDrill] = useState(null);           // ETF 카테고리 드릴다운
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
   const [selectedStock, setSelectedStock] = useState(null);
@@ -6357,11 +6471,13 @@ ${analystSummary}
         {/* ──────────── 섹터 분석 ──────────── */}
         {mainTab === "sectors" && (() => {
           // 1) 포트폴리오 필터링 - 모든 종목을 KRW 기준으로 정규화
+          // ⚠ holdings2는 raw 데이터(value/cost 없음). portfolio2를 써야 함.
           const allRows = [
             ...portfolioAll.map(h => ({ ...h, _port: h.market === "ISA" ? "p3" : "p1",
               _value: toKRWLive(h.value, h.cur), _cost: toKRWLive(h.cost, h.cur) })),
-            ...holdings2.map(h => ({ ...h, _port: "p2", _value: h.value, _cost: h.cost })),
-          ];
+            ...portfolio2.map(h => ({ ...h, _port: "p2",
+              _value: toKRWLive(h.value, h.cur), _cost: toKRWLive(h.cost, h.cur) })),
+          ].filter(r => Number.isFinite(r._value) && Number.isFinite(r._cost)); // NaN 안전 필터
           const filtered = sectorPort === "all" ? allRows : allRows.filter(r => r._port === sectorPort);
 
           // 2) 자산군 분리 - ETF/CRYPTO/GOLD는 산업/스타일 분석에서 제외
@@ -6384,18 +6500,36 @@ ${analystSummary}
               _style:  r.style  || auto.style  || "unknown",
             };
           });
+          // 3-2) ETF 자체 분류 (etfCategory + 섹터형이면 sector도)
+          const etfRows = byAssetClass.etf.map(r => {
+            const auto = autoClassify(r);
+            return {
+              ...r,
+              _etfCategory: r.etfCategory || auto.etfCategory || "unknown",
+              _sector:      r.sector      || auto.sector      || null,
+            };
+          });
+          // 3-3) 산업 분석에 섹터형 ETF 포함 옵션
+          const sectorAnalysisRows = (sectorAxis === "sector" && includeSectorETF)
+            ? [
+                ...stockRows,
+                ...etfRows
+                  .filter(r => r._etfCategory === "sector" && r._sector)
+                  .map(r => ({ ...r, _sector: r._sector, _style: r._style || "unknown" })),
+              ]
+            : stockRows;
 
           // 그룹별 통계 계산
-          const groupBy = (axis) => {
+          const groupBy = (axis, rows) => {
             const map = new Map();
             const tagMap = axis === "sector" ? SECTOR_MAP : STYLE_MAP;
-            stockRows.forEach(r => {
+            rows.forEach(r => {
               const k = axis === "sector" ? r._sector : r._style;
               if (!map.has(k)) map.set(k, { key:k, ...tagMap[k] || tagMap.unknown, items:[], value:0, cost:0 });
               const g = map.get(k);
               g.items.push(r); g.value += r._value; g.cost += r._cost;
             });
-            const total = stockRows.reduce((s,r)=>s+r._value,0);
+            const total = rows.reduce((s,r)=>s+r._value,0);
             return Array.from(map.values()).map(g => ({
               ...g,
               count: g.items.length,
@@ -6404,10 +6538,33 @@ ${analystSummary}
               ratio: total > 0 ? (g.value / total) * 100 : 0,
             })).sort((a,b) => b.value - a.value);
           };
-          const groups = groupBy(sectorAxis);
-          const stockTotal = stockRows.reduce((s,r)=>s+r._value,0);
-          const stockCost  = stockRows.reduce((s,r)=>s+r._cost,0);
+          const groups = groupBy(sectorAxis, sectorAnalysisRows);
+          const stockTotal = sectorAnalysisRows.reduce((s,r)=>s+r._value,0);
+          const stockCost  = sectorAnalysisRows.reduce((s,r)=>s+r._cost,0);
           const unclassifiedRows = stockRows.filter(r => sectorAxis === "sector" ? r._sector === "unknown" : r._style === "unknown");
+
+          // 3-4) ETF 카테고리 그룹화
+          const etfGroupBy = (rows) => {
+            const map = new Map();
+            rows.forEach(r => {
+              const k = r._etfCategory;
+              if (!map.has(k)) map.set(k, { key:k, ...ETF_CAT_MAP[k] || ETF_CAT_MAP.unknown, items:[], value:0, cost:0 });
+              const g = map.get(k);
+              g.items.push(r); g.value += r._value; g.cost += r._cost;
+            });
+            const total = rows.reduce((s,r)=>s+r._value,0);
+            return Array.from(map.values()).map(g => ({
+              ...g,
+              count: g.items.length,
+              pnl: g.value - g.cost,
+              pnlPct: g.cost > 0 ? ((g.value - g.cost) / g.cost) * 100 : 0,
+              ratio: total > 0 ? (g.value / total) * 100 : 0,
+            })).sort((a,b) => b.value - a.value);
+          };
+          const etfGroups = etfGroupBy(etfRows);
+          const etfTotal  = etfRows.reduce((s,r)=>s+r._value,0);
+          const etfCost   = etfRows.reduce((s,r)=>s+r._cost,0);
+          const unclassifiedEtfRows = etfRows.filter(r => r._etfCategory === "unknown");
 
           // 사용자가 직접 분류 변경 (양쪽 holdings 배열 모두 처리)
           const updateClassification = (id, field, value) => {
@@ -6484,8 +6641,20 @@ ${analystSummary}
                 <>
                   <div style={{...S.card,padding:isMobile?"12px":"16px"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",flexWrap:"wrap",gap:"8px"}}>
-                      <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>개별주식 분석 ({byAssetClass.stock.length}종목)</div>
-                      <div style={{display:"flex",gap:"4px"}}>
+                      <div style={{fontSize:"11px",color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>개별주식 분석 ({byAssetClass.stock.length}종목{includeSectorETF&&sectorAxis==="sector"?` + 섹터형 ETF ${etfRows.filter(r=>r._etfCategory==="sector"&&r._sector).length}개`:""})</div>
+                      <div style={{display:"flex",gap:"4px",alignItems:"center",flexWrap:"wrap"}}>
+                        {/* 섹터형 ETF 포함 토글 (산업 모드에서만) */}
+                        {sectorAxis === "sector" && etfRows.some(r => r._etfCategory === "sector" && r._sector) && (
+                          <button onClick={()=>setIncludeSectorETF(v=>!v)} style={{
+                            background: includeSectorETF ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.04)",
+                            border: includeSectorETF ? "1px solid rgba(16,185,129,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                            color: includeSectorETF ? "#34d399" : "#64748b",
+                            padding:"5px 10px", borderRadius:"8px", cursor:"pointer",
+                            fontSize:"10px", fontWeight:700, fontFamily:FONT,
+                          }} title="SOXL·KODEX반도체 등 섹터형 ETF를 산업 도넛에 포함">
+                            {includeSectorETF ? "✓ " : "+ "}섹터ETF 포함
+                          </button>
+                        )}
                         {[["sector","🏭 산업"],["style","💎 스타일"]].map(([k,label])=>(
                           <button key={k} onClick={()=>{setSectorAxis(k);setSectorDrill(null);}} style={{
                             background: sectorAxis===k ? "rgba(99,102,241,0.22)" : "rgba(255,255,255,0.04)",
@@ -6677,10 +6846,194 @@ ${analystSummary}
                 </>
               )}
 
+              {/* ──────── ETF 분석 섹션 ──────── */}
+              {byAssetClass.etf.length > 0 && (
+                <>
+                  <div style={{...S.card,padding:isMobile?"12px":"16px",borderColor:"rgba(245,158,11,0.3)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px",flexWrap:"wrap",gap:"6px"}}>
+                      <div style={{fontSize:"11px",color:"#fbbf24",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>📦 ETF 분석 ({byAssetClass.etf.length}종목)</div>
+                      <div style={{fontSize:"10px",color:"#64748b"}}>시장지수·섹터형·테마형 등 ETF 카테고리별 분포</div>
+                    </div>
+                    {/* ETF 도넛 + 범례 */}
+                    {etfGroups.length > 0 && etfTotal > 0 && (
+                      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"260px 1fr",gap:isMobile?"12px":"16px",alignItems:"center"}}>
+                        <div style={{height:isMobile?220:240,position:"relative"}}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={etfGroups} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={isMobile?55:60} outerRadius={isMobile?85:95} paddingAngle={2}>
+                                {etfGroups.map((g,i)=><Cell key={i} fill={g.color} stroke={etfDrill===g.key?"#fff":"transparent"} strokeWidth={2} style={{cursor:"pointer"}} onClick={()=>setEtfDrill(d => d===g.key ? null : g.key)}/>)}
+                              </Pie>
+                              <Tooltip {...TT} formatter={(v,n,p)=>[fmtC(v)+"원 (" + p.payload.ratio.toFixed(1) + "%)", p.payload.label]}/>
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center",pointerEvents:"none"}}>
+                            <div style={{fontSize:"10px",color:"#64748b"}}>ETF 평가액</div>
+                            <div style={{fontSize:isMobile?"15px":"17px",fontWeight:800,color:"#f1f5f9",letterSpacing:"-0.02em"}}>{fmtC(etfTotal)}</div>
+                            <div style={{fontSize:"11px",color:etfTotal>=etfCost?"#34d399":"#f87171",fontWeight:700,marginTop:"2px"}}>
+                              {etfCost>0 ? (etfTotal>=etfCost?"+":"") + (((etfTotal-etfCost)/etfCost)*100).toFixed(1)+"%" : "-"}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr",gap:"6px"}}>
+                          {etfGroups.map(g => (
+                            <div key={g.key} onClick={()=>setEtfDrill(d => d===g.key ? null : g.key)} style={{
+                              cursor:"pointer", padding:"6px 8px", borderRadius:"7px",
+                              background: etfDrill===g.key ? `${g.color}25` : "rgba(255,255,255,0.03)",
+                              border: etfDrill===g.key ? `1px solid ${g.color}77` : "1px solid rgba(255,255,255,0.06)",
+                              transition:"all 0.15s",
+                            }}>
+                              <div style={{display:"flex",alignItems:"center",gap:"6px",marginBottom:"2px"}}>
+                                <div style={{width:"8px",height:"8px",borderRadius:"50%",background:g.color}}/>
+                                <div style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.icon} {g.label}</div>
+                                <div style={{fontSize:"11px",fontWeight:800,color:g.color}}>{g.ratio.toFixed(1)}%</div>
+                              </div>
+                              <div style={{display:"flex",justifyContent:"space-between",fontSize:"10px",color:"#64748b"}}>
+                                <span>{g.count}종목</span>
+                                <span style={{color:g.pnlPct>=0?"#34d399":"#f87171",fontWeight:700}}>{g.pnlPct>=0?"+":""}{g.pnlPct.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ETF 카테고리별 손익 테이블 */}
+                  <div style={{...S.card,padding:isMobile?"8px":"14px",overflowX:"auto"}}>
+                    <div style={{fontSize:"12px",fontWeight:800,color:"#e2e8f0",marginBottom:"10px"}}>📋 ETF 카테고리별 손익</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?"11px":"13px",fontFamily:FONT}}>
+                      <thead>
+                        <tr style={{borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                          <th style={{padding:"7px 6px",textAlign:"left",color:"#64748b",fontWeight:700}}>카테고리</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>비중</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>평가액</th>
+                          {!isMobile && <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>원금</th>}
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>손익</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>수익률</th>
+                          <th style={{padding:"7px 6px",textAlign:"right",color:"#64748b",fontWeight:700}}>종목</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {etfGroups.map(g => (
+                          <tr key={g.key} onClick={()=>setEtfDrill(d => d===g.key ? null : g.key)} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",background: etfDrill===g.key ? `${g.color}10` : "transparent"}}>
+                            <td style={{padding:"8px 6px"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                                <div style={{width:"6px",height:"22px",borderRadius:"2px",background:g.color}}/>
+                                <div style={{fontSize:isMobile?"11px":"13px",fontWeight:700,color:"#e2e8f0"}}>{g.icon} {g.label}</div>
+                              </div>
+                            </td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.color,fontWeight:800,fontFamily:"ui-monospace,monospace"}}>{g.ratio.toFixed(1)}%</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:"#f1f5f9",fontWeight:700,fontFamily:"ui-monospace,monospace"}}>{fmtC(g.value)}</td>
+                            {!isMobile && <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8",fontFamily:"ui-monospace,monospace"}}>{fmtC(g.cost)}</td>}
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.pnl>=0?"#34d399":"#f87171",fontWeight:700,fontFamily:"ui-monospace,monospace"}}>{g.pnl>=0?"+":""}{fmtC(Math.abs(g.pnl))}</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:g.pnlPct>=0?"#34d399":"#f87171",fontWeight:800,fontFamily:"ui-monospace,monospace"}}>{g.pnlPct>=0?"+":""}{g.pnlPct.toFixed(1)}%</td>
+                            <td style={{padding:"8px 6px",textAlign:"right",color:"#94a3b8"}}>{g.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* ETF 드릴다운 */}
+                  {etfDrill && (() => {
+                    const g = etfGroups.find(x => x.key === etfDrill);
+                    if (!g) return null;
+                    return (
+                      <div style={{...S.card,padding:isMobile?"10px":"14px",borderColor:`${g.color}55`,background:`linear-gradient(135deg,${g.color}08,transparent)`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
+                          <div style={{fontSize:"13px",fontWeight:800,color:g.color}}>{g.icon} {g.label} ETF 상세</div>
+                          <button onClick={()=>setEtfDrill(null)} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:"16px"}}>✕</button>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+                          {g.items.sort((a,b)=>b._value-a._value).map(r => {
+                            const pnl = r._value - r._cost;
+                            const pnlPct = r._cost > 0 ? (pnl/r._cost)*100 : 0;
+                            return (
+                              <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1.5fr 1fr 1fr":"2fr 1fr 1fr 1fr",gap:"6px",padding:"8px 10px",background:"rgba(255,255,255,0.025)",borderRadius:"7px",alignItems:"center"}}>
+                                <div>
+                                  <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                                  <div style={{fontSize:"10px",color:"#64748b"}}>{r.ticker} · {MARKET_LABEL[r.market]} · {r._port.toUpperCase()}{r._sector?` · ${SECTOR_MAP[r._sector]?.label||""}`:""}</div>
+                                </div>
+                                <div style={{textAlign:"right",fontSize:"11px",color:"#94a3b8"}}>{fmtC(r._value)}</div>
+                                {!isMobile && <div style={{textAlign:"right",fontSize:"11px",color:pnl>=0?"#34d399":"#f87171",fontWeight:700}}>{pnl>=0?"+":""}{fmtC(Math.abs(pnl))}</div>}
+                                <div style={{textAlign:"right",fontSize:"12px",fontWeight:800,color:pnl>=0?"#34d399":"#f87171"}}>{pnl>=0?"+":""}{pnlPct.toFixed(1)}%</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 미분류 ETF */}
+                  {unclassifiedEtfRows.length > 0 && (
+                    <div style={{...S.card,padding:isMobile?"10px":"14px",borderColor:"rgba(245,158,11,0.4)",background:"rgba(245,158,11,0.04)"}}>
+                      <div style={{fontSize:"12px",fontWeight:800,color:"#fbbf24",marginBottom:"10px"}}>⚠️ 미분류 ETF {unclassifiedEtfRows.length}개 — 카테고리를 지정해 주세요</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+                        {unclassifiedEtfRows.map(r => (
+                          <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1.2fr":"1.6fr 1.2fr 1fr 0.8fr",gap:"6px",padding:"8px 10px",background:"rgba(0,0,0,0.2)",borderRadius:"7px",alignItems:"center"}}>
+                            <div>
+                              <div style={{fontSize:"12px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                              <div style={{fontSize:"10px",color:"#64748b"}}>{r.ticker} · {r._port.toUpperCase()}</div>
+                            </div>
+                            <select value={r.etfCategory||""} onChange={e=>updateClassification(r.id,"etfCategory",e.target.value)} style={{...S.inp,fontSize:"11px",padding:"5px 7px",appearance:"none"}}>
+                              <option value="">카테고리 선택</option>
+                              {Object.entries(ETF_CAT_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                                <option key={k} value={k}>{m.icon} {m.label}</option>
+                              ))}
+                            </select>
+                            {!isMobile && (
+                              <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"11px",padding:"5px 7px",appearance:"none"}} title="섹터형 ETF인 경우만">
+                                <option value="">{r.etfCategory==="sector"?"산업 선택":"섹터형만"}</option>
+                                {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                                  <option key={k} value={k}>{m.icon} {m.label}</option>
+                                ))}
+                              </select>
+                            )}
+                            {!isMobile && <div style={{fontSize:"11px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ETF 전체 분류 편집 */}
+                  <details style={{...S.card,padding:isMobile?"10px":"14px"}}>
+                    <summary style={{cursor:"pointer",fontSize:"12px",fontWeight:700,color:"#94a3b8",listStyle:"none"}}>
+                      ✏️ 모든 ETF 분류 편집 ({etfRows.length}종목)
+                    </summary>
+                    <div style={{marginTop:"10px",display:"flex",flexDirection:"column",gap:"4px",maxHeight:"400px",overflowY:"auto"}}>
+                      {etfRows.sort((a,b)=>b._value-a._value).map(r => (
+                        <div key={r.id} style={{display:"grid",gridTemplateColumns:isMobile?"1.4fr 1fr 1fr":"1.6fr 1fr 1fr 0.7fr",gap:"6px",padding:"6px 8px",background:"rgba(255,255,255,0.025)",borderRadius:"6px",alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0"}}>{r.name||r.ticker}</div>
+                            <div style={{fontSize:"9px",color:"#64748b"}}>{r.ticker} · {r._port.toUpperCase()}</div>
+                          </div>
+                          <select value={r.etfCategory||""} onChange={e=>updateClassification(r.id,"etfCategory",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}}>
+                            <option value="">카테고리 미정</option>
+                            {Object.entries(ETF_CAT_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                              <option key={k} value={k}>{m.icon} {m.label}</option>
+                            ))}
+                          </select>
+                          <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}} title="섹터형 ETF의 산업 (예: SOXL→첨단기술)">
+                            <option value="">산업 미정</option>
+                            {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                              <option key={k} value={k}>{m.icon} {m.label}</option>
+                            ))}
+                          </select>
+                          {!isMobile && <div style={{fontSize:"10px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                </>
+              )}
+
               {/* 도움말 */}
               <div style={{fontSize:"10px",color:"#475569",lineHeight:1.6,padding:"4px 4px 12px"}}>
-                ※ 자동분류: 글로벌 시총 Top 100·KOSPI 50 등 약 200개 종목은 자동 인식됩니다 (NVDA·삼성전자 등).
-                <br/>※ ETF·암호화폐·금은 자산군 카드에서만 표시되며 산업/스타일 분석에서는 분리됩니다.
+                ※ 자동분류: 주요 종목 약 200개 + ETF 약 90개가 자동 인식됩니다 (NVDA·삼성전자·SCHD·KODEX 반도체 등).
+                <br/>※ ETF는 카테고리(시장지수/섹터형/테마형/고배당/인프라/채권/원자재)로 별도 분석됩니다.
+                <br/>※ 섹터형 ETF(SOXL·KODEX 반도체 등)는 토글로 산업 도넛에 합산할 수 있습니다.
                 <br/>※ Phase 2에서는 사용자 정의 테마(예: AI→반도체/원전/데이터센터/SW)를 추가할 예정입니다.
               </div>
             </div>
