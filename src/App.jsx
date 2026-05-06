@@ -6983,12 +6983,18 @@ ${analystSummary}
                               ))}
                             </select>
                             {!isMobile && (
-                              <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"11px",padding:"5px 7px",appearance:"none"}} title="섹터형 ETF인 경우만">
-                                <option value="">{r.etfCategory==="sector"?"산업 선택":"섹터형만"}</option>
-                                {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
-                                  <option key={k} value={k}>{m.icon} {m.label}</option>
-                                ))}
-                              </select>
+                              r.etfCategory === "sector" ? (
+                                <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"11px",padding:"5px 7px",appearance:"none"}} title="섹터형 ETF의 산업">
+                                  <option value="">산업 선택</option>
+                                  {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                                    <option key={k} value={k}>{m.icon} {m.label}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <div style={{fontSize:"10px",color:"#475569",fontStyle:"italic",textAlign:"center",padding:"5px 0"}}>
+                                  {r.etfCategory ? "—" : ""}
+                                </div>
+                              )
                             )}
                             {!isMobile && <div style={{fontSize:"11px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
                           </div>
@@ -7015,12 +7021,18 @@ ${analystSummary}
                               <option key={k} value={k}>{m.icon} {m.label}</option>
                             ))}
                           </select>
-                          <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}} title="섹터형 ETF의 산업 (예: SOXL→첨단기술)">
-                            <option value="">산업 미정</option>
-                            {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
-                              <option key={k} value={k}>{m.icon} {m.label}</option>
-                            ))}
-                          </select>
+                          {r.etfCategory === "sector" ? (
+                            <select value={r.sector||""} onChange={e=>updateClassification(r.id,"sector",e.target.value)} style={{...S.inp,fontSize:"10px",padding:"4px 6px",appearance:"none"}} title="섹터형 ETF의 산업 (예: SOXL→첨단기술)">
+                              <option value="">산업 미정</option>
+                              {Object.entries(SECTOR_MAP).filter(([k])=>k!=="unknown").map(([k,m])=>(
+                                <option key={k} value={k}>{m.icon} {m.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div style={{fontSize:"10px",color:"#475569",fontStyle:"italic",textAlign:"center",padding:"4px 0"}}>
+                              {r.etfCategory ? "산업 분류 불필요" : "—"}
+                            </div>
+                          )}
                           {!isMobile && <div style={{fontSize:"10px",color:"#94a3b8",textAlign:"right"}}>{fmtC(r._value)}</div>}
                         </div>
                       ))}
