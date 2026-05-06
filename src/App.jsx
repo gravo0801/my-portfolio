@@ -2628,11 +2628,25 @@ function PortfolioApp({ syncKey, onLogout }) {
 
 
 
+  // Firebase는 undefined 값을 받으면 throw → 객체에서 undefined 키를 재귀적으로 제거
+  const sanitizeForFirebase = (val) => {
+    if (val === undefined) return null;
+    if (val === null || typeof val !== "object") return val;
+    if (Array.isArray(val)) return val.map(sanitizeForFirebase);
+    const out = {};
+    for (const k in val) {
+      if (val[k] !== undefined) out[k] = sanitizeForFirebase(val[k]);
+    }
+    return out;
+  };
   const saveData = useCallback((path, data, key) => {
     if (!loaded) return;
     if (!fbLoadedRef.current[key]) return; // Firebase에서 한 번도 안 읽어온 키는 저장 안 함
     saving.current[key] = true;
-    dbSet(`users/${syncKey}/${path}`, data).finally(() => setTimeout(() => { saving.current[key] = false; }, 500));
+    const safe = sanitizeForFirebase(data);
+    dbSet(`users/${syncKey}/${path}`, safe)
+      .catch(err => console.error(`[Firebase save fail: ${path}]`, err))
+      .finally(() => setTimeout(() => { saving.current[key] = false; }, 500));
   }, [syncKey, loaded]);
 
   useEffect(() => { if (loaded) saveData("holdings",  holdings.length  ? holdings  : [], "h");  }, [holdings,  loaded]);
@@ -2661,11 +2675,155 @@ function PortfolioApp({ syncKey, onLogout }) {
   }, [trades, loaded]);
   useEffect(() => { if (loaded) saveData("alerts",   alerts.length   ? alerts   : [], "a"); }, [alerts,   loaded]);
 
+  // ──────────── 자동 일일 백업 (localStorage, 7일 회전) ────────────
+  const [lastAutoBackupTs, setLastAutoBackupTs] = useState(() => parseInt(localStorage.getItem("pm_autobackup_last_ts") || "0"));
+  useEffect(() => {
+    if (!loaded) return;
+    const now = Date.now();
+    const lastTs = parseInt(localStorage.getItem("pm_autobackup_last_ts") || "0");
+    if (now - lastTs < 24 * 60 * 60 * 1000) return; // 24시간 이내면 스킵
+    // 빈 데이터로 덮어씌우는 사고 방지
+    if (holdings.length === 0 && holdings2.length === 0 && trades.length === 0) return;
+    try {
+      const dateKey = new Date().toISOString().slice(0,10);
+      const backup = {
+        version: "1.0", timestamp: now, date: dateKey,
+        data: {
+          holdings, holdings2, holdings4, trades,
+          divInfo, divRecords, alerts, watchlist,
+          contribLimits, contribAmounts,
+        },
+      };
+      localStorage.setItem(`pm_autobackup_${dateKey}`, JSON.stringify(backup));
+      localStorage.setItem("pm_autobackup_last_ts", String(now));
+      setLastAutoBackupTs(now);
+      // 회전: 7일 이상 백업 삭제
+      const allKeys = Object.keys(localStorage).filter(k => k.startsWith("pm_autobackup_") && k !== "pm_autobackup_last_ts");
+      if (allKeys.length > 7) {
+        allKeys.sort(); // 날짜순
+        allKeys.slice(0, allKeys.length - 7).forEach(k => localStorage.removeItem(k));
+      }
+    } catch (e) {
+      console.warn("자동 백업 실패:", e);
+    }
+  }, [loaded, holdings, holdings2, holdings4, trades, divInfo, divRecords, alerts, watchlist, contribLimits, contribAmounts]);
+
   const toast = useCallback((msg, type="info") => {
     const id = Date.now() + Math.random();
     setToasts(p => [...p, { id, msg, type }]);
     setTimeout(() => setToasts(p => p.filter(x => x.id !== id)), 7000);
   }, []);
+
+  // ──────────── 백업/복원 함수 ────────────
+  const buildBackupObject = () => ({
+    version: "1.0",
+    timestamp: Date.now(),
+    date: new Date().toISOString().slice(0,10),
+    syncKey,
+    data: {
+      holdings, holdings2, holdings4, trades,
+      divInfo, divRecords, alerts, watchlist,
+      contribLimits, contribAmounts,
+    },
+  });
+
+  const exportBackup = () => {
+    try {
+      const backup = buildBackupObject();
+      const json = JSON.stringify(backup, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `portfolio-backup-${backup.date}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast("✓ 백업 파일 다운로드 완료", "success");
+    } catch (e) {
+      toast(`백업 실패: ${e.message}`, "error");
+    }
+  };
+
+  const restoreFromBackup = (backupData) => {
+    if (!backupData || typeof backupData !== "object") {
+      toast("올바르지 않은 백업 데이터", "error"); return;
+    }
+    const d = backupData.data || backupData; // 호환성
+    if (!d.holdings && !d.holdings2 && !d.holdings4) {
+      toast("백업 파일에 종목 데이터가 없습니다", "error"); return;
+    }
+    const summary = [
+      `종목: P1 ${(d.holdings?.length||0)}, P2 ${(d.holdings2?.length||0)}, RIA ${(d.holdings4?.length||0)}개`,
+      `매매: ${d.trades?.length||0}건`,
+      `배당: ${d.divRecords?.length||0}건`,
+      `알람: ${d.alerts?.length||0}건`,
+    ].join("\n  ");
+    const ok = window.confirm(
+      `📦 백업 복원\n\n` +
+      `백업 날짜: ${backupData.date || "?"}\n  ${summary}\n\n` +
+      `⚠️ 현재 모든 데이터가 위 백업으로 덮어쓰기 됩니다.\n` +
+      `Firebase 동기화로 다른 기기에도 즉시 적용됩니다.\n\n` +
+      `정말 진행하시겠습니까?`
+    );
+    if (!ok) return;
+    try {
+      // 빈 배열로 덮어쓰는 실수 방지: 명시적으로 있는 키만 적용
+      if (Array.isArray(d.holdings))       setHoldings(d.holdings);
+      if (Array.isArray(d.holdings2))      setHoldings2(d.holdings2);
+      if (Array.isArray(d.holdings4))      setHoldings4(d.holdings4);
+      if (Array.isArray(d.trades))         setTrades(d.trades);
+      if (d.divInfo && typeof d.divInfo === "object") setDivInfo(d.divInfo);
+      if (Array.isArray(d.divRecords))     setDivRecords(d.divRecords);
+      if (Array.isArray(d.alerts))         setAlerts(d.alerts);
+      if (Array.isArray(d.watchlist))      setWatchlist(d.watchlist);
+      if (d.contribLimits && typeof d.contribLimits === "object")  setContribLimits(d.contribLimits);
+      if (d.contribAmounts && typeof d.contribAmounts === "object") setContribAmounts(d.contribAmounts);
+      toast("✓ 백업 복원 완료. 잠시 후 Firebase에 동기화됩니다", "success");
+    } catch (e) {
+      toast(`복원 실패: ${e.message}`, "error");
+    }
+  };
+
+  const importBackupFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        restoreFromBackup(data);
+      } catch (err) {
+        toast(`파일 파싱 실패: ${err.message}`, "error");
+      }
+    };
+    reader.onerror = () => toast("파일 읽기 실패", "error");
+    reader.readAsText(file);
+  };
+
+  const restoreFromAutoBackup = (dateKey) => {
+    try {
+      const raw = localStorage.getItem(`pm_autobackup_${dateKey}`);
+      if (!raw) { toast("해당 자동 백업이 없습니다", "error"); return; }
+      restoreFromBackup(JSON.parse(raw));
+    } catch (e) {
+      toast(`자동 백업 복원 실패: ${e.message}`, "error");
+    }
+  };
+
+  const downloadAutoBackup = (dateKey) => {
+    try {
+      const raw = localStorage.getItem(`pm_autobackup_${dateKey}`);
+      if (!raw) { toast("해당 자동 백업이 없습니다", "error"); return; }
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `portfolio-autobackup-${dateKey}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast("✓ 자동 백업 다운로드 완료", "success");
+    } catch (e) {
+      toast(`다운로드 실패: ${e.message}`, "error");
+    }
+  };
 
   const fetchPrices = useCallback(async () => {
     if (!holdings.length && !holdings2.length) return;
@@ -3902,6 +4060,110 @@ ${analystSummary}
             onSelectAccount={setSelectedAccount}
             setSelectedStock={setSelectedStock}
           />
+
+          {/* ──────────── 데이터 백업/복원 ──────────── */}
+          {(() => {
+            const fmtAgo = (ts) => {
+              if (!ts) return "백업 기록 없음";
+              const diff = Date.now() - ts;
+              const h = Math.floor(diff / 3600000);
+              if (h < 1) return "방금 전";
+              if (h < 24) return `${h}시간 전`;
+              return `${Math.floor(h/24)}일 전`;
+            };
+            const autoBackupKeys = Object.keys(localStorage)
+              .filter(k => k.startsWith("pm_autobackup_") && k !== "pm_autobackup_last_ts")
+              .map(k => k.replace("pm_autobackup_", ""))
+              .sort().reverse(); // 최신순
+            const totalItems = holdings.length + holdings2.length + holdings4.length;
+            const totalTrades = trades.length;
+            return (
+              <details style={{...S.card, padding: isMobile?"12px":"14px", marginTop:"12px"}}>
+                <summary style={{cursor:"pointer", listStyle:"none", display:"flex", alignItems:"center", justifyContent:"space-between", gap:"8px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
+                    <span style={{fontSize:"15px"}}>📦</span>
+                    <div>
+                      <div style={{fontSize:"13px",fontWeight:800,color:"#e2e8f0"}}>데이터 백업/복원</div>
+                      <div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>
+                        총 {totalItems}종목·{totalTrades}매매기록 · 자동 백업 {autoBackupKeys.length}개 · 최근 {fmtAgo(lastAutoBackupTs)}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{fontSize:"11px",color:"#64748b"}}>펼치기 ▼</span>
+                </summary>
+
+                <div style={{marginTop:"12px",display:"flex",flexDirection:"column",gap:"10px"}}>
+                  {/* Export */}
+                  <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.25)",borderRadius:"8px",padding:"12px"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}}>
+                      <div style={{flex:"1 1 200px"}}>
+                        <div style={{fontSize:"12px",fontWeight:800,color:"#34d399",marginBottom:"3px"}}>📤 백업 (Export)</div>
+                        <div style={{fontSize:"10px",color:"#94a3b8",lineHeight:1.5}}>
+                          모든 데이터를 JSON 파일로 다운로드. 구글 드라이브 등에 보관 권장 (월 1회).
+                        </div>
+                      </div>
+                      <button onClick={exportBackup} style={S.btn("#10b981",{fontSize:"12px",padding:"7px 14px"})}>
+                        💾 JSON 다운로드
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Import */}
+                  <div style={{background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.25)",borderRadius:"8px",padding:"12px"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}}>
+                      <div style={{flex:"1 1 200px"}}>
+                        <div style={{fontSize:"12px",fontWeight:800,color:"#a5b4fc",marginBottom:"3px"}}>📥 복원 (Import)</div>
+                        <div style={{fontSize:"10px",color:"#94a3b8",lineHeight:1.5}}>
+                          JSON 파일 선택 → 미리보기 → 덮어쓰기 확인 → 복원. Firebase 자동 동기화.
+                        </div>
+                      </div>
+                      <label style={{...S.btn("#6366f1",{fontSize:"12px",padding:"7px 14px"}),display:"inline-block"}}>
+                        📁 파일 선택
+                        <input type="file" accept=".json,application/json" style={{display:"none"}}
+                          onChange={e => { if (e.target.files?.[0]) { importBackupFile(e.target.files[0]); e.target.value = ""; } }}/>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* 자동 백업 목록 */}
+                  <div style={{background:"rgba(245,158,11,0.04)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:"8px",padding:"12px"}}>
+                    <div style={{fontSize:"12px",fontWeight:800,color:"#fbbf24",marginBottom:"8px"}}>🔄 자동 일일 백업 (브라우저 저장)</div>
+                    {autoBackupKeys.length === 0 ? (
+                      <div style={{fontSize:"10px",color:"#64748b",fontStyle:"italic"}}>아직 자동 백업이 없습니다. 24시간 후 자동 생성됩니다.</div>
+                    ) : (
+                      <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+                        {autoBackupKeys.map(dk => {
+                          let preview = "";
+                          try {
+                            const raw = localStorage.getItem(`pm_autobackup_${dk}`);
+                            const obj = JSON.parse(raw);
+                            const d = obj.data || {};
+                            preview = `${(d.holdings?.length||0)+(d.holdings2?.length||0)+(d.holdings4?.length||0)}종목·${d.trades?.length||0}매매`;
+                          } catch{}
+                          return (
+                            <div key={dk} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",background:"rgba(0,0,0,0.2)",borderRadius:"6px",gap:"6px",flexWrap:"wrap"}}>
+                              <div style={{flex:"1 1 120px"}}>
+                                <div style={{fontSize:"11px",fontWeight:700,color:"#e2e8f0",fontFamily:"ui-monospace, monospace"}}>{dk}</div>
+                                <div style={{fontSize:"9px",color:"#64748b"}}>{preview}</div>
+                              </div>
+                              <div style={{display:"flex",gap:"4px"}}>
+                                <button onClick={()=>downloadAutoBackup(dk)} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",fontSize:"10px",padding:"3px 8px",borderRadius:"5px",cursor:"pointer",fontFamily:FONT}}>💾 받기</button>
+                                <button onClick={()=>restoreFromAutoBackup(dk)} style={{background:"rgba(245,158,11,0.15)",border:"1px solid rgba(245,158,11,0.4)",color:"#fbbf24",fontSize:"10px",padding:"3px 8px",borderRadius:"5px",cursor:"pointer",fontFamily:FONT,fontWeight:700}}>↺ 복원</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div style={{fontSize:"9px",color:"#475569",marginTop:"8px",lineHeight:1.5}}>
+                      ※ 24시간마다 자동 저장 · 7일치 회전 보관 · 같은 브라우저에서만 접근 가능<br/>
+                      ※ 디바이스 손실 대비 <strong style={{color:"#94a3b8"}}>월 1회 수동 Export</strong> 권장
+                    </div>
+                  </div>
+                </div>
+              </details>
+            );
+          })()}
           </div>
         )}
 
@@ -6566,9 +6828,15 @@ ${analystSummary}
           const etfCost   = etfRows.reduce((s,r)=>s+r._cost,0);
           const unclassifiedEtfRows = etfRows.filter(r => r._etfCategory === "unknown");
 
-          // 사용자가 직접 분류 변경 (양쪽 holdings 배열 모두 처리)
+          // 사용자가 직접 분류 변경 (빈값은 키 자체를 삭제 - Firebase undefined 에러 방지)
           const updateClassification = (id, field, value) => {
-            const updater = (arr) => arr.map(x => x.id === id ? { ...x, [field]: value || undefined } : x);
+            const updater = (arr) => arr.map(x => {
+              if (x.id !== id) return x;
+              const next = { ...x };
+              if (value) next[field] = value;
+              else delete next[field]; // 빈값이면 키 삭제 → Firebase에 undefined 미포함
+              return next;
+            });
             setHoldings(updater);
             setHoldings2(updater);
           };
