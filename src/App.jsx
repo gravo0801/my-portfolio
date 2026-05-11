@@ -6290,16 +6290,34 @@ ${analystSummary}
                               <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:(t.profitUSD??0)>=0?"#34d399":"#f87171"}}>{t.profitUSD!=null?((t.profitUSD>=0?"+":"")+t.profitUSD.toFixed(2)+" USD"):"—"}</td>
                               <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
                               <td style={S.TD}>
-                                <button onClick={()=>{
-                                  if(isEditing){setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:''});}
-                                  else{
-                                    setTaxEditId(t.id);
-                                    const existing=taxOverrides[t.id];
-                                    setTaxEditForm({avgPrice:existing?.avgPrice||'',memo:existing?.memo||''});
-                                  }
-                                }} style={{background:isEditing?"rgba(251,191,36,0.2)":"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:"2px 7px",borderRadius:"5px",cursor:"pointer",fontSize:"10px",fontWeight:700}}>
-                                  {isEditing?"닫기":"✏️"}
-                                </button>
+                                <div style={{display:"flex",gap:"4px",justifyContent:"flex-end",flexWrap:"nowrap"}}>
+                                  <button onClick={()=>{
+                                    if(isEditing){setTaxEditId(null);setTaxEditForm({avgPrice:'',memo:''});}
+                                    else{
+                                      setTaxEditId(t.id);
+                                      const existing=taxOverrides[t.id];
+                                      setTaxEditForm({avgPrice:existing?.avgPrice||'',memo:existing?.memo||''});
+                                    }
+                                  }} style={{background:isEditing?"rgba(251,191,36,0.2)":"none",border:"1px solid rgba(251,191,36,0.4)",color:"#fbbf24",padding:isMobile?"5px 9px":"3px 7px",borderRadius:"5px",cursor:"pointer",fontSize:isMobile?"13px":"11px",fontWeight:700,minWidth:isMobile?"32px":"auto",lineHeight:1}}>
+                                    {isEditing?"닫기":"✏️"}
+                                  </button>
+                                  <button onClick={()=>{
+                                    if(window.confirm(`이 매도 기록을 삭제할까요?\n\n${t.date} · ${getName(t.ticker)} (${t.ticker})\n${t.quantity}주 × $${Number(t.price).toFixed(2)}\n\n원본 매매일지에서도 함께 삭제됩니다.`)){
+                                      setTrades(p=>p.filter(x=>x.id!==t.id));
+                                      // 평단가 override도 함께 정리
+                                      if(taxOverrides[t.id]){
+                                        const updated={...taxOverrides};
+                                        delete updated[t.id];
+                                        setTaxOverrides(updated);
+                                        try{localStorage.setItem("pm_tax_overrides",JSON.stringify(updated));}catch{}
+                                      }
+                                      toast("✓ 매도 기록 삭제됨","success");
+                                    }
+                                  }} title="매도 기록 삭제"
+                                    style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:isMobile?"5px 9px":"3px 7px",borderRadius:"5px",cursor:"pointer",fontSize:isMobile?"13px":"11px",fontWeight:700,minWidth:isMobile?"32px":"auto",lineHeight:1}}>
+                                    🗑️
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -6326,7 +6344,7 @@ ${analystSummary}
                 {krSells.length===0 ? <div style={{textAlign:"center",padding:"14px",color:"#475569",fontSize:"13px"}}>국내주식 매도 기록 없음</div> : (
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
-                      <thead><tr>{["날짜","종목","매도가","수량","평단가","손익","과세"].map(h=><th key={h} style={{...S.TH,fontSize:"11px"}}>{h}</th>)}</tr></thead>
+                      <thead><tr>{["날짜","종목","매도가","수량","평단가","손익","과세",""].map(h=><th key={h} style={{...S.TH,fontSize:"11px"}}>{h}</th>)}</tr></thead>
                       <tbody>
                         {krProfits.map(t=>{
                           const h=allH.find(x=>x.ticker===t.ticker);const bp=h?.avgPrice||0;
@@ -6338,6 +6356,17 @@ ${analystSummary}
                             <td style={{...S.TD,fontSize:"12px",color:"#64748b"}}>{bp>0?bp.toLocaleString()+"₩":"미상"}</td>
                             <td style={{...S.TD,fontSize:"12px",fontWeight:700,color:t.profitKRW>=0?"#34d399":"#f87171"}}>{fmt(t.profitKRW)}</td>
                             <td style={S.TD}><span style={{background:"rgba(16,185,129,0.15)",color:"#86efac",padding:"2px 6px",borderRadius:"20px",fontWeight:700,fontSize:"10px"}}>비과세</span></td>
+                            <td style={S.TD}>
+                              <button onClick={()=>{
+                                if(window.confirm(`이 매도 기록을 삭제할까요?\n\n${t.date} · ${getName(t.ticker)} (${t.ticker})\n${t.quantity}주 × ${Number(t.price).toLocaleString()}₩\n\n원본 매매일지에서도 함께 삭제됩니다.`)){
+                                  setTrades(p=>p.filter(x=>x.id!==t.id));
+                                  toast("✓ 매도 기록 삭제됨","success");
+                                }
+                              }} title="매도 기록 삭제"
+                                style={{background:"none",border:"1px solid rgba(239,68,68,0.4)",color:"#f87171",padding:isMobile?"5px 9px":"3px 7px",borderRadius:"5px",cursor:"pointer",fontSize:isMobile?"13px":"11px",fontWeight:700,minWidth:isMobile?"32px":"auto",lineHeight:1}}>
+                                🗑️
+                              </button>
+                            </td>
                           </tr>);
                         })}
                       </tbody>
