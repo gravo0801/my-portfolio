@@ -1,17 +1,16 @@
-const STORAGE_KEY = "pm_morning_report_open";
-let isOpen = localStorage.getItem(STORAGE_KEY) === "1";
+let isOpen = false;
 let latestReport = null;
 
 const css = `
 #morning-report-root{font-family:"Noto Sans KR",system-ui,sans-serif;color:#e5e7eb}
-.mr-fab{position:fixed;right:18px;bottom:92px;z-index:920;display:flex;align-items:center;gap:7px;min-height:38px;padding:8px 12px;border:1px solid rgba(56,189,248,.42);border-radius:999px;background:rgba(15,23,42,.94);box-shadow:0 18px 44px rgba(0,0,0,.34);color:#e5e7eb;font-family:inherit;cursor:pointer;backdrop-filter:blur(14px)}
+.mr-fab{position:fixed;left:18px;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:920;display:flex;align-items:center;gap:7px;min-height:36px;padding:7px 11px;border:1px solid rgba(56,189,248,.42);border-radius:999px;background:rgba(15,23,42,.92);box-shadow:0 14px 34px rgba(0,0,0,.3);color:#e5e7eb;font-family:inherit;cursor:pointer;backdrop-filter:blur(14px);max-width:calc(100vw - 36px);touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .mr-fab:hover{background:rgba(20,32,55,.98);transform:translateY(-1px)}
 .mr-dot{width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 0 4px rgba(56,189,248,.12)}
 .mr-fab strong{font-size:12px;color:#f8fafc;white-space:nowrap}
 .mr-fab span{font-size:12px;font-weight:800}
 .mr-pos{color:#34d399}.mr-neg{color:#f87171}
-.mr-overlay{position:fixed;inset:0;z-index:930;display:grid;align-items:end;justify-items:end;padding:18px;background:rgba(2,6,23,.26);backdrop-filter:blur(2px)}
-.mr-panel{width:min(680px,calc(100vw - 28px));max-height:min(78vh,720px);overflow:auto;border:1px solid rgba(148,163,184,.2);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(17,34,64,.97));border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.52)}
+.mr-overlay{position:fixed;inset:0;z-index:980;display:grid;align-items:end;justify-items:end;padding:18px;background:rgba(2,6,23,.26);backdrop-filter:blur(2px)}
+.mr-panel{width:min(680px,calc(100vw - 28px));max-height:min(78vh,720px);overflow:auto;border:1px solid rgba(148,163,184,.2);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(17,34,64,.97));border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.52);overscroll-behavior:contain}
 .mr-head{position:sticky;top:0;z-index:1;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 16px 12px;background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(17,34,64,.97));border-bottom:1px solid rgba(148,163,184,.14)}
 .mr-title{display:flex;flex-direction:column;gap:4px}.mr-title strong{font-size:17px;color:#f8fafc}.mr-title span,.mr-meta{font-size:11px;color:#94a3b8}
 .mr-close{width:30px;height:30px;display:grid;place-items:center;flex:0 0 auto;border:1px solid rgba(148,163,184,.18);border-radius:9px;background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer}
@@ -24,7 +23,8 @@ const css = `
 .mr-chart{width:100%;height:44px}.mr-chart polyline{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .mr-metric{text-align:right;font-size:12px;font-weight:800}.mr-metric small{display:block;margin-top:3px;color:#64748b;font-weight:700}
 .mr-empty{font-size:12px;color:#94a3b8;line-height:1.6;padding:16px}
-@media(max-width:760px){.mr-fab{right:12px;bottom:78px;min-height:34px;padding:7px 10px}.mr-fab strong{font-size:11px}.mr-overlay{padding:10px;align-items:end}.mr-panel{width:100%;max-height:82vh}.mr-summary{grid-template-columns:1fr}.mr-total{text-align:left}.mr-row{grid-template-columns:72px 1fr}.mr-metric{grid-column:1 / 3;text-align:left;display:flex;align-items:center;gap:10px}.mr-metric small{margin-top:0}}
+@media(max-width:760px){.mr-fab{left:calc(env(safe-area-inset-left,0px) + 10px);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);min-height:34px;padding:7px 9px;gap:6px}.mr-fab strong{font-size:11px}.mr-fab span{font-size:11px}.mr-overlay{padding:0;align-items:end;justify-items:stretch;background:rgba(2,6,23,.34)}.mr-panel{width:100%;max-height:min(82vh,680px);border-right:0;border-left:0;border-bottom:0;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}.mr-head{padding:14px 14px 11px}.mr-summary{grid-template-columns:1fr;padding:12px 14px}.mr-total{text-align:left}.mr-grid{padding:12px 14px}.mr-row{grid-template-columns:72px 1fr;padding:9px}.mr-metric{grid-column:1 / 3;text-align:left;display:flex;align-items:center;gap:10px}.mr-metric small{margin-top:0}}
+@media(max-width:420px){.mr-fab{width:42px;height:42px;min-height:42px;justify-content:center;padding:0;border-radius:50%}.mr-fab strong,.mr-fab span:not(.mr-dot){display:none}.mr-dot{width:10px;height:10px}}
 `;
 
 function fmtUsd(v) {
@@ -59,7 +59,6 @@ function ensureStyle() {
 
 function setOpen(next) {
   isOpen = next;
-  localStorage.setItem(STORAGE_KEY, isOpen ? "1" : "0");
   render(latestReport);
 }
 
@@ -69,9 +68,12 @@ function attachEvents() {
   document.getElementById("mr-overlay")?.addEventListener("click", (event) => {
     if (event.target?.id === "mr-overlay") setOpen(false);
   });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isOpen) setOpen(false);
-  }, { once: true });
+  document.removeEventListener("keydown", handleEscape);
+  document.addEventListener("keydown", handleEscape);
+}
+
+function handleEscape(event) {
+  if (event.key === "Escape" && isOpen) setOpen(false);
 }
 
 function panelHtml(report, rows) {
@@ -79,7 +81,7 @@ function panelHtml(report, rows) {
   if (!report) {
     return `
       <div id="mr-overlay" class="mr-overlay">
-        <section class="mr-panel">
+        <section class="mr-panel" role="dialog" aria-modal="true" aria-label="오늘 아침 리포트">
           <div class="mr-head">
             <div class="mr-title"><strong>오늘 아침 리포트</strong><span>보유 미국 주식 기준 리포트를 기다리는 중</span></div>
             <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
@@ -91,7 +93,7 @@ function panelHtml(report, rows) {
 
   return `
     <div id="mr-overlay" class="mr-overlay">
-      <section class="mr-panel">
+      <section class="mr-panel" role="dialog" aria-modal="true" aria-label="오늘 아침 리포트">
         <div class="mr-head">
           <div class="mr-title">
             <strong>오늘 아침 리포트</strong>
@@ -139,7 +141,7 @@ function render(report) {
   const tone = (report?.total_change || 0) >= 0 ? "mr-pos" : "mr-neg";
 
   root.innerHTML = `
-    <button id="mr-fab" class="mr-fab" type="button" aria-expanded="${isOpen ? "true" : "false"}">
+    <button id="mr-fab" class="mr-fab" type="button" aria-label="아침 리포트 열기" aria-expanded="${isOpen ? "true" : "false"}">
       <span class="mr-dot"></span>
       <strong>아침 리포트</strong>
       <span class="${tone}">${report ? fmtPct(report.total_change_pct) : "대기"}</span>
