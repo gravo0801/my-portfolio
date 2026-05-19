@@ -36,6 +36,15 @@ function isWeekend(ymd) {
   return day === 0 || day === 6;
 }
 
+function safeKey(value) {
+  return encodeURIComponent(String(value || "").trim());
+}
+
+function maskKey(value) {
+  const key = String(value || "");
+  return key.length <= 4 ? "****" : `${key.slice(0, 2)}***${key.slice(-2)}`;
+}
+
 function normalizeList(value) {
   if (!value) return [];
   return Array.isArray(value) ? value.filter(Boolean) : Object.values(value).filter(Boolean);
@@ -45,9 +54,11 @@ function normalizeHolding(h) {
   const symbol = String(h?.ticker || h?.symbol || "").trim().toUpperCase();
   const quantity = Number(h?.quantity || 0);
   if (!symbol || quantity <= 0) return null;
+
   const market = String(h?.market || "").toUpperCase();
   const isUs = market === "US" || (market === "ETF" && !/^\d/.test(symbol));
   if (!isUs) return null;
+
   return {
     symbol,
     name: h?.name || symbol,
@@ -102,6 +113,7 @@ async function fetchBars(holding, ymd) {
   if (!TWELVE_DATA_API_KEY) {
     return { provider: "demo", ok: true, bars: demoBars(holding, ymd), message: "TWELVE_DATA_API_KEY 미설정: 데모 데이터" };
   }
+
   const params = new URLSearchParams({
     symbol: holding.symbol,
     interval: "5min",
@@ -113,6 +125,7 @@ async function fetchBars(holding, ymd) {
   });
   const response = await fetch(`https://api.twelvedata.com/time_series?${params}`);
   const data = await response.json();
+
   if (!response.ok || data.status === "error" || !Array.isArray(data.values)) {
     return { provider: "twelve-data", ok: false, bars: [], message: data.message || `${holding.symbol} 데이터 없음` };
   }
@@ -125,6 +138,7 @@ function summarize(holding, result) {
   if (!bars.length) {
     return { symbol: holding.symbol, name: holding.name, quantity: holding.quantity, status: "no_data", message: result.message, chartBars: [] };
   }
+
   const open = bars[0].open;
   const close = bars[bars.length - 1].close;
   const high = Math.max(...bars.map((b) => b.high));
@@ -155,67 +169,98 @@ async function firebase(path, init) {
   return response.json();
 }
 
-export default async function handler(req, res) {
-  const secret = process.env.CRON_SECRET;
-  const auth = req.headers.authorization || "";
-  const querySecret = req.query?.secret;
-  if (secret && auth !== `Bearer ${secret}` && querySecret !== secret) {
-    return json(res, 401, { ok: false, error: "Unauthorized" });
-  }
+async function writeReport(syncKey, report) {
+  await firebase(`users/${safeKey(syncKey)}/morningReport/latest`, {
+    method: "PUT",
+    body: JSON.stringify(report)
+  });
+}
 
-  const ymd = marketDate();
-  const users = (await firebase("users")) || {};
-  const userEntries = Object.entries(users);
-  const results = [];
+async function buildReport(syncKey, data, ymd) {
+  const holdings = [...normalizeList(data?.holdings), ...normalizeList(data?.holdings2), ...normalizeList(data?.holdings4)]
+    .map(normalizeHolding)
+    .filter(Boolean);
 
-  for (const [syncKey, data] of userEntries) {
-    const holdings = [...normalizeList(data?.holdings), ...normalizeList(data?.holdings2), ...normalizeList(data?.holdings4)]
-      .map(normalizeHolding)
-      .filter(Boolean);
-
-    if (!holdings.length || isWeekend(ymd)) {
-      const report = {
-        report_date: isoKstDate(),
-        market_session_date: ymd,
-        generated_at: new Date().toISOString(),
-        holdings_snapshot: holdings,
-        per_symbol_metrics: holdings.map((h) => ({ symbol: h.symbol, name: h.name, quantity: h.quantity, status: "no_data", chartBars: [] })),
-        total_change: 0,
-        total_change_pct: 0,
-        provider_status: { provider: "market-calendar", ok: false, message: isWeekend(ymd) ? "미국 주말이라 새 정규장 데이터가 없습니다." : "미국 보유 종목이 없습니다." }
-      };
-      await firebase(`users/${syncKey}/morningReport/latest`, { method: "PUT", body: JSON.stringify(report) });
-      results.push({ syncKey, symbols: holdings.length, ok: false });
-      continue;
-    }
-
-    const symbolReports = [];
-    for (const holding of holdings) {
-      const bars = await fetchBars(holding, ymd);
-      symbolReports.push(summarize(holding, bars));
-    }
-
-    const openValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtOpen || 0), 0);
-    const closeValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtClose || 0), 0);
-    const sortedByImpact = symbolReports.filter((s) => typeof s.positionImpact === "number").sort((a, b) => b.positionImpact - a.positionImpact);
+  if (!holdings.length || isWeekend(ymd)) {
     const report = {
       report_date: isoKstDate(),
       market_session_date: ymd,
       generated_at: new Date().toISOString(),
       holdings_snapshot: holdings,
-      per_symbol_metrics: symbolReports,
-      chart_bars: Object.fromEntries(symbolReports.map((s) => [s.symbol, s.chartBars || []])),
-      total_open_value: money(openValue),
-      total_close_value: money(closeValue),
-      total_change: money(closeValue - openValue),
-      total_change_pct: openValue ? money(((closeValue - openValue) / openValue) * 100) : 0,
-      best_contributor: sortedByImpact[0] || null,
-      worst_contributor: sortedByImpact[sortedByImpact.length - 1] || null,
-      provider_status: { provider: TWELVE_DATA_API_KEY ? "twelve-data" : "demo", ok: true }
+      per_symbol_metrics: holdings.map((h) => ({ symbol: h.symbol, name: h.name, quantity: h.quantity, status: "no_data", chartBars: [] })),
+      total_change: 0,
+      total_change_pct: 0,
+      provider_status: { provider: "market-calendar", ok: false, message: isWeekend(ymd) ? "미국 주말이라 새 정규장 데이터가 없습니다." : "미국 보유 종목이 없습니다." }
     };
-    await firebase(`users/${syncKey}/morningReport/latest`, { method: "PUT", body: JSON.stringify(report) });
-    results.push({ syncKey, symbols: holdings.length, ok: true });
+    await writeReport(syncKey, report);
+    return { ok: false, symbols: holdings.length, report };
   }
 
-  return json(res, 200, { ok: true, market_session_date: ymd, users: results });
+  const symbolReports = [];
+  for (const holding of holdings) {
+    const bars = await fetchBars(holding, ymd);
+    symbolReports.push(summarize(holding, bars));
+  }
+
+  const openValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtOpen || 0), 0);
+  const closeValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtClose || 0), 0);
+  const sortedByImpact = symbolReports.filter((s) => typeof s.positionImpact === "number").sort((a, b) => b.positionImpact - a.positionImpact);
+  const report = {
+    report_date: isoKstDate(),
+    market_session_date: ymd,
+    generated_at: new Date().toISOString(),
+    holdings_snapshot: holdings,
+    per_symbol_metrics: symbolReports,
+    chart_bars: Object.fromEntries(symbolReports.map((s) => [s.symbol, s.chartBars || []])),
+    total_open_value: money(openValue),
+    total_close_value: money(closeValue),
+    total_change: money(closeValue - openValue),
+    total_change_pct: openValue ? money(((closeValue - openValue) / openValue) * 100) : 0,
+    best_contributor: sortedByImpact[0] || null,
+    worst_contributor: sortedByImpact[sortedByImpact.length - 1] || null,
+    provider_status: { provider: TWELVE_DATA_API_KEY ? "twelve-data" : "demo", ok: true }
+  };
+  await writeReport(syncKey, report);
+  return { ok: true, symbols: holdings.length, report };
+}
+
+export default async function handler(req, res) {
+  try {
+    const requestedSyncKey = String(req.query?.syncKey || "").trim();
+    const secret = process.env.CRON_SECRET;
+    const auth = req.headers.authorization || "";
+    const querySecret = req.query?.secret;
+    if (!requestedSyncKey && secret && auth !== `Bearer ${secret}` && querySecret !== secret) {
+      return json(res, 401, { ok: false, error: "Unauthorized" });
+    }
+
+    const ymd = marketDate();
+    if (requestedSyncKey) {
+      const user = await firebase(`users/${safeKey(requestedSyncKey)}`);
+      if (!user) return json(res, 404, { ok: false, error: "동기화 키에 해당하는 사용자를 찾을 수 없습니다." });
+
+      const result = await buildReport(requestedSyncKey, user, ymd);
+      return json(res, 200, {
+        ok: true,
+        market_session_date: ymd,
+        user: { syncKey: maskKey(requestedSyncKey), symbols: result.symbols, ok: result.ok },
+        report: result.report
+      });
+    }
+
+    const users = (await firebase("users")) || {};
+    const results = [];
+    for (const [syncKey, data] of Object.entries(users)) {
+      try {
+        const result = await buildReport(syncKey, data, ymd);
+        results.push({ syncKey: maskKey(syncKey), symbols: result.symbols, ok: result.ok });
+      } catch (error) {
+        results.push({ syncKey: maskKey(syncKey), ok: false, error: error?.message || "unknown error" });
+      }
+    }
+
+    return json(res, 200, { ok: true, market_session_date: ymd, users: results });
+  } catch (error) {
+    return json(res, 500, { ok: false, error: error?.message || "unknown error" });
+  }
 }
