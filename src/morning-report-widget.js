@@ -1,5 +1,7 @@
 let isOpen = false;
 let latestReport = null;
+let isGenerating = false;
+let statusMessage = "";
 
 const css = `
 #morning-report-root{font-family:"Noto Sans KR",system-ui,sans-serif;color:#e5e7eb}
@@ -86,7 +88,7 @@ function panelHtml(report, rows) {
             <div class="mr-title"><strong>오늘 아침 리포트</strong><span>보유 미국 주식 기준 리포트를 기다리는 중</span></div>
             <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
           </div>
-          <div class="mr-empty">보통 한국시간 화-토 07:30 전후에 생성됩니다. 앱을 켜둔 상태라면 자동으로 다시 확인합니다.</div>
+          <div class="mr-empty">${statusMessage || "보통 한국시간 화-토 07:30 전후에 생성됩니다. 지금 리포트가 없으면 자동으로 생성 요청을 보냅니다."}</div>
         </section>
       </div>`;
   }
@@ -144,10 +146,30 @@ function render(report) {
     <button id="mr-fab" class="mr-fab" type="button" aria-label="아침 리포트 열기" aria-expanded="${isOpen ? "true" : "false"}">
       <span class="mr-dot"></span>
       <strong>아침 리포트</strong>
-      <span class="${tone}">${report ? fmtPct(report.total_change_pct) : "대기"}</span>
+      <span class="${tone}">${report ? fmtPct(report.total_change_pct) : isGenerating ? "생성중" : "대기"}</span>
     </button>
     ${panelHtml(report, rows)}`;
   attachEvents();
+}
+
+async function requestReportGeneration(syncKey) {
+  if (isGenerating) return;
+  isGenerating = true;
+  statusMessage = "리포트를 생성하는 중입니다. 보유 종목 수에 따라 잠시 걸릴 수 있습니다.";
+  render(latestReport);
+  try {
+    const res = await fetch(`/api/cron/morning-report?syncKey=${encodeURIComponent(syncKey)}`, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    statusMessage = "";
+    render(data.report || null);
+  } catch (error) {
+    statusMessage = `리포트 생성 실패: ${error?.message || "알 수 없는 오류"}`;
+    render(null);
+  } finally {
+    isGenerating = false;
+    render(latestReport);
+  }
 }
 
 async function loadReport() {
@@ -160,15 +182,22 @@ async function loadReport() {
     if (window.firebaseDB) {
       const db = window.firebaseDB.getDatabase();
       const snap = await window.firebaseDB.get(window.firebaseDB.ref(db, `users/${syncKey}/morningReport/latest`));
-      render(snap.val());
+      const report = snap.val();
+      if (report) statusMessage = "";
+      render(report);
+      if (!report) requestReportGeneration(syncKey);
       return;
     }
   } catch {}
   try {
     const res = await fetch(`https://stockmanagehw-default-rtdb.firebaseio.com/users/${encodeURIComponent(syncKey)}/morningReport/latest.json`, { cache: "no-store" });
-    render(await res.json());
+    const report = await res.json();
+    if (report) statusMessage = "";
+    render(report);
+    if (!report) requestReportGeneration(syncKey);
   } catch {
     render(null);
+    requestReportGeneration(syncKey);
   }
 }
 
