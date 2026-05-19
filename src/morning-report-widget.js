@@ -9,7 +9,7 @@ const css = `
 .mr-fab strong{font-size:12px;color:#f8fafc;white-space:nowrap}
 .mr-fab span{font-size:12px;font-weight:800}
 .mr-pos{color:#34d399}.mr-neg{color:#f87171}
-.mr-overlay{position:fixed;inset:0;z-index:980;display:grid;align-items:end;justify-items:end;padding:18px;background:rgba(2,6,23,.26);backdrop-filter:blur(2px)}
+.mr-overlay{position:fixed;inset:0;z-index:1200;display:grid;align-items:end;justify-items:end;padding:18px;background:rgba(2,6,23,.26);backdrop-filter:blur(2px)}
 .mr-panel{width:min(680px,calc(100vw - 28px));max-height:min(78vh,720px);overflow:auto;border:1px solid rgba(148,163,184,.2);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(17,34,64,.97));border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.52);overscroll-behavior:contain}
 .mr-head{position:sticky;top:0;z-index:1;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:16px 16px 12px;background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(17,34,64,.97));border-bottom:1px solid rgba(148,163,184,.14)}
 .mr-title{display:flex;flex-direction:column;gap:4px}.mr-title strong{font-size:17px;color:#f8fafc}.mr-title span,.mr-meta{font-size:11px;color:#94a3b8}
@@ -86,7 +86,7 @@ function panelHtml(report, rows) {
             <div class="mr-title"><strong>오늘 아침 리포트</strong><span>보유 미국 주식 기준 리포트를 기다리는 중</span></div>
             <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
           </div>
-          <div class="mr-empty">정규장 움직임이 생성되면 이 패널에 표시됩니다.</div>
+          <div class="mr-empty">보통 한국시간 화-토 07:30 전후에 생성됩니다. 앱을 켜둔 상태라면 자동으로 다시 확인합니다.</div>
         </section>
       </div>`;
   }
@@ -174,3 +174,4 @@ async function loadReport() {
 
 window.addEventListener("load", loadReport);
 setTimeout(loadReport, 1500);
+setInterval(loadReport, 5 * 60 * 1000);
