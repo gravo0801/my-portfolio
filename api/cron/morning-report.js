@@ -86,32 +86,66 @@ function regularBarsOnly(values, ymd) {
     .sort((a, b) => a.time.localeCompare(b.time));
 }
 
-function demoBars(h, ymd) {
-  let seed = [...h.symbol].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-  let price = Math.max(10, h.averageCost || seed);
-  const bars = [];
-  for (let i = 0; i <= 78; i += 1) {
-    const minutes = 9 * 60 + 30 + i * 5;
-    const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
-    const mm = String(minutes % 60).padStart(2, "0");
-    const open = price;
-    const close = Math.max(1, open * (1 + Math.sin(i / 9 + seed) * 0.004 + ((seed % 7) - 3) / 10000));
-    bars.push({
-      time: `${ymd}T${hh}:${mm}:00`,
-      open,
-      high: Math.max(open, close) * 1.002,
-      low: Math.min(open, close) * 0.998,
-      close,
-      volume: 100000 + ((seed + i * 9973) % 400000)
-    });
-    price = close;
+function etDateTimeFromUnix(seconds) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).formatToParts(new Date(seconds * 1000));
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    ymd: `${map.year}-${map.month}-${map.day}`,
+    time: `${map.hour}:${map.minute}:${map.second}`
+  };
+}
+
+function yahooSymbol(symbol) {
+  return symbol.replace(".", "-");
+}
+
+async function fetchYahooBars(holding, ymd) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(holding.symbol))}?interval=5m&range=5d&includePrePost=false`;
+  const response = await fetch(url, {
+    headers: { "user-agent": "Mozilla/5.0 MorningReport/1.0" }
+  });
+  const data = await response.json();
+  const result = data?.chart?.result?.[0];
+  const quote = result?.indicators?.quote?.[0];
+  const timestamps = result?.timestamp || [];
+  if (!response.ok || !result || !quote || !timestamps.length) {
+    const message = data?.chart?.error?.description || `${holding.symbol} Yahoo 데이터 없음`;
+    return { provider: "yahoo", ok: false, bars: [], message };
   }
-  return bars;
+
+  const bars = timestamps
+    .map((ts, index) => {
+      const et = etDateTimeFromUnix(ts);
+      return {
+        et,
+        time: `${et.ymd}T${et.time}`,
+        open: Number(quote.open?.[index]),
+        high: Number(quote.high?.[index]),
+        low: Number(quote.low?.[index]),
+        close: Number(quote.close?.[index]),
+        volume: Number(quote.volume?.[index] || 0)
+      };
+    })
+    .filter((bar) => bar.et.ymd === ymd && bar.et.time >= "09:30:00" && bar.et.time <= "16:00:00")
+    .filter((bar) => bar.open > 0 && bar.close > 0 && bar.high > 0 && bar.low > 0)
+    .map(({ et, ...bar }) => bar)
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  return { provider: "yahoo", ok: bars.length > 0, bars, message: bars.length ? "" : `${holding.symbol} Yahoo 정규장 데이터 없음` };
 }
 
 async function fetchBars(holding, ymd) {
   if (!TWELVE_DATA_API_KEY) {
-    return { provider: "demo", ok: true, bars: demoBars(holding, ymd), message: "TWELVE_DATA_API_KEY 미설정: 데모 데이터" };
+    return fetchYahooBars(holding, ymd);
   }
 
   const params = new URLSearchParams({
@@ -127,10 +161,12 @@ async function fetchBars(holding, ymd) {
   const data = await response.json();
 
   if (!response.ok || data.status === "error" || !Array.isArray(data.values)) {
-    return { provider: "twelve-data", ok: false, bars: [], message: data.message || `${holding.symbol} 데이터 없음` };
+    return fetchYahooBars(holding, ymd);
   }
   const bars = regularBarsOnly(data.values, ymd);
-  return { provider: "twelve-data", ok: bars.length > 0, bars, message: bars.length ? "" : `${holding.symbol} 정규장 데이터 없음` };
+  return bars.length
+    ? { provider: "twelve-data", ok: true, bars, message: "" }
+    : fetchYahooBars(holding, ymd);
 }
 
 function summarize(holding, result) {
@@ -218,7 +254,7 @@ async function buildReport(syncKey, data, ymd) {
     total_change_pct: openValue ? money(((closeValue - openValue) / openValue) * 100) : 0,
     best_contributor: sortedByImpact[0] || null,
     worst_contributor: sortedByImpact[sortedByImpact.length - 1] || null,
-    provider_status: { provider: TWELVE_DATA_API_KEY ? "twelve-data" : "demo", ok: true }
+    provider_status: { provider: TWELVE_DATA_API_KEY ? "twelve-data/yahoo" : "yahoo", ok: true }
   };
   await writeReport(syncKey, report);
   return { ok: true, symbols: holdings.length, report };
