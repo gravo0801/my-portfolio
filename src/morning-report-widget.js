@@ -23,7 +23,7 @@ const css = `
 .mr-row{display:grid;grid-template-columns:82px 1fr 94px;align-items:center;gap:10px;border:1px solid rgba(148,163,184,.12);background:rgba(255,255,255,.04);border-radius:10px;padding:10px}
 .mr-symbol strong{display:block;color:#f8fafc}.mr-symbol span{font-size:10px;color:#64748b}
 .mr-chart{width:100%;height:44px}.mr-chart polyline{fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
-.mr-metric{text-align:right;font-size:12px;font-weight:800}.mr-metric small{display:block;margin-top:3px;color:#64748b;font-weight:700}
+.mr-metric{text-align:right;font-size:12px;font-weight:800}.mr-metric small{display:block;margin-top:3px;color:#64748b;font-weight:700;overflow-wrap:anywhere}
 .mr-empty{font-size:12px;color:#94a3b8;line-height:1.6;padding:16px}
 @media(max-width:760px){.mr-fab{left:calc(env(safe-area-inset-left,0px) + 10px);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);min-height:34px;padding:7px 9px;gap:6px}.mr-fab strong{font-size:11px}.mr-fab span{font-size:11px}.mr-overlay{padding:0;align-items:end;justify-items:stretch;background:rgba(2,6,23,.34)}.mr-panel{width:100%;max-height:min(82vh,680px);border-right:0;border-left:0;border-bottom:0;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}.mr-head{padding:14px 14px 11px}.mr-summary{grid-template-columns:1fr;padding:12px 14px}.mr-total{text-align:left}.mr-grid{padding:12px 14px}.mr-row{grid-template-columns:72px 1fr;padding:9px}.mr-metric{grid-column:1 / 3;text-align:left;display:flex;align-items:center;gap:10px}.mr-metric small{margin-top:0}}
 @media(max-width:420px){.mr-fab{width:42px;height:42px;min-height:42px;justify-content:center;padding:0;border-radius:50%}.mr-fab strong,.mr-fab span:not(.mr-dot){display:none}.mr-dot{width:10px;height:10px}}
@@ -38,6 +38,11 @@ function fmtUsd(v) {
 function fmtPct(v) {
   if (typeof v !== "number") return "-";
   return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+function fmtPrice(v) {
+  if (typeof v !== "number") return "-";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v);
 }
 
 function chartPath(bars) {
@@ -104,7 +109,7 @@ function panelHtml(report, rows) {
           <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
         </div>
         <div class="mr-summary">
-          <div class="mr-meta">밤사이 포트폴리오 움직임과 등락률 상위 종목입니다.</div>
+          <div class="mr-meta">밤사이 포트폴리오 움직임입니다. 보유 미국 종목 전체를 표시합니다.</div>
           <div class="mr-total">
             <strong class="${(report.total_change || 0) >= 0 ? "mr-pos" : "mr-neg"}">${fmtUsd(report.total_change)}</strong>
             <span class="${(report.total_change_pct || 0) >= 0 ? "mr-pos" : "mr-neg"}">${fmtPct(report.total_change_pct)}</span>
@@ -114,13 +119,14 @@ function panelHtml(report, rows) {
           rows.length
             ? `<div class="mr-grid">${rows
                 .map((symbol) => {
+                  const hasData = symbol.status === "ok";
                   const positive = (symbol.changePct || 0) >= 0;
                   return `<article class="mr-row">
                     <div class="mr-symbol"><strong>${symbol.symbol}</strong><span>${symbol.name || ""}</span></div>
                     <svg class="mr-chart" viewBox="0 0 180 44" role="img" aria-label="${symbol.symbol} intraday chart">
-                      <polyline points="${chartPath(symbol.chartBars)}" stroke="${positive ? "#34d399" : "#f87171"}"></polyline>
+                      ${hasData ? `<polyline points="${chartPath(symbol.chartBars)}" stroke="${positive ? "#34d399" : "#f87171"}"></polyline>` : ""}
                     </svg>
-                    <div class="mr-metric ${positive ? "mr-pos" : "mr-neg"}">${fmtPct(symbol.changePct)}<small>${fmtUsd(symbol.positionImpact)}</small></div>
+                    <div class="mr-metric ${hasData ? (positive ? "mr-pos" : "mr-neg") : ""}">${hasData ? fmtPct(symbol.changePct) : "데이터 없음"}<small>${hasData ? `${fmtUsd(symbol.positionImpact)} · ${fmtPrice(symbol.open)}→${fmtPrice(symbol.close)}` : symbol.message || "정규장 데이터 없음"}</small></div>
                   </article>`;
                 })
                 .join("")}</div>`
@@ -137,9 +143,11 @@ function render(report) {
   ensureStyle();
 
   const rows = (report?.per_symbol_metrics || [])
-    .filter((symbol) => symbol.status === "ok")
-    .sort((a, b) => Math.abs(b.changePct || 0) - Math.abs(a.changePct || 0))
-    .slice(0, 6);
+    .sort((a, b) => {
+      if (a.status === "ok" && b.status !== "ok") return -1;
+      if (a.status !== "ok" && b.status === "ok") return 1;
+      return Math.abs(b.changePct || 0) - Math.abs(a.changePct || 0);
+    });
   const tone = (report?.total_change || 0) >= 0 ? "mr-pos" : "mr-neg";
 
   root.innerHTML = `
@@ -172,6 +180,10 @@ async function requestReportGeneration(syncKey) {
   }
 }
 
+function shouldRegenerate(report) {
+  return !report || report.provider_status?.provider === "demo";
+}
+
 async function loadReport() {
   const syncKey = localStorage.getItem("pm_synckey");
   if (!syncKey) {
@@ -185,7 +197,7 @@ async function loadReport() {
       const report = snap.val();
       if (report) statusMessage = "";
       render(report);
-      if (!report) requestReportGeneration(syncKey);
+      if (shouldRegenerate(report)) requestReportGeneration(syncKey);
       return;
     }
   } catch {}
@@ -194,7 +206,7 @@ async function loadReport() {
     const report = await res.json();
     if (report) statusMessage = "";
     render(report);
-    if (!report) requestReportGeneration(syncKey);
+    if (shouldRegenerate(report)) requestReportGeneration(syncKey);
   } catch {
     render(null);
     requestReportGeneration(syncKey);
