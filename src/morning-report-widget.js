@@ -181,7 +181,21 @@ async function requestReportGeneration(syncKey) {
 }
 
 function shouldRegenerate(report) {
-  return !report || report.provider_status?.provider === "demo";
+  if (!report || report.provider_status?.provider === "demo") return true;
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(now);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const kstToday = `${map.year}-${map.month}-${map.day}`;
+  const afterMorningRun = Number(map.hour) > 7 || (Number(map.hour) === 7 && Number(map.minute) >= 30);
+  return afterMorningRun && report.report_date !== kstToday;
 }
 
 async function loadReport() {
