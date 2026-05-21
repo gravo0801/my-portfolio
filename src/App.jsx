@@ -13,6 +13,8 @@ const CRYPTO_IDS = {
 };
 const MARKET_LABEL = { KR:"한국주식", ISA:"한국주식(ISA)", US:"미국주식", ETF:"ETF", CRYPTO:"암호화폐", GOLD:"금현물" };
 const MARKET_COLOR = { KR:"#6366f1", ISA:"#06b6d4", US:"#10b981", ETF:"#f59e0b", CRYPTO:"#a855f7", GOLD:"#eab308" };
+const DEFAULT_DIV_TAX_RATES = { kr:15.4, us:15, isa:0, tax:0 };
+const DIV_TAX_LABELS = { kr:"국내", us:"미국", isa:"ISA", tax:"절세계좌" };
 
 // ──────────── 섹터/스타일 분류 시스템 ────────────
 const SECTOR_MAP = {
@@ -2414,11 +2416,17 @@ function PortfolioApp({ syncKey, onLogout }) {
   });
   const [wForm, setWForm] = useState({ ticker:"", name:"", market:"KR", targetBuy:"", targetSell:"", memo:"" });
   // 배당 관련 state
-  const [divInfo, setDivInfo]     = useState({}); // { ticker: { perShare, cycle, month, currency } }
-  const [divRecords, setDivRecords] = useState([]); // [{ id, date, ticker, name, amount, currency }]
-  const [divForm, setDivForm]     = useState({ date:"", ticker:"", name:"", amount:"", currency:"KRW" });
+  const [divInfo, setDivInfo]     = useState({}); // { ticker: { perShare, months, currency, taxRate? } }
+  const [divRecords, setDivRecords] = useState([]); // [{ id, date, ticker, name, amount, currency, grossAmount, netAmount, taxAmount, source, accountType, memo }]
+  const [divForm, setDivForm]     = useState({ date:"", ticker:"", name:"", amount:"", currency:"KRW", memo:"" });
   const [divEditTicker, setDivEditTicker] = useState(null);
-  const [divInfoForm, setDivInfoForm]     = useState({ perShare:"", months:[], currency:"KRW" });
+  const [divInfoForm, setDivInfoForm]     = useState({ perShare:"", months:[], currency:"KRW", taxRate:"" });
+  const [divTaxRates, setDivTaxRates] = useState(() => {
+    try { return { ...DEFAULT_DIV_TAX_RATES, ...(JSON.parse(localStorage.getItem("pm_div_tax_rates") || "{}")) }; } catch { return DEFAULT_DIV_TAX_RATES; }
+  });
+  const [divEstimateDraft, setDivEstimateDraft] = useState(null);
+  const [editingDivRecordId, setEditingDivRecordId] = useState(null);
+  const [divRecordEditForm, setDivRecordEditForm] = useState({ date:"", amount:"", currency:"KRW", memo:"" });
   const [editingId2, setEditingId2] = useState(null);
   const [editForm2, setEditForm2]   = useState({});
   const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
@@ -2661,9 +2669,9 @@ function PortfolioApp({ syncKey, onLogout }) {
   }, [divInfo, loaded]);
   useEffect(() => { if (loaded) saveData("contribLimits",  Object.keys(contribLimits).length ? contribLimits : {}, "cl"); }, [contribLimits,  loaded]);
   useEffect(() => { if (loaded) saveData("contribAmounts", Object.keys(contribAmounts).length ? contribAmounts: {}, "ca"); }, [contribAmounts, loaded]);
+  useEffect(() => { try { localStorage.setItem("pm_div_tax_rates", JSON.stringify(divTaxRates)); } catch {} }, [divTaxRates]);
   useEffect(() => {
     if(!loaded||!fbLoadedRef.current["dr"]) return;
-    if(divRecords.length===0) return; // 빈 배열 저장 금지
     try{localStorage.setItem("pm_bk_dr",JSON.stringify({data:divRecords,ts:Date.now()}));}catch{}
     saveData("divRecords", divRecords, "dr");
   }, [divRecords, loaded]);
@@ -2823,6 +2831,158 @@ function PortfolioApp({ syncKey, onLogout }) {
     } catch (e) {
       toast(`다운로드 실패: ${e.message}`, "error");
     }
+  };
+
+  const divMonths = (di) => {
+    const raw = di?.months || [];
+    return (Array.isArray(raw) ? raw : Object.values(raw)).map(Number).filter(n => n >= 1 && n <= 12);
+  };
+  const divAccountId = (h, accountType) => `${accountType}:${h.taxAccount || h.broker || h.market || "account"}:${h.id || h.ticker}`;
+  const divTaxKey = (h, di, accountType) => {
+    if (accountType === "isa") return "isa";
+    if (accountType === "tax") return "tax";
+    return di?.currency === "USD" || h.market === "US" || (h.market === "ETF" && !/^\d/.test(h.ticker || "")) ? "us" : "kr";
+  };
+  const divRateFor = (h, di, accountType) => {
+    const explicit = di?.taxRate;
+    if (explicit !== undefined && explicit !== null && explicit !== "") return Number(explicit) || 0;
+    return Number(divTaxRates[divTaxKey(h, di, accountType)] ?? 0) || 0;
+  };
+  const divRecordMonth = (r) => r?.yearMonth || String(r?.date || "").slice(0, 7);
+  const divAmountKRW = (r) => (r.currency === "USD" ? Number(r.amount || 0) * liveUsdKrw : Number(r.amount || 0));
+  const fmtDivAmount = (amount, currency) => currency === "USD" ? "$" + Number(amount || 0).toFixed(2) : Math.round(Number(amount || 0)).toLocaleString() + "₩";
+  const fmtDivDual = (amount, currency) => currency === "USD" ? `${fmtDivAmount(amount, currency)} · 약 ${fmtKRW(Number(amount || 0) * liveUsdKrw)}` : fmtDivAmount(amount, currency);
+  const buildDivCandidate = (h, accountType) => {
+    const di = divInfo[h.ticker] || {};
+    const months = divMonths(di);
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const yearMonth = `${now.getFullYear()}-${String(month).padStart(2, "0")}`;
+    const perShare = Number(di.perShare || 0);
+    const qty = Number(h.quantity || 0);
+    if (!perShare || !qty || !months.includes(month)) return null;
+    const currency = di.currency || "KRW";
+    const taxRate = divRateFor(h, di, accountType);
+    const grossAmount = perShare * qty;
+    const taxAmount = grossAmount * taxRate / 100;
+    const netAmount = grossAmount - taxAmount;
+    const accountId = divAccountId(h, accountType);
+    const key = `${h.ticker}|${yearMonth}|${accountType}|${accountId}`;
+    const saved = divRecords.some(r =>
+      r.ticker === h.ticker &&
+      divRecordMonth(r) === yearMonth &&
+      (r.accountType || "general") === accountType &&
+      (!r.accountId || r.accountId === accountId)
+    );
+    return {
+      key, yearMonth, ticker:h.ticker, name:h.name || h.ticker, quantity:qty,
+      perShare, currency, taxRate, grossAmount, taxAmount, netAmount,
+      accountType, accountId, accountLabel: accountType === "tax" ? (h.taxAccount || "절세계좌") : accountType === "isa" ? "ISA" : (h.broker || MARKET_LABEL[h.market] || "일반계좌"),
+      saved,
+    };
+  };
+  const openDivEstimateDraft = (c) => setDivEstimateDraft({
+    key:c.key, date:today(), amountBasis:"net", amount:Number(c.netAmount.toFixed(2)), memo:"",
+  });
+  const saveDivEstimate = (c) => {
+    if (!divEstimateDraft || divEstimateDraft.key !== c.key) return;
+    const amount = Number(divEstimateDraft.amount || 0);
+    if (!divEstimateDraft.date || !amount) { toast("수령일과 금액을 확인해주세요", "error"); return; }
+    setDivRecords(p => [...p, {
+      id:Date.now(), date:divEstimateDraft.date, ticker:c.ticker, name:c.name,
+      amount, currency:c.currency, grossAmount:c.grossAmount, netAmount:c.netAmount,
+      taxAmount:c.taxAmount, taxRate:c.taxRate, source:"estimated",
+      amountBasis:divEstimateDraft.amountBasis, accountType:c.accountType, accountId:c.accountId,
+      accountLabel:c.accountLabel, yearMonth:c.yearMonth, memo:divEstimateDraft.memo || "",
+    }]);
+    setDivEstimateDraft(null);
+    toast("✓ 예상 배당 기록을 저장했습니다", "success");
+  };
+  const saveManualDivRecord = () => {
+    if(!divForm.date||!divForm.amount) return;
+    const h = holdings.find(x => x.ticker === divForm.ticker);
+    const amount = Number(divForm.amount || 0);
+    setDivRecords(p=>[...p,{
+      id:Date.now(), ...divForm, amount,
+      grossAmount:amount, netAmount:amount, taxAmount:0, source:"manual",
+      accountType:"general", accountId:h ? divAccountId(h, "general") : "",
+      accountLabel:h?.broker || MARKET_LABEL[h?.market] || "일반계좌",
+      yearMonth:String(divForm.date).slice(0,7), memo:divForm.memo || "",
+    }]);
+    setDivForm({date:"",ticker:"",name:"",amount:"",currency:"KRW",memo:""});
+    setShowForm(null);
+  };
+  const startDivRecordEdit = (r) => {
+    setEditingDivRecordId(r.id);
+    setDivRecordEditForm({ date:r.date || "", amount:String(r.amount ?? ""), currency:r.currency || "KRW", memo:r.memo || "" });
+  };
+  const saveDivRecordEdit = (id) => {
+    const amount = Number(divRecordEditForm.amount || 0);
+    if (!divRecordEditForm.date || !amount) { toast("수령일과 금액을 확인해주세요", "error"); return; }
+    setDivRecords(p => p.map(r => r.id === id ? {
+      ...r, date:divRecordEditForm.date, amount, currency:divRecordEditForm.currency,
+      memo:divRecordEditForm.memo || "", yearMonth:String(divRecordEditForm.date).slice(0,7),
+    } : r));
+    setEditingDivRecordId(null);
+  };
+  const renderDividendCandidatePanel = (items, accountType, accent="#f59e0b") => {
+    const candidates = items.map(h => buildDivCandidate(h, accountType)).filter(Boolean);
+    const totalGross = candidates.reduce((s,c)=>s+(c.currency==="USD"?c.grossAmount*liveUsdKrw:c.grossAmount),0);
+    const totalNet = candidates.reduce((s,c)=>s+(c.currency==="USD"?c.netAmount*liveUsdKrw:c.netAmount),0);
+    return (
+      <div style={{...S.card,border:`1px solid ${accent}44`,background:`${accent}10`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"10px",flexWrap:"wrap",marginBottom:"12px"}}>
+          <div>
+            <div style={{fontSize:"15px",fontWeight:800,color:"#f8fafc"}}>🧮 이번 달 예상 수령</div>
+            <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"3px"}}>지급월이 이번 달인 종목을 주당 배당금 × 보유수량으로 계산합니다.</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>예상 세후 합계</div>
+            <div style={{fontSize:"18px",fontWeight:800,color:accent}}>{fmtKRW(totalNet)}</div>
+            <div style={{fontSize:"10px",color:"#64748b"}}>세전 {fmtKRW(totalGross)}</div>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"6px",marginBottom:"12px"}}>
+          {Object.entries(DIV_TAX_LABELS).map(([key,label])=>(
+            <label key={key} style={{fontSize:"10px",color:"#94a3b8",display:"flex",alignItems:"center",gap:"6px",background:"rgba(0,0,0,0.18)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:"8px",padding:"7px 8px"}}>
+              <span style={{fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>
+              <input type="number" value={divTaxRates[key] ?? ""} onChange={e=>setDivTaxRates(p=>({...p,[key]:e.target.value}))} style={{...S.inp,fontSize:"11px",padding:"4px 6px",minWidth:0}}/>
+              <span>%</span>
+            </label>
+          ))}
+        </div>
+        {candidates.length===0 ? (
+          <div style={{textAlign:"center",padding:"24px",color:"#64748b",fontSize:"13px"}}>이번 달 지급월로 설정된 배당 후보가 없습니다.</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
+            {candidates.map(c=>(
+              <div key={c.key} style={{background:"rgba(0,0,0,0.22)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"12px"}}>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.2fr 0.8fr 1fr 1fr auto",gap:"8px",alignItems:"center"}}>
+                  <div><div style={{fontSize:"13px",fontWeight:800}}>{c.name}</div><div style={{fontSize:"11px",color:"#64748b"}}>{c.ticker} · {c.accountLabel} · {c.quantity}주</div></div>
+                  <div style={{fontSize:"12px",color:"#94a3b8"}}>주당 {fmtDivAmount(c.perShare,c.currency)}</div>
+                  <div><div style={{fontSize:"10px",color:"#64748b"}}>세전</div><div style={{fontSize:"13px",fontWeight:800,color:"#f8fafc"}}>{fmtDivDual(c.grossAmount,c.currency)}</div></div>
+                  <div><div style={{fontSize:"10px",color:"#64748b"}}>예상 세후</div><div style={{fontSize:"13px",fontWeight:800,color:accent}}>{fmtDivDual(c.netAmount,c.currency)}</div><div style={{fontSize:"10px",color:"#64748b"}}>세율 {c.taxRate}%</div></div>
+                  {c.saved ? <span style={{fontSize:"11px",fontWeight:800,color:"#34d399",textAlign:"center"}}>저장됨</span> : <button onClick={()=>openDivEstimateDraft(c)} style={S.btn(accent,{fontSize:"12px",padding:"7px 10px"})}>기록으로 저장</button>}
+                </div>
+                {divEstimateDraft?.key===c.key&&(
+                  <div style={{marginTop:"10px",borderTop:"1px solid rgba(255,255,255,0.08)",paddingTop:"10px",display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 2fr",gap:"8px"}}>
+                    <input type="date" value={divEstimateDraft.date} onChange={e=>setDivEstimateDraft(p=>({...p,date:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"7px 9px"}}/>
+                    <select value={divEstimateDraft.amountBasis} onChange={e=>setDivEstimateDraft(p=>({...p,amountBasis:e.target.value,amount:e.target.value==="gross"?Number(c.grossAmount.toFixed(2)):Number(c.netAmount.toFixed(2))}))} style={{...S.inp,fontSize:"12px",padding:"7px 9px",appearance:"none"}}><option value="net">예상 세후 저장</option><option value="gross">세전 저장</option></select>
+                    <input type="number" value={divEstimateDraft.amount} onChange={e=>setDivEstimateDraft(p=>({...p,amount:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"7px 9px"}}/>
+                    <input placeholder="메모" value={divEstimateDraft.memo} onChange={e=>setDivEstimateDraft(p=>({...p,memo:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"7px 9px"}}/>
+                    <div style={{display:"flex",gap:"6px",gridColumn:"1/-1"}}>
+                      <button onClick={()=>saveDivEstimate(c)} style={S.btn(accent,{fontSize:"12px"})}>✓ 저장</button>
+                      <button onClick={()=>setDivEstimateDraft(null)} style={S.btn("#475569",{fontSize:"12px"})}>취소</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{fontSize:"10px",color:"#64748b",marginTop:"10px",lineHeight:1.5}}>※ 세후 금액은 예상치입니다. 실제 입금액은 증권사, 원천징수, 환율, 지급 시점에 따라 달라질 수 있습니다.</div>
+      </div>
+    );
   };
 
   const fetchPrices = useCallback(async () => {
@@ -4904,6 +5064,7 @@ ${analystSummary}
           {/* P3 배당 */}
           {tab === "dividend" && (
             <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
+              {renderDividendCandidatePanel(isaHoldings.filter(h=>h.market!=="CRYPTO"), "isa", "#06b6d4")}
               <div style={S.card}>
                 {(()=>{
                   const isaAnnualDiv = isaHoldings.filter(h=>h.market!=="CRYPTO").reduce((s,h)=>{
@@ -4945,7 +5106,7 @@ ${analystSummary}
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                             {ps>0&&<div style={{textAlign:"right"}}><div style={{fontSize:"13px",fontWeight:700,color:"#06b6d4"}}>{Math.round(annualKRW).toLocaleString()}₩/년</div><div style={{fontSize:"11px",color:"#64748b"}}>{cm.join("·")}월 · {yieldPct.toFixed(2)}%</div></div>}
-                            <button onClick={()=>{if(isEditing3){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW"});}}}
+                            <button onClick={()=>{if(isEditing3){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW",taxRate:di.taxRate??""});}}}
                               style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#06b6d4",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>
                               {isEditing3?"✕ 닫기":"✏️ 편집"}
                             </button>
@@ -4953,9 +5114,10 @@ ${analystSummary}
                         </div>
                         {isEditing3&&(
                           <div style={{marginTop:"12px",display:"flex",flexDirection:"column",gap:"10px"}}>
-                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:"8px"}}>
                               <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>주당 배당금 (1회)</div><input type="number" value={divInfoForm.perShare} onChange={e=>setDivInfoForm(p=>({...p,perShare:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                               <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div><select value={divInfoForm.currency} onChange={e=>setDivInfoForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}><option value="KRW">₩ 원화</option><option value="USD">$ 달러</option></select></div>
+                              <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>세율 override (%)</div><input type="number" placeholder="기본값" value={divInfoForm.taxRate} onChange={e=>setDivInfoForm(p=>({...p,taxRate:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                             </div>
                             <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
                               {[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const sel=(divInfoForm.months||[]).includes(m);return(
@@ -5435,6 +5597,7 @@ ${analystSummary}
                 <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"2px"}}>연간 금융소득 2,000만원 초과 시 종합소득세 대상</div>
               </div>
             </div>
+            {renderDividendCandidatePanel(holdings.filter(h=>h.market!=="ISA"&&h.market!=="CRYPTO"), "general", "#f59e0b")}
             {(()=>{
               const now=new Date(),curYear=now.getFullYear(),curMonth=now.getMonth()+1;
               const genHoldings=holdings.filter(h=>h.market!=="ISA"&&h.market!=="CRYPTO");
@@ -5445,7 +5608,7 @@ ${analystSummary}
                 const rawM=di.months||[];const months=Array.isArray(rawM)?rawM:Object.values(rawM);
                 expectedAnnual+=(ps*(months.length||1))*(isUSD?liveUsdKrw:1)*qty;
               });
-              const thisYearDiv=divRecords.filter(r=>new Date(r.date).getFullYear()===curYear&&genHoldings.some(h=>h.ticker===r.ticker)).reduce((s,r)=>s+(r.currency==="USD"?+r.amount*liveUsdKrw:+r.amount),0);
+              const thisYearDiv=divRecords.filter(r=>new Date(r.date).getFullYear()===curYear&&genHoldings.some(h=>h.ticker===r.ticker)).reduce((s,r)=>s+divAmountKRW(r),0);
               return(
                 <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"12px"}}>
                   {[["예상 연간 배당",Math.round(expectedAnnual).toLocaleString()+"₩"+(expectedAnnual>=20000000?" ⚠️":""),expectedAnnual>=20000000?"#f87171":"#f59e0b"],["예상 월 평균",Math.round(expectedAnnual/12).toLocaleString()+"₩","#34d399"],["올해 수령액",Math.round(thisYearDiv).toLocaleString()+"₩","#a5b4fc"]].map(([l,v,c])=>(
@@ -5464,8 +5627,9 @@ ${analystSummary}
                   const di=divInfo[h.ticker]||{},isEditing=divEditTicker===h.ticker;
                   const rawCM=di.months||[];const cm=Array.isArray(rawCM)?rawCM:Object.values(rawCM);
                   const ps=+di.perShare||0,qty=+h.quantity,isUSD=di.currency==="USD";
-                  const annualKRW=ps*(cm.length||1)*(isUSD?liveUsdKrw:1)*qty;
-                  const yieldPct=h.avgPrice>0&&ps>0?(ps*(cm.length||1)/(isUSD?h.avgPrice*liveUsdKrw:h.avgPrice))*100:0;
+                  const annualPerShare=ps*(cm.length||1);
+                  const annualKRW=annualPerShare*(isUSD?liveUsdKrw:1)*qty;
+                  const yieldPct=h.avgPrice>0&&annualPerShare>0?(annualPerShare/h.avgPrice)*100:0;
                   return(
                     <div key={h.ticker} style={{background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"12px"}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
@@ -5475,15 +5639,16 @@ ${analystSummary}
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                           {ps>0&&<div style={{textAlign:"right"}}><div style={{fontSize:"13px",fontWeight:700,color:"#f59e0b"}}>{Math.round(annualKRW).toLocaleString()}₩/년</div><div style={{fontSize:"11px",color:"#64748b"}}>{cm.join("·")}월 · {yieldPct.toFixed(2)}%</div></div>}
-                          <button onClick={()=>{if(isEditing){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW"});}}} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>{isEditing?"✕ 닫기":"✏️ 편집"}</button>
+                          <button onClick={()=>{if(isEditing){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW",taxRate:di.taxRate??""});}}} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>{isEditing?"✕ 닫기":"✏️ 편집"}</button>
 
                         </div>
                       </div>
                       {isEditing&&(
                         <div style={{marginTop:"12px",display:"flex",flexDirection:"column",gap:"10px"}}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:"8px"}}>
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>주당 배당금 (1회)</div><input type="number" value={divInfoForm.perShare} onChange={e=>setDivInfoForm(p=>({...p,perShare:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div><select value={divInfoForm.currency} onChange={e=>setDivInfoForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}><option value="KRW">₩ 원화</option><option value="USD">$ 달러</option></select></div>
+                            <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>세율 override (%)</div><input type="number" placeholder="기본값" value={divInfoForm.taxRate} onChange={e=>setDivInfoForm(p=>({...p,taxRate:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                           </div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:"5px"}}>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const sel=(divInfoForm.months||[]).includes(m);return(<button key={m} onClick={()=>setDivInfoForm(p=>{const c=p.months||[];return{...p,months:sel?c.filter(x=>x!==m):[...c,m].sort((a,b)=>a-b)};})} style={{width:"36px",height:"32px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:sel?800:500,background:sel?"rgba(245,158,11,0.3)":"rgba(255,255,255,0.05)",border:sel?"1px solid rgba(245,158,11,0.6)":"1px solid rgba(255,255,255,0.1)",color:sel?"#fbbf24":"#64748b"}}>{m}월</button>);})}</div>
                           <button onClick={()=>{setDivInfo(p=>({...p,[h.ticker]:{...divInfoForm}}));setDivEditTicker(null);}} style={S.btn("#f59e0b",{fontSize:"13px"})}>💾 저장</button>
@@ -5507,27 +5672,46 @@ ${analystSummary}
                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>종목</div><select value={divForm.ticker} onChange={e=>{const h=holdings.find(x=>x.ticker===e.target.value);setDivForm(p=>({...p,ticker:e.target.value,name:h?.name||""}));}} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}><option value="">선택</option>{holdings.filter(h=>h.market!=="ISA"&&h.market!=="CRYPTO").map(h=><option key={h.ticker} value={h.ticker}>{h.name||h.ticker}</option>)}<option value="기타">기타</option></select></div>
                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>수령액</div><input type="number" value={divForm.amount} onChange={e=>setDivForm(p=>({...p,amount:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                     <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div><select value={divForm.currency} onChange={e=>setDivForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}><option value="KRW">₩</option><option value="USD">$</option></select></div>
+                    <div style={{gridColumn:"1/-1"}}><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>메모</div><input value={divForm.memo} onChange={e=>setDivForm(p=>({...p,memo:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
-                    <button onClick={()=>{if(!divForm.date||!divForm.amount)return;setDivRecords(p=>[...p,{id:Date.now(),...divForm,amount:+divForm.amount}]);setDivForm({date:"",ticker:"",name:"",amount:"",currency:"KRW"});setShowForm(null);}} style={S.btn("#f59e0b")}>✓ 저장</button>
+                    <button onClick={saveManualDivRecord} style={S.btn("#f59e0b")}>✓ 저장</button>
                     <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
                   </div>
                 </div>
               )}
-              {divRecords.filter(r=>holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===r.ticker)||r.ticker==="기타").length===0?(
+              {divRecords.length===0?(
                 <div style={{textAlign:"center",padding:"32px",color:"#475569"}}><div style={{fontSize:"28px"}}>💰</div><div>수령한 배당금을 기록해보세요</div></div>
               ):(
                 <div style={{display:"flex",flexDirection:"column",gap:"0"}}>
-                  {[...divRecords].filter(r=>holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===r.ticker)||r.ticker==="기타").sort((a,b)=>b.date.localeCompare(a.date)).map(r=>(
-                    <div key={r.id} style={{display:"grid",gridTemplateColumns:"90px 1fr auto auto",alignItems:"center",gap:"12px",padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
-                      <div style={{fontSize:"12px",color:"#64748b"}}>{r.date}</div>
-                      <div><div style={{fontSize:"13px",fontWeight:700}}>{r.name||r.ticker||"기타"}</div></div>
-                      <div style={{fontSize:"14px",fontWeight:800,color:"#f59e0b"}}>{r.currency==="USD"?"$"+Number(r.amount).toFixed(2):Math.round(r.amount).toLocaleString()+"₩"}</div>
-                      <button onClick={()=>setDivRecords(p=>p.filter(x=>x.id!==r.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"15px"}}>✕</button>
+                  {[...divRecords].sort((a,b)=>b.date.localeCompare(a.date)).map(r=>(
+                    <div key={r.id} style={{padding:"10px 4px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                      {editingDivRecordId===r.id ? (
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"90px 110px 90px 1fr auto",alignItems:"center",gap:"8px"}}>
+                          <input type="date" value={divRecordEditForm.date} onChange={e=>setDivRecordEditForm(p=>({...p,date:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/>
+                          <input type="number" value={divRecordEditForm.amount} onChange={e=>setDivRecordEditForm(p=>({...p,amount:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/>
+                          <select value={divRecordEditForm.currency} onChange={e=>setDivRecordEditForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px",appearance:"none"}}><option value="KRW">₩</option><option value="USD">$</option></select>
+                          <input placeholder="메모" value={divRecordEditForm.memo} onChange={e=>setDivRecordEditForm(p=>({...p,memo:e.target.value}))} style={{...S.inp,fontSize:"12px",padding:"6px 8px"}}/>
+                          <div style={{display:"flex",gap:"5px"}}>
+                            <button onClick={()=>saveDivRecordEdit(r.id)} style={S.btn("#f59e0b",{fontSize:"11px",padding:"5px 8px"})}>저장</button>
+                            <button onClick={()=>setEditingDivRecordId(null)} style={S.btn("#475569",{fontSize:"11px",padding:"5px 8px"})}>취소</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{display:"grid",gridTemplateColumns:"90px 1fr auto auto",alignItems:"center",gap:"12px"}}>
+                          <div style={{fontSize:"12px",color:"#64748b"}}>{r.date}</div>
+                          <div><div style={{fontSize:"13px",fontWeight:700}}>{r.name||r.ticker||"기타"} {r.source==="estimated"&&<span style={{fontSize:"10px",color:"#34d399",marginLeft:"5px"}}>예상</span>}</div><div style={{fontSize:"10px",color:"#64748b",marginTop:"2px"}}>{r.accountLabel || (r.accountType==="tax"?"절세계좌":r.accountType==="isa"?"ISA":"일반계좌")}</div>{r.memo&&<div style={{fontSize:"10px",color:"#64748b",marginTop:"2px"}}>{r.memo}</div>}</div>
+                          <div style={{fontSize:"14px",fontWeight:800,color:"#f59e0b"}}>{fmtDivAmount(r.amount,r.currency)}</div>
+                          <div style={{display:"flex",gap:"4px"}}>
+                            <button onClick={()=>startDivRecordEdit(r)} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:"13px"}}>수정</button>
+                            <button onClick={()=>setDivRecords(p=>p.filter(x=>x.id!==r.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"15px"}}>✕</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div style={{display:"flex",justifyContent:"flex-end",marginTop:"10px",fontSize:"13px",color:"#94a3b8"}}>
-                    총&nbsp;<span style={{color:"#f59e0b",fontWeight:700}}>{Math.round(divRecords.filter(r=>holdings.filter(h=>h.market!=="ISA").some(h=>h.ticker===r.ticker)||r.ticker==="기타").reduce((s,r)=>s+(r.currency==="USD"?+r.amount*liveUsdKrw:+r.amount),0)).toLocaleString()}₩</span>
+                    총&nbsp;<span style={{color:"#f59e0b",fontWeight:700}}>{Math.round(divRecords.reduce((s,r)=>s+divAmountKRW(r),0)).toLocaleString()}₩</span>
                   </div>
                 </div>
               )}
@@ -5538,6 +5722,7 @@ ${analystSummary}
         {/* ── DIVIDEND P2 ── */}
         {tab==="dividend"&&mainTab==="p2"&&(
           <div style={{display:"flex",flexDirection:"column",gap:"16px"}}>
+            {renderDividendCandidatePanel(holdings2.filter(h=>h.market!=="CRYPTO"), "tax", "#fbbf24")}
             {(()=>{
               const total2Annual=holdings2.filter(h=>h.market!=="CRYPTO").reduce((s,h)=>{
                 const di=divInfo[h.ticker]||{};const ps=+di.perShare||0,qty=+h.quantity;
@@ -5561,8 +5746,9 @@ ${analystSummary}
                   const di=divInfo[h.ticker]||{},isEditing=divEditTicker===h.ticker;
                   const rawCM=di.months||[];const cm=Array.isArray(rawCM)?rawCM:Object.values(rawCM);
                   const ps=+di.perShare||0,qty=+h.quantity,isUSD=di.currency==="USD";
-                  const annualKRW=ps*(cm.length||1)*(isUSD?liveUsdKrw:1)*qty;
-                  const yieldPct=h.avgPrice>0&&ps>0?(ps*(cm.length||1)/(isUSD?h.avgPrice*liveUsdKrw:h.avgPrice))*100:0;
+                  const annualPerShare=ps*(cm.length||1);
+                  const annualKRW=annualPerShare*(isUSD?liveUsdKrw:1)*qty;
+                  const yieldPct=h.avgPrice>0&&annualPerShare>0?(annualPerShare/h.avgPrice)*100:0;
                   return(
                     <div key={h.ticker} style={{background:"rgba(234,179,8,0.05)",border:"1px solid rgba(234,179,8,0.15)",borderRadius:"10px",padding:"12px"}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"8px"}}>
@@ -5572,14 +5758,15 @@ ${analystSummary}
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
                           {ps>0&&<div style={{textAlign:"right"}}><div style={{fontSize:"13px",fontWeight:700,color:"#fbbf24"}}>{Math.round(annualKRW).toLocaleString()}₩/년</div><div style={{fontSize:"11px",color:"#64748b"}}>{cm.join("·")}월 · {yieldPct.toFixed(2)}%</div></div>}
-                          <button onClick={()=>{if(isEditing){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW"});}}} style={{background:"none",border:"1px solid rgba(234,179,8,0.4)",color:"#fbbf24",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>{isEditing?"✕ 닫기":"✏️ 편집"}</button>
+                          <button onClick={()=>{if(isEditing){setDivEditTicker(null);}else{setDivEditTicker(h.ticker);const rawEM=di.months||[];setDivInfoForm({perShare:di.perShare||"",months:Array.isArray(rawEM)?rawEM:Object.values(rawEM),currency:di.currency||"KRW",taxRate:di.taxRate??""});}}} style={{background:"none",border:"1px solid rgba(234,179,8,0.4)",color:"#fbbf24",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px",fontWeight:700}}>{isEditing?"✕ 닫기":"✏️ 편집"}</button>
                         </div>
                       </div>
                       {isEditing&&(
                         <div style={{marginTop:"12px",display:"flex",flexDirection:"column",gap:"10px"}}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
+                          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr 1fr",gap:"8px"}}>
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>주당 배당금 (1회)</div><input type="number" value={divInfoForm.perShare} onChange={e=>setDivInfoForm(p=>({...p,perShare:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                             <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>통화</div><select value={divInfoForm.currency} onChange={e=>setDivInfoForm(p=>({...p,currency:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px",appearance:"none"}}><option value="KRW">₩</option><option value="USD">$</option></select></div>
+                            <div><div style={{fontSize:"11px",color:"#64748b",marginBottom:"3px"}}>세율 override (%)</div><input type="number" placeholder="기본값" value={divInfoForm.taxRate} onChange={e=>setDivInfoForm(p=>({...p,taxRate:e.target.value}))} style={{...S.inp,fontSize:"13px",padding:"7px 10px"}}/></div>
                           </div>
                           <div style={{display:"flex",flexWrap:"wrap",gap:"5px"}}>{[1,2,3,4,5,6,7,8,9,10,11,12].map(m=>{const sel=(divInfoForm.months||[]).includes(m);return(<button key={m} onClick={()=>setDivInfoForm(p=>{const c=p.months||[];return{...p,months:sel?c.filter(x=>x!==m):[...c,m].sort((a,b)=>a-b)};})} style={{width:"36px",height:"32px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:sel?800:500,background:sel?"rgba(234,179,8,0.3)":"rgba(255,255,255,0.05)",border:sel?"1px solid rgba(234,179,8,0.6)":"1px solid rgba(255,255,255,0.1)",color:sel?"#fbbf24":"#64748b"}}>{m}월</button>);})}</div>
                           <button onClick={()=>{setDivInfo(p=>({...p,[h.ticker]:{...divInfoForm}}));setDivEditTicker(null);}} style={S.btn("#f59e0b",{fontSize:"13px"})}>💾 저장</button>
