@@ -1,4 +1,37 @@
 // Vercel API Route: /api/history
+// Yahoo Finance chart data (server-side, no CORS issues)
+
+function formatChartLabel(ts, range, interval) {
+  const date = new Date(ts * 1000);
+  const isIntraday = /m$|h$/i.test(String(interval || ""));
+  if (isIntraday && range === "1d") {
+    return date.toLocaleTimeString("ko-KR", {
+      timeZone: "Asia/Seoul",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  }
+  if (isIntraday) {
+    const day = date.toLocaleDateString("ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "numeric",
+      day: "numeric",
+    });
+    const time = date.toLocaleTimeString("ko-KR", {
+      timeZone: "Asia/Seoul",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${day} ${time}`;
+  }
+  return date.toLocaleDateString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+  });
+}
 // Yahoo Finance 주가 차트 데이터 (서버사이드, CORS 없음)
 
 export default async function handler(req, res) {
@@ -30,7 +63,8 @@ export default async function handler(req, res) {
       const closes = result.indicators?.quote?.[0]?.close || [];
 
       const data = timestamps.map((ts, i) => ({
-        date: new Date(ts * 1000).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }),
+        ts: ts * 1000,
+        date: formatChartLabel(ts, range, interval),
         price: closes[i] ? Math.round(closes[i] * 100) / 100 : null,
       })).filter(d => d.price !== null);
 

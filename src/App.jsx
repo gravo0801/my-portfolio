@@ -480,7 +480,8 @@ async function fetchKRStock(ticker) {
 
 // ── 당일 장중 1분봉 데이터 fetch ─────────────────────────────────────────
 async function fetchIntraday(ticker, market) {
-  const sym = (market==="KR"||market==="ISA")
+  const isKREtf = market === "ETF" && /^[0-9]/.test(ticker || "");
+  const sym = (market==="KR"||market==="ISA"||isKREtf)
     ? (ticker.replace(".KS","").replace(".KQ","").padStart(6,"0") + ".KS")
     : ticker;
   // Vercel API에서 v8/chart 1분봉 가져오기
@@ -657,8 +658,8 @@ async function fetchGold(liveUsdKrw) {
 }
 
 // 미국 서머타임(EDT) 여부 - 날짜 기반 (브라우저 timezone 무관)
-function isUSDST() {
-  const now = new Date();
+function isUSDST(date = new Date()) {
+  const now = date;
   const y = now.getUTCFullYear();
   // 3월 두번째 일요일 계산
   const dstStart = new Date(Date.UTC(y, 2, 1)); // Mar 1
@@ -807,6 +808,20 @@ async function fetchKospiFutures() {
   return null;
 }
 
+function formatHistoryLabel(ts, range, interval) {
+  const date = new Date(ts * 1000);
+  const isIntraday = /m$|h$/i.test(String(interval || ""));
+  if (isIntraday && range === "1d") {
+    return date.toLocaleTimeString("ko-KR", { timeZone:"Asia/Seoul", hour:"2-digit", minute:"2-digit", hour12:false });
+  }
+  if (isIntraday) {
+    const day = date.toLocaleDateString("ko-KR", { timeZone:"Asia/Seoul", month:"numeric", day:"numeric" });
+    const time = date.toLocaleTimeString("ko-KR", { timeZone:"Asia/Seoul", hour:"2-digit", minute:"2-digit", hour12:false });
+    return `${day} ${time}`;
+  }
+  return date.toLocaleDateString("ko-KR", { timeZone:"Asia/Seoul", month:"numeric", day:"numeric" });
+}
+
 async function fetchHistory(ticker, market, range="3mo") {
   const isKR = market === "KR" || market === "ISA";
   const isETFKR = market === "ETF" && /^[0-9]/.test(ticker);
@@ -864,7 +879,8 @@ async function fetchHistory(ticker, market, range="3mo") {
       const timestamps = result.timestamp;
       const closes = result.indicators?.quote?.[0]?.close || [];
       const data = timestamps.map((ts, i) => ({
-        date: new Date(ts * 1000).toLocaleDateString("ko-KR",{month:"numeric",day:"numeric"}),
+        ts: ts * 1000,
+        date: formatHistoryLabel(ts, range, interval),
         price: closes[i] ? Math.round(closes[i]*100)/100 : null,
       })).filter(d => d.price !== null);
       if (data.length >= 2) return data;
@@ -1194,7 +1210,7 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
   const [chartRange, setChartRange] = useState("3mo");
 
   useEffect(() => {
-    const key = holding.ticker + "_" + chartRange;
+    const key = `${holding.market}:${holding.ticker}_${chartRange}`;
     if (_chartCache[key]) {
       setHistory(_chartCache[key]);
       setLoading(false);
@@ -1206,7 +1222,7 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
         setLoading(false);
       });
     }
-  }, [holding.ticker, chartRange]);
+  }, [holding.ticker, holding.market, chartRange]);
 
   useEffect(() => {
     const key = holding.ticker;
@@ -1221,28 +1237,37 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
   const currentPrice = price?.price ?? holding.avgPrice;
   const pnlPct = holding.avgPrice > 0 ? ((currentPrice - holding.avgPrice) / holding.avgPrice) * 100 : 0;
   const pnlAmt = (currentPrice - holding.avgPrice) * holding.quantity;
+  const chartHistory = (() => {
+    if (!history.length || !Number.isFinite(Number(currentPrice))) return history;
+    const last = history[history.length - 1];
+    const lastPrice = Number(last?.price || 0);
+    if (!lastPrice) return history;
+    const shouldAppendLive = Math.abs(Number(currentPrice) - lastPrice) / lastPrice > 0.0005;
+    if (!shouldAppendLive) return history;
+    return [...history, { ts: Date.now(), date:"현재", price: Math.round(Number(currentPrice) * 100) / 100, live:true }];
+  })();
 
   const fmtNum = (n) => n >= 1e12 ? (n/1e12).toFixed(2)+"조" : n >= 1e8 ? (n/1e8).toFixed(0)+"억" : n >= 1e6 ? (n/1e6).toFixed(0)+"백만" : n?.toLocaleString() ?? "-";
   const fmtUSD = (n) => n ? "$"+n.toLocaleString("en-US",{minimumFractionDigits:0,maximumFractionDigits:0}) : "-";
 
-  const minP = history.length ? history.reduce((mn,d)=>d.price<mn?d.price:mn, history[0]?.price??0) : 0;
-  const maxP = history.length ? history.reduce((mx,d)=>d.price>mx?d.price:mx, history[0]?.price??1) : 1;
+  const minP = chartHistory.length ? chartHistory.reduce((mn,d)=>d.price<mn?d.price:mn, chartHistory[0]?.price??0) : 0;
+  const maxP = chartHistory.length ? chartHistory.reduce((mx,d)=>d.price>mx?d.price:mx, chartHistory[0]?.price??1) : 1;
   const W = isMobile ? window.innerWidth - 80 : 520;
   const H = 160;
   const pad = { t:10, r:10, b:24, l:10 };
 
-  const pts = history.map((d,i) => {
-    const x = pad.l + (i/(history.length-1||1))*(W-pad.l-pad.r);
+  const pts = chartHistory.map((d,i) => {
+    const x = pad.l + (i/(chartHistory.length-1||1))*(W-pad.l-pad.r);
     const y = pad.t + (1-(d.price-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
     return `${x},${y}`;
   }).join(" ");
 
-  const isUp = history.length > 1 && history[history.length-1].price >= history[0].price;
+  const isUp = chartHistory.length > 1 && chartHistory[chartHistory.length-1].price >= chartHistory[0].price;
   const lineColor = isUp ? "#34d399" : "#f87171";
   const fillColor = isUp ? "rgba(52,211,153,0.12)" : "rgba(248,113,113,0.12)";
 
-  const closePts = history.length > 0
-    ? `${pad.l + (history.length-1)/(history.length-1||1)*(W-pad.l-pad.r)},${H-pad.b} ${pad.l},${H-pad.b}`
+  const closePts = chartHistory.length > 0
+    ? `${pad.l + (chartHistory.length-1)/(chartHistory.length-1||1)*(W-pad.l-pad.r)},${H-pad.b} ${pad.l},${H-pad.b}`
     : "";
 
   const infoItems = holding.market === "CRYPTO" ? [
@@ -1308,7 +1333,7 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
           </div>
           {loading ? (
             <div style={{ textAlign:"center", padding:"30px", color:"#475569", fontSize:"13px" }}>차트 불러오는 중...</div>
-          ) : history.length < 2 ? (
+          ) : chartHistory.length < 2 ? (
             <div style={{ textAlign:"center", padding:"30px", color:"#475569", fontSize:"13px" }}>차트 데이터를 불러올 수 없습니다</div>
           ) : (
             <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:"auto", display:"block" }}>
@@ -1321,19 +1346,19 @@ function StockDetail({ holding, price, onClose, isMobile, trades=[], allHoldings
               {/* 라인 */}
               <polyline points={pts} fill="none" stroke={lineColor} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
               {/* 마지막 점 */}
-              {history.length > 0 && (()=>{
+              {chartHistory.length > 0 && (()=>{
                 const lx = pad.l + (W-pad.l-pad.r);
-                const ly = pad.t + (1-(history[history.length-1].price-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
+                const ly = pad.t + (1-(chartHistory[chartHistory.length-1].price-minP)/(maxP-minP||1))*(H-pad.t-pad.b);
                 return <circle cx={lx} cy={ly} r="3" fill={lineColor}/>;
               })()}
               {/* 최저/최고 라벨 */}
               <text x={pad.l+2} y={pad.t+10} fontSize="9" fill="#64748b">{cur==="KRW"?Math.round(maxP).toLocaleString()+"₩":"$"+maxP.toFixed(2)}</text>
               <text x={pad.l+2} y={H-pad.b-2} fontSize="9" fill="#64748b">{cur==="KRW"?Math.round(minP).toLocaleString()+"₩":"$"+minP.toFixed(2)}</text>
               {/* 날짜 라벨 */}
-              {[0, Math.floor(history.length/2), history.length-1].map(i=>{
-                if(!history[i]) return null;
-                const x = pad.l + (i/(history.length-1||1))*(W-pad.l-pad.r);
-                return <text key={i} x={x} y={H-4} fontSize="9" fill="#475569" textAnchor="middle">{history[i].date}</text>;
+              {[0, Math.floor(chartHistory.length/2), chartHistory.length-1].map(i=>{
+                if(!chartHistory[i]) return null;
+                const x = pad.l + (i/(chartHistory.length-1||1))*(W-pad.l-pad.r);
+                return <text key={i} x={x} y={H-4} fontSize="9" fill="#475569" textAnchor="middle">{chartHistory[i].date}</text>;
               })}
             </svg>
           )}
@@ -2082,47 +2107,53 @@ const TICKER_DOMAIN = {
 
 
 // ── 미니 스파크라인 (순수 SVG, props로 받은 data 렌더링) ──────────────────
-function MiniSparkline({ data, pnlPct=0, width=60, height=24, market="KR" }) {
+function MiniSparkline({ data, dayPct=0, pnlPct=0, width=60, height=24, market="KR", ticker="" }) {
   // data: [{time(ms), price}] 당일 장중 1분봉 데이터
   const pad = {t:3, b:3, l:2, r:2};
+  const movePct = Number.isFinite(Number(dayPct)) ? Number(dayPct) : Number(pnlPct || 0);
 
   if (!data || data.length < 2) {
-    // 데이터 없을 때: pnlPct 기반 간단 바
-    const up = pnlPct >= 0;
-    const c  = up ? "#34d399" : "#f87171";
+    // 데이터 없을 때: 총 수익률이 아니라 당일 등락률만 요약 표시
+    const up = movePct >= 0;
+    const c  = Math.abs(movePct) < 0.01 ? "#64748b" : up ? "#34d399" : "#f87171";
     const mid = height / 2;
-    const barH = Math.min(Math.abs(pnlPct) * 1.5, mid - 3);
+    const endY = mid - Math.max(-1, Math.min(1, movePct / 5)) * (height * 0.34);
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.4}}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.7}}>
+        <title>{`${ticker || "종목"} 당일 ${movePct >= 0 ? "+" : ""}${movePct.toFixed(2)}%`}</title>
         <line x1="2" y1={mid} x2={width-2} y2={mid} stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
-        <rect x={4} y={up?mid-barH:mid} width={width-8} height={Math.max(1,barH)} fill={c} opacity="0.4" rx="1"/>
+        <polyline points={`4,${mid.toFixed(1)} ${width-8},${endY.toFixed(1)}`} fill="none" stroke={c} strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx={width-8} cy={endY.toFixed(1)} r="1.8" fill={c}/>
       </svg>
     );
   }
 
   // 장 시간 범위 계산
-  const isUS = market === "US" || (market === "ETF" && data[0]?.time && new Date(data[0].time).getUTCHours() < 9);
-  const isDST = isUSDST();
+  const isKREtf = market === "ETF" && /^[0-9]/.test(String(ticker || ""));
+  const isUS = market === "US" || (market === "ETF" && !isKREtf);
   const nowMs = Date.now();
+  const refMs = data[data.length - 1]?.time || nowMs;
+  const isDST = isUSDST(new Date(refMs));
 
   // 장 시작/종료 시각 (UTC ms)
   let marketOpen, marketClose;
   if (isUS) {
     // ET 기준 9:30~16:00 → UTC 변환
     const etOff = isDST ? 4 : 5;
-    const d = new Date(nowMs);
-    const etDate = new Date(d.toISOString().slice(0,10) + "T00:00:00Z");
-    marketOpen  = etDate.getTime() + (9*60+30)*60000 + etOff*3600000;
-    marketClose = etDate.getTime() + 16*60*60000       + etOff*3600000;
+    const etDay = new Date(refMs - etOff * 3600000);
+    const etMidnightUtc = Date.UTC(etDay.getUTCFullYear(), etDay.getUTCMonth(), etDay.getUTCDate()) + etOff * 3600000;
+    marketOpen  = etMidnightUtc + (9*60+30)*60000;
+    marketClose = etMidnightUtc + 16*60*60000;
   } else {
     // KST 기준 9:00~15:30 → UTC 변환
-    const kstDate = new Date(new Date(nowMs+9*3600000).toISOString().slice(0,10) + "T00:00:00Z");
-    marketOpen  = kstDate.getTime() +  9*60*60000 - 9*3600000;
-    marketClose = kstDate.getTime() + (15*60+30)*60000 - 9*3600000;
+    const kstDay = new Date(refMs + 9*3600000);
+    const kstMidnightUtc = Date.UTC(kstDay.getUTCFullYear(), kstDay.getUTCMonth(), kstDay.getUTCDate()) - 9*3600000;
+    marketOpen  = kstMidnightUtc +  9*60*60000;
+    marketClose = kstMidnightUtc + (15*60+30)*60000;
   }
 
   // 현재 시각까지만 필터 (진행 중인 장)
-  const cutoff = Math.min(nowMs, marketClose);
+  const cutoff = Math.min(Math.max(nowMs, refMs), marketClose);
   const filtered = data.filter(d => d.time >= marketOpen && d.time <= cutoff);
 
   if (filtered.length < 2) {
@@ -2155,6 +2186,7 @@ function MiniSparkline({ data, pnlPct=0, width=60, height=24, market="KR" }) {
   const lastP = filtered[filtered.length - 1].price;
   const up = lastP >= openPrice;
   const c  = up ? "#34d399" : "#f87171";
+  const intradayPct = openPrice > 0 ? ((lastP - openPrice) / openPrice) * 100 : movePct;
 
   // 기준선(시가) Y 위치
   const baseY = toY(openPrice).toFixed(1);
@@ -2169,6 +2201,7 @@ function MiniSparkline({ data, pnlPct=0, width=60, height=24, market="KR" }) {
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{width:width+"px",height:height+"px",flexShrink:0,opacity:0.9}}>
+      <title>{`${ticker || "종목"} 당일 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`}</title>
       {/* 기준선 (시가) */}
       <line x1={pad.l} y1={baseY} x2={width-pad.r} y2={baseY}
         stroke="rgba(255,255,255,0.12)" strokeWidth="0.8" strokeDasharray="2,2"/>
@@ -3753,7 +3786,7 @@ ${analystSummary}
             {h.broker&&<div style={{fontSize:"11px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 6px",borderRadius:"4px",fontWeight:700,marginTop:"2px"}}>{h.broker}</div>}
           </div>
           {!compact&&<div style={{flexShrink:0,marginLeft:"8px",borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"10px"}}>
-            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={64} height={24}/>
+            <MiniSparkline data={intradayData[h.ticker]} dayPct={h.chgPct||0} market={h.market} ticker={h.ticker} width={64} height={24}/>
           </div>}
         </div>
       </td>
@@ -3872,7 +3905,7 @@ ${analystSummary}
         </div>
         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
           <div style={{borderLeft:"1px solid rgba(255,255,255,0.08)",paddingLeft:"8px",marginRight:"4px"}}>
-            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={56} height={22}/>
+            <MiniSparkline data={intradayData[h.ticker]} dayPct={h.chgPct||0} market={h.market} ticker={h.ticker} width={56} height={22}/>
           </div>
           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
           <button onClick={()=>runAiAnalysis(h)} style={{background:"rgba(99,102,241,0.15)",border:"1px solid rgba(99,102,241,0.4)",color:"#c7d2fe",cursor:"pointer",fontSize:"11px",padding:"2px 7px",borderRadius:"6px",fontWeight:700}}>🤖</button>
@@ -4537,7 +4570,7 @@ ${analystSummary}
                               <div onClick={()=>setSelectedStock(h)} style={{cursor:"pointer",flexShrink:0}}>
                                 <TickerLogo ticker={h.ticker} name={h.name} size={isMobile?38:42}/>
                               </div>
-                              {!isMobile&&<div style={{flexShrink:0,borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"8px",marginLeft:"4px"}}><MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={52} height={22}/></div>}
+                              {!isMobile&&<div style={{flexShrink:0,borderLeft:"1px solid rgba(255,255,255,0.07)",paddingLeft:"8px",marginLeft:"4px"}}><MiniSparkline data={intradayData[h.ticker]} dayPct={h.chgPct||0} market={h.market} ticker={h.ticker} width={52} height={22}/></div>}
                               <div onClick={()=>setSelectedStock(h)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                                 <div style={{fontWeight:700,fontSize:isMobile?"13px":"14px",color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.name||h.ticker}</div>
                                 <div style={{fontSize:"11px",color:"#475569",marginTop:"1px"}}>{h.ticker} · {h.quantity.toLocaleString()}주{h._merged&&<span style={{marginLeft:"4px",fontSize:"9px",background:"rgba(99,102,241,0.2)",color:"#a5b4fc",padding:"1px 5px",borderRadius:"3px",fontWeight:700}}>통합</span>}</div>
@@ -4908,7 +4941,7 @@ ${analystSummary}
                         </div>
                         <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
                           <div style={{borderLeft:"1px solid rgba(6,182,212,0.15)",paddingLeft:"8px",marginRight:"4px"}}>
-                            <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={52} height={20}/>
+                            <MiniSparkline data={intradayData[h.ticker]} dayPct={h.chgPct||0} market={h.market} ticker={h.ticker} width={52} height={20}/>
                           </div>
                           <button onClick={()=>editingId===h.id?setEditingId(null):startEdit(h)} style={{background:"none",border:"1px solid rgba(6,182,212,0.4)",color:"#06b6d4",cursor:"pointer",fontSize:"11px",padding:"2px 8px",borderRadius:"6px",fontWeight:700}}>수정</button>
                           <button onClick={()=>setHoldings(p=>p.filter(x=>x.id!==h.id))} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"16px"}}>✕</button>
@@ -6134,7 +6167,7 @@ ${analystSummary}
                                     <div style={{fontSize:"10px",color:"#10b981"}}>{h.ticker}</div>
                                     {h.broker&&<div style={{fontSize:"10px",color:"#6366f1",background:"rgba(99,102,241,0.12)",display:"inline-block",padding:"1px 5px",borderRadius:"4px",marginTop:"2px"}}>{h.broker}</div>}
                                   </div>
-                                  <MiniSparkline data={intradayData[h.ticker]} pnlPct={h.pnlPct||0} market={h.market} width={56} height={22}/>
+                                  <MiniSparkline data={intradayData[h.ticker]} dayPct={h.chgPct||0} market={h.market} ticker={h.ticker} width={56} height={22}/>
                                 </div>
                               </td>
                               <td style={S.TD}>{h.cur==="USD"?"$"+(h.price||0).toFixed(2):Math.round(h.price||0).toLocaleString()+"₩"}</td>

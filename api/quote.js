@@ -51,6 +51,7 @@ async function fetchNaverKR(ticker6, stateKR) {
 }
 
 async function fetchYahooChart(sym, crumb, cookie) {
+  const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
   const isDST = (()=>{ const n=new Date(),j=new Date(n.getFullYear(),0,1),ul=new Date(n.getFullYear(),6,1); return n.getTimezoneOffset()<Math.max(j.getTimezoneOffset(),ul.getTimezoneOffset()); })();
   const etOffMs = isDST?4*3600000:5*3600000;
   const etNow = new Date(Date.now()-etOffMs);
@@ -58,6 +59,12 @@ async function fetchYahooChart(sym, crumb, cookie) {
   const etDow = etNow.getUTCDay();
   const isWE = etDow===0||etDow===6;
   const stateUS = (!isWE&&etM>=9*60+30&&etM<16*60)?'REGULAR':(!isWE&&etM>=4*60&&etM<9*60+30)?'PRE':(!isWE&&etM>=16*60&&etM<20*60)?'POST':'CLOSED';
+  const nowKST = new Date(Date.now()+9*3600000);
+  const kstM = nowKST.getUTCHours()*60+nowKST.getUTCMinutes();
+  const kstDow = nowKST.getUTCDay();
+  const isWKR = kstDow===0||kstDow===6;
+  const stateKR = (!isWKR&&kstM>=8*60&&kstM<9*60)?'PRE':(!isWKR&&kstM>=9*60&&kstM<15*60+30)?'REGULAR':(!isWKR&&kstM>=15*60+30&&kstM<20*60)?'POST':'CLOSED';
+  const marketState = isKR ? stateKR : stateUS;
 
   for (const host of ['query1','query2']) {
     try {
@@ -85,13 +92,24 @@ async function fetchYahooChart(sym, crumb, cookie) {
         }
       }
 
-      // 정규장 시간 범위 (ET 기준 UTC)
-      const todayET = new Date(etNow);
-      todayET.setUTCHours(0,0,0,0);
-      const regOpenMs = todayET.getTime() + (9*60+30)*60000 + etOffMs;
-      const regCloseMs = todayET.getTime() + 16*60*60000 + etOffMs;
-      const preOpenMs = todayET.getTime() + 4*60*60000 + etOffMs;
-      const postCloseMs = todayET.getTime() + 20*60*60000 + etOffMs;
+      // 정규장 시간 범위 (시장별 UTC)
+      const refMs = allBars[allBars.length-1]?.time || Date.now();
+      let regOpenMs, regCloseMs, preOpenMs, postCloseMs;
+      if (isKR) {
+        const kstDay = new Date(refMs + 9*3600000);
+        const kstMidnightUtc = Date.UTC(kstDay.getUTCFullYear(), kstDay.getUTCMonth(), kstDay.getUTCDate()) - 9*3600000;
+        preOpenMs = kstMidnightUtc + 8*60*60000;
+        regOpenMs = kstMidnightUtc + 9*60*60000;
+        regCloseMs = kstMidnightUtc + (15*60+30)*60000;
+        postCloseMs = kstMidnightUtc + 20*60*60000;
+      } else {
+        const etDay = new Date(refMs - etOffMs);
+        const etMidnightUtc = Date.UTC(etDay.getUTCFullYear(), etDay.getUTCMonth(), etDay.getUTCDate()) + etOffMs;
+        preOpenMs = etMidnightUtc + 4*60*60000;
+        regOpenMs = etMidnightUtc + (9*60+30)*60000;
+        regCloseMs = etMidnightUtc + 16*60*60000;
+        postCloseMs = etMidnightUtc + 20*60*60000;
+      }
 
       // 마지막 봉 (2분 이내 → 실시간에 가까움)
       const nowMs = Date.now();
@@ -113,9 +131,9 @@ async function fetchYahooChart(sym, crumb, cookie) {
 
       // 표시 가격 결정
       let displayPrice = regularPrice;
-      if (stateUS==='PRE' && preMarketPrice) displayPrice = preMarketPrice;
-      else if (stateUS==='POST' && postMarketPrice) displayPrice = postMarketPrice;
-      else if (stateUS==='REGULAR' && useLastBar) displayPrice = lastBar.price;
+      if (marketState==='PRE' && preMarketPrice) displayPrice = preMarketPrice;
+      else if (marketState==='POST' && postMarketPrice) displayPrice = postMarketPrice;
+      else if (marketState==='REGULAR' && useLastBar) displayPrice = lastBar.price;
 
       const displayChg = prevClose>0?(displayPrice-prevClose)/prevClose*100:0;
       const displayAmt = displayPrice-prevClose;
@@ -133,7 +151,7 @@ async function fetchYahooChart(sym, crumb, cookie) {
         regularChangePercent:regChg, regularChangeAmount:regAmt,
         preMarketPrice, preMarketChange:preChgAmt, preMarketChangePercent:preChgPct,
         postMarketPrice, postMarketChange:postChgAmt, postMarketChangePercent:postChgPct,
-        currency:meta.currency||'USD', marketState:stateUS,
+        currency:meta.currency||(isKR?'KRW':'USD'), marketState,
         intraday: intraday.length>1 ? intraday : allBars,
       };
     } catch { continue; }
@@ -146,6 +164,7 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
   if (req.method==='OPTIONS') { res.status(200).end(); return; }
   const {symbols} = req.query;
+  const wantIntraday = req.query.intraday === '1' || req.query.intraday === 'true';
   if (!symbols) { res.status(400).json({error:'symbols required'}); return; }
   const symList = symbols.split(',').map(s=>s.trim()).filter(Boolean);
   const results = {};
@@ -165,7 +184,15 @@ export default async function handler(req, res) {
       if (isKR) {
         const ticker6 = sym.replace('.KS','').replace('.KQ','').padStart(6,'0');
         const naver = await fetchNaverKR(ticker6, stateKR);
-        if (naver) { results[sym]=naver; return; }
+        if (naver) {
+          if (wantIntraday) {
+            const chart = await fetchYahooChart(sym, crumb, cookie);
+            results[sym] = chart?.intraday?.length > 1 ? {...naver, intraday:chart.intraday} : naver;
+          } else {
+            results[sym]=naver;
+          }
+          return;
+        }
         const chart = await fetchYahooChart(sym, crumb, cookie);
         if (chart) { results[sym]={...chart,currency:'KRW',marketState:stateKR}; }
         return;
