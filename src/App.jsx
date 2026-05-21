@@ -2427,6 +2427,8 @@ function PortfolioApp({ syncKey, onLogout }) {
   const [divEstimateDraft, setDivEstimateDraft] = useState(null);
   const [editingDivRecordId, setEditingDivRecordId] = useState(null);
   const [divRecordEditForm, setDivRecordEditForm] = useState({ date:"", amount:"", currency:"KRW", memo:"" });
+  const [divAutoLoading, setDivAutoLoading] = useState(false);
+  const [divAutoSummary, setDivAutoSummary] = useState(null);
   const [editingId2, setEditingId2] = useState(null);
   const [editForm2, setEditForm2]   = useState({});
   const [hForm2, setHForm2] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", taxAccount:"연금저축1(신한금융투자)", broker:"" });
@@ -2852,6 +2854,76 @@ function PortfolioApp({ syncKey, onLogout }) {
   const divAmountKRW = (r) => (r.currency === "USD" ? Number(r.amount || 0) * liveUsdKrw : Number(r.amount || 0));
   const fmtDivAmount = (amount, currency) => currency === "USD" ? "$" + Number(amount || 0).toFixed(2) : Math.round(Number(amount || 0)).toLocaleString() + "₩";
   const fmtDivDual = (amount, currency) => currency === "USD" ? `${fmtDivAmount(amount, currency)} · 약 ${fmtKRW(Number(amount || 0) * liveUsdKrw)}` : fmtDivAmount(amount, currency);
+  const divLookupSymbol = (h) => {
+    let tk = String(h?.ticker || "").trim().toUpperCase();
+    if (!tk) return "";
+    const isKR = h.market === "KR" || h.market === "ISA";
+    const isKREtf = h.market === "ETF" && /^\d/.test(tk);
+    if ((isKR || isKREtf) && !tk.includes(".")) tk += ".KS";
+    return tk;
+  };
+  const divCurrencyFallback = (h) => (h.market === "US" || (h.market === "ETF" && !/^\d/.test(h.ticker || "")) ? "USD" : "KRW");
+  const autoFillDividendInfo = async (items, accountType) => {
+    if (divAutoLoading) return;
+    const targets = items.filter(h => h?.ticker && h.market !== "CRYPTO" && h.market !== "GOLD");
+    if (!targets.length) { toast("조회할 보유 종목이 없습니다.", "error"); return; }
+
+    const symbolMap = {};
+    const symbols = [...new Set(targets.map(h => {
+      const symbol = divLookupSymbol(h);
+      if (!symbol) return "";
+      symbolMap[symbol] = [...(symbolMap[symbol] || []), h];
+      return symbol;
+    }).filter(Boolean))];
+    if (!symbols.length) { toast("조회할 배당 종목이 없습니다.", "error"); return; }
+
+    setDivAutoLoading(true);
+    try {
+      const res = await fetch(`/api/dividends?symbols=${encodeURIComponent(symbols.join(","))}`, { cache:"no-store" });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || "배당정보 조회 실패");
+      const results = payload?.results || {};
+      const updates = {};
+      let applied = 0;
+      let noData = 0;
+
+      Object.entries(results).forEach(([symbol, info]) => {
+        const mapped = symbolMap[symbol] || symbolMap[info?.querySymbol] || [];
+        if (!info?.ok || !Number(info.perShare) || !(info.months || []).length) {
+          noData += mapped.length || 1;
+          return;
+        }
+        mapped.forEach(h => {
+          updates[h.ticker] = {
+            perShare: info.perShare,
+            months: info.months,
+            currency: info.currency || divCurrencyFallback(h),
+            autoSource: info.source || "yahoo-chart-dividends",
+            autoSymbol: symbol,
+            autoUpdatedAt: payload?.asOf || new Date().toISOString(),
+            lastDividendDate: info.lastDividendDate || "",
+          };
+          applied += 1;
+        });
+      });
+
+      if (applied > 0) {
+        setDivInfo(prev => {
+          const next = { ...prev };
+          Object.entries(updates).forEach(([ticker, info]) => {
+            next[ticker] = { ...(next[ticker] || {}), ...info };
+          });
+          return next;
+        });
+      }
+      setDivAutoSummary({ accountType, applied, noData, asOf: payload?.asOf || new Date().toISOString() });
+      toast(applied ? `배당정보 ${applied}종목을 자동 반영했습니다.` : "자동으로 반영할 배당정보를 찾지 못했습니다.", applied ? "success" : "error");
+    } catch (e) {
+      toast(`배당정보 자동검색 실패: ${e.message}`, "error");
+    } finally {
+      setDivAutoLoading(false);
+    }
+  };
   const buildDivCandidate = (h, accountType) => {
     const di = divInfo[h.ticker] || {};
     const months = divMonths(di);
@@ -2936,10 +3008,19 @@ function PortfolioApp({ syncKey, onLogout }) {
             <div style={{fontSize:"15px",fontWeight:800,color:"#f8fafc"}}>🧮 이번 달 예상 수령</div>
             <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"3px"}}>지급월이 이번 달인 종목을 주당 배당금 × 보유수량으로 계산합니다.</div>
           </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>예상 세후 합계</div>
-            <div style={{fontSize:"18px",fontWeight:800,color:accent}}>{fmtKRW(totalNet)}</div>
-            <div style={{fontSize:"10px",color:"#64748b"}}>세전 {fmtKRW(totalGross)}</div>
+          <div style={{display:"flex",alignItems:"flex-start",gap:"10px",flexWrap:"wrap",justifyContent:"flex-end",marginLeft:"auto"}}>
+            <button
+              onClick={()=>autoFillDividendInfo(items, accountType)}
+              disabled={divAutoLoading}
+              style={S.btn(divAutoLoading ? "#64748b" : accent,{fontSize:"12px",padding:"7px 10px",opacity:divAutoLoading?0.72:1})}
+            >
+              {divAutoLoading ? "검색 중" : "배당정보 자동검색"}
+            </button>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:"11px",color:"#64748b",fontWeight:700}}>예상 세후 합계</div>
+              <div style={{fontSize:"18px",fontWeight:800,color:accent}}>{fmtKRW(totalNet)}</div>
+              <div style={{fontSize:"10px",color:"#64748b"}}>세전 {fmtKRW(totalGross)}</div>
+            </div>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:"6px",marginBottom:"12px"}}>
@@ -2951,6 +3032,11 @@ function PortfolioApp({ syncKey, onLogout }) {
             </label>
           ))}
         </div>
+        {divAutoSummary?.accountType===accountType&&(
+          <div style={{fontSize:"11px",color:"#94a3b8",marginBottom:"10px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:"8px",padding:"8px 10px"}}>
+            자동검색 적용 {divAutoSummary.applied}종목 · 미확인 {divAutoSummary.noData}종목 · 외부 배당 이벤트 기준이라 실제 입금월은 수정할 수 있습니다.
+          </div>
+        )}
         {candidates.length===0 ? (
           <div style={{textAlign:"center",padding:"24px",color:"#64748b",fontSize:"13px"}}>이번 달 지급월로 설정된 배당 후보가 없습니다.</div>
         ) : (
