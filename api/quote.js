@@ -1,5 +1,7 @@
 // Vercel API: /api/quote
 // KR: 네이버 실시간, US: Yahoo v8/chart 1분봉 + pre/post 필드 포함
+import { getKoreanMarketState, isKoreanMarketHoliday } from '../src/market-calendar.js';
+import { applyApiSecurity } from './_security.js';
 
 let _crumb=null, _cookie=null, _crumbTs=0;
 
@@ -19,11 +21,58 @@ async function getYahooCrumb() {
   return {crumb:_crumb, cookie:_cookie};
 }
 
+function parseKRNumber(value) {
+  if (value == null || value === '') return null;
+  const n = Number(String(value).replace(/,/g, '').replace(/^\+/, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseSignedKRNumber(value, compare) {
+  const n = parseKRNumber(value);
+  if (n == null) return null;
+  const raw = String(value ?? '').trim();
+  if (raw.startsWith('-')) return -Math.abs(n);
+  if (raw.startsWith('+')) return Math.abs(n);
+  const code = String(compare?.code || '');
+  const name = String(compare?.name || '').toUpperCase();
+  return code === '5' || name === 'FALLING' ? -Math.abs(n) : n;
+}
+
+function kstDateKey(ms) {
+  const d = new Date(ms + 9*3600000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function applyNxtAfterMarket(base, source, stateKR) {
+  const nxt = source?.nxtOverMarketPriceInfo;
+  const postMarketPrice = parseKRNumber(nxt?.overPrice);
+  if (!nxt || !postMarketPrice) return base;
+
+  const postMarketChange = parseSignedKRNumber(nxt.compareToPreviousClosePrice, nxt.compareToPreviousPrice);
+  const postMarketChangePercent = parseSignedKRNumber(nxt.fluctuationsRatio, nxt.compareToPreviousPrice);
+  const tradedAt = Date.parse(nxt.localTradedAt || '');
+  const tradedToday = Number.isFinite(tradedAt) && kstDateKey(tradedAt) === kstDateKey(Date.now());
+  const marketOpenToday = !isKoreanMarketHoliday();
+  const usePostPrice = nxt.tradingSessionType === 'AFTER_MARKET' && (stateKR === 'POST' || (marketOpenToday && stateKR === 'CLOSED' && tradedToday));
+
+  return {
+    ...base,
+    price: usePostPrice ? postMarketPrice : base.price,
+    changePercent: usePostPrice && postMarketChangePercent != null ? postMarketChangePercent : base.changePercent,
+    changeAmount: usePostPrice && postMarketChange != null ? postMarketChange : base.changeAmount,
+    postMarketPrice,
+    postMarketChange,
+    postMarketChangePercent,
+    postMarketSource: 'naver-nxt',
+    postMarketTradedAt: nxt.localTradedAt || null,
+  };
+}
+
 async function fetchNaverKR(ticker6, stateKR) {
   try {
     const r = await fetch(
       `https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:${ticker6}&_=${Date.now()}`,
-      {headers:{'User-Agent':'Mozilla/5.0','Referer':'https://finance.naver.com/','Accept':'application/json'}, signal:AbortSignal.timeout(5000)}
+      {headers:{'User-Agent':'Mozilla/5.0','Referer':'https://finance.naver.com/','Accept':'*/*'}, signal:AbortSignal.timeout(5000)}
     );
     if (r.ok) {
       const d = await r.json();
@@ -31,7 +80,7 @@ async function fetchNaverKR(ticker6, stateKR) {
       if (item?.nv) {
         const price=parseFloat(item.nv), sign=String(item.rf)==='5'?-1:1;
         const chgPct=sign*parseFloat(item.cr||0), chgAmt=sign*Math.round(parseFloat(item.cv||0));
-        if (price>0) return {price,regularPrice:price,closePrice:price,changePercent:chgPct,changeAmount:chgAmt,regularChangePercent:chgPct,regularChangeAmount:chgAmt,currency:'KRW',marketState:stateKR};
+        if (price>0) return applyNxtAfterMarket({price,regularPrice:price,closePrice:price,changePercent:chgPct,changeAmount:chgAmt,regularChangePercent:chgPct,regularChangeAmount:chgAmt,currency:'KRW',marketState:stateKR}, item, stateKR);
       }
     }
   } catch {}
@@ -59,11 +108,7 @@ async function fetchYahooChart(sym, crumb, cookie) {
   const etDow = etNow.getUTCDay();
   const isWE = etDow===0||etDow===6;
   const stateUS = (!isWE&&etM>=9*60+30&&etM<16*60)?'REGULAR':(!isWE&&etM>=4*60&&etM<9*60+30)?'PRE':(!isWE&&etM>=16*60&&etM<20*60)?'POST':'CLOSED';
-  const nowKST = new Date(Date.now()+9*3600000);
-  const kstM = nowKST.getUTCHours()*60+nowKST.getUTCMinutes();
-  const kstDow = nowKST.getUTCDay();
-  const isWKR = kstDow===0||kstDow===6;
-  const stateKR = (!isWKR&&kstM>=8*60&&kstM<9*60)?'PRE':(!isWKR&&kstM>=9*60&&kstM<15*60+30)?'REGULAR':(!isWKR&&kstM>=15*60+30&&kstM<20*60)?'POST':'CLOSED';
+  const stateKR = getKoreanMarketState();
   const marketState = isKR ? stateKR : stateUS;
 
   for (const host of ['query1','query2']) {
@@ -160,9 +205,11 @@ async function fetchYahooChart(sym, crumb, cookie) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin','*');
+  if (!applyApiSecurity(req, res, {
+    methods:["GET", "OPTIONS"],
+    rateLimit:{ key:"quote", windowMs:60_000, max:180 },
+  })) return;
   res.setHeader('Cache-Control','no-store, no-cache, must-revalidate');
-  if (req.method==='OPTIONS') { res.status(200).end(); return; }
   const {symbols} = req.query;
   const wantIntraday = req.query.intraday === '1' || req.query.intraday === 'true';
   if (!symbols) { res.status(400).json({error:'symbols required'}); return; }
@@ -171,11 +218,7 @@ export default async function handler(req, res) {
   let crumb='', cookie='';
   try { ({crumb,cookie}=await getYahooCrumb()); } catch {}
 
-  const nowKST = new Date(Date.now()+9*3600000);
-  const kstM = nowKST.getUTCHours()*60+nowKST.getUTCMinutes();
-  const kstDow = nowKST.getUTCDay();
-  const isWKR = kstDow===0||kstDow===6;
-  const stateKR = (!isWKR&&kstM>=8*60&&kstM<9*60)?'PRE':(!isWKR&&kstM>=9*60&&kstM<15*60+30)?'REGULAR':(!isWKR&&kstM>=15*60+30&&kstM<20*60)?'POST':'CLOSED';
+  const stateKR = getKoreanMarketState();
 
   for (let ci=0; ci<symList.length; ci+=8) {
     const chunk = symList.slice(ci, ci+8);

@@ -1,3 +1,5 @@
+import { applyApiSecurity } from './_security.js';
+
 // Vercel API Route: /api/history
 // Yahoo Finance chart data (server-side, no CORS issues)
 
@@ -35,9 +37,11 @@ function formatChartLabel(ts, range, interval) {
 // Yahoo Finance 주가 차트 데이터 (서버사이드, CORS 없음)
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (!applyApiSecurity(req, res, {
+    methods:["GET", "OPTIONS"],
+    rateLimit:{ key:"history", windowMs:60_000, max:120 },
+  })) return;
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   const { symbol, range = '3mo', interval = '1d' } = req.query;
   if (!symbol) { res.status(400).json({ error: 'symbol required' }); return; }

@@ -1,0 +1,23 @@
+{
+  "rules": {
+    "users": {
+      "$dataKey": {
+        ".read": "auth != null && root.child('keyMap').child($dataKey).child('members').child(auth.uid).val() === true",
+        ".write": "auth != null && root.child('keyMap').child($dataKey).child('members').child(auth.uid).val() === true"
+      }
+    },
+    "keyMap": {
+      "$dataKey": {
+        ".read": "auth != null && data.child('members').child(auth.uid).val() === true",
+        ".write": "auth != null && newData.child('members').child(auth.uid).val() === true",
+        "members": {
+          "$uid": {
+            ".validate": "$uid === auth.uid && newData.val() === true"
+          }
+        }
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+}

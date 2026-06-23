@@ -1,3 +1,5 @@
+import { applyApiSecurity } from './_security.js';
+
 // Vercel API: /api/dividends
 // Uses Yahoo chart dividend events to infer per-share dividend and recurring months.
 
@@ -115,13 +117,11 @@ async function fetchYahooDividendHistory(symbol) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  if (!applyApiSecurity(req, res, {
+    methods:["GET", "OPTIONS"],
+    rateLimit:{ key:"dividends", windowMs:60_000, max:80 },
+  })) return;
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-
-  if (req.method === "OPTIONS") {
-    res.status(200).end();
-    return;
-  }
 
   const symbols = String(req.query.symbols || "")
     .split(",")

@@ -1,10 +1,14 @@
+import { applyApiSecurity } from './_security.js';
+
 // Vercel API Route: /api/futures
 // 코스피200 야간선물 시세 - 다중 소스
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (!applyApiSecurity(req, res, {
+    methods:["GET", "OPTIONS"],
+    rateLimit:{ key:"futures", windowMs:60_000, max:120 },
+  })) return;
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',

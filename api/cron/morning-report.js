@@ -1,3 +1,5 @@
+import { applyApiSecurity, secureFirebaseUrl, verifyFirebaseIdToken } from "../_security.js";
+
 const FIREBASE_DB_URL = process.env.FIREBASE_DB_URL || "https://stockmanagehw-default-rtdb.firebaseio.com";
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || "";
 
@@ -200,7 +202,7 @@ function summarize(holding, result) {
 }
 
 async function firebase(path, init) {
-  const response = await fetch(`${FIREBASE_DB_URL}/${path}.json`, init);
+  const response = await fetch(secureFirebaseUrl(FIREBASE_DB_URL, path), init);
   if (!response.ok) throw new Error(`Firebase ${path} HTTP ${response.status}`);
   return response.json();
 }
@@ -263,10 +265,36 @@ async function buildReport(syncKey, data, ymd) {
 export default async function handler(req, res) {
   try {
     const requestedSyncKey = String(req.query?.syncKey || "").trim();
+    const requestedDataKey = String(req.query?.dataKey || req.query?.syncHash || req.query?.syncKey || "").trim();
     const secret = process.env.CRON_SECRET;
     const auth = req.headers.authorization || "";
     const querySecret = req.query?.secret;
-    if (!requestedSyncKey && secret && auth !== `Bearer ${secret}` && querySecret !== secret) {
+    if (requestedDataKey) {
+      if (!applyApiSecurity(req, res, {
+        methods:["GET", "OPTIONS"],
+        rateLimit:{ key:"morning-report-user", windowMs:60_000, max:10 },
+      })) return;
+
+      const token = await verifyFirebaseIdToken(req);
+      const uid = token.user_id || token.sub;
+      const access = await firebase(`keyMap/${safeKey(requestedDataKey)}`).catch(() => null);
+      if (access && access.ownerUid !== uid && !access.members?.[uid]) {
+        return json(res, 403, { ok: false, error: "Forbidden" });
+      }
+
+      const ymd = marketDate();
+      const user = await firebase(`users/${safeKey(requestedDataKey)}`);
+      if (!user) return json(res, 404, { ok: false, error: "Portfolio data not found." });
+
+      const result = await buildReport(requestedDataKey, user, ymd);
+      return json(res, 200, {
+        ok: true,
+        market_session_date: ymd,
+        user: { dataKey: maskKey(requestedDataKey), symbols: result.symbols, ok: result.ok },
+        report: result.report
+      });
+    }
+    if (!requestedSyncKey && (!secret || (auth !== `Bearer ${secret}` && querySecret !== secret))) {
       return json(res, 401, { ok: false, error: "Unauthorized" });
     }
 
@@ -297,6 +325,6 @@ export default async function handler(req, res) {
 
     return json(res, 200, { ok: true, market_session_date: ymd, users: results });
   } catch (error) {
-    return json(res, 500, { ok: false, error: error?.message || "unknown error" });
+    return json(res, error?.statusCode || 500, { ok: false, error: error?.message || "unknown error" });
   }
 }

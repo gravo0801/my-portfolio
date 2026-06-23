@@ -2,6 +2,20 @@ let isOpen = false;
 let latestReport = null;
 let isGenerating = false;
 let statusMessage = "";
+let reportLoadInFlight = false;
+
+function readStorage(key, fallback = "") {
+  try {
+    const value = window.localStorage?.getItem(key);
+    return value == null ? fallback : value;
+  } catch {
+    return fallback;
+  }
+}
+
+function isPageVisible() {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
 
 const css = `
 #morning-report-root{font-family:"Noto Sans KR",system-ui,sans-serif;color:#e5e7eb}
@@ -160,13 +174,28 @@ function render(report) {
   attachEvents();
 }
 
-async function requestReportGeneration(syncKey) {
+async function getFirebaseIdToken() {
+  try {
+    if (!window.firebaseAuth) return null;
+    if (!window.firebaseAuth.currentUser?.()) await window.firebaseAuth.signInAnonymously();
+    return await window.firebaseAuth.getIdToken();
+  } catch {
+    return null;
+  }
+}
+
+async function requestReportGeneration(sessionKey, { legacy = false } = {}) {
   if (isGenerating) return;
   isGenerating = true;
   statusMessage = "리포트를 생성하는 중입니다. 보유 종목 수에 따라 잠시 걸릴 수 있습니다.";
   render(latestReport);
   try {
-    const res = await fetch(`/api/cron/morning-report?syncKey=${encodeURIComponent(syncKey)}`, { cache: "no-store" });
+    const token = legacy ? null : await getFirebaseIdToken();
+    const queryKey = legacy ? "syncKey" : "dataKey";
+    const res = await fetch(`/api/cron/morning-report?${queryKey}=${encodeURIComponent(sessionKey)}`, {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
     statusMessage = "";
@@ -198,35 +227,53 @@ function shouldRegenerate(report) {
   return afterMorningRun && report.report_date !== kstToday;
 }
 
-async function loadReport() {
-  const syncKey = localStorage.getItem("pm_synckey");
-  if (!syncKey) {
+async function loadReportInner() {
+  const syncKey = readStorage("pm_synckey");
+  const dataKey = readStorage("pm_sync_hash", syncKey) || syncKey;
+  const dataPath = readStorage("pm_data_path", dataKey ? `users/${dataKey}` : "");
+  const authMode = readStorage("pm_auth_mode");
+  const legacyMode = authMode === "legacy-key" || (syncKey && dataKey === syncKey && dataPath === `users/${syncKey}`);
+  const reportKey = legacyMode ? syncKey : dataKey;
+  if (!dataKey || !dataPath) {
     render(null);
     return;
   }
   try {
     if (window.firebaseDB) {
       const db = window.firebaseDB.getDatabase();
-      const snap = await window.firebaseDB.get(window.firebaseDB.ref(db, `users/${syncKey}/morningReport/latest`));
+      const snap = await window.firebaseDB.get(window.firebaseDB.ref(db, `${dataPath}/morningReport/latest`));
       const report = snap.val();
       if (report) statusMessage = "";
       render(report);
-      if (shouldRegenerate(report)) requestReportGeneration(syncKey);
+      if (shouldRegenerate(report)) requestReportGeneration(reportKey, { legacy: legacyMode });
       return;
     }
   } catch {}
   try {
-    const res = await fetch(`https://stockmanagehw-default-rtdb.firebaseio.com/users/${encodeURIComponent(syncKey)}/morningReport/latest.json`, { cache: "no-store" });
+    const res = await fetch(`https://stockmanagehw-default-rtdb.firebaseio.com/${dataPath}/morningReport/latest.json`, { cache: "no-store" });
     const report = await res.json();
     if (report) statusMessage = "";
     render(report);
-    if (shouldRegenerate(report)) requestReportGeneration(syncKey);
+    if (shouldRegenerate(report)) requestReportGeneration(reportKey, { legacy: legacyMode });
   } catch {
     render(null);
-    requestReportGeneration(syncKey);
+    requestReportGeneration(reportKey, { legacy: legacyMode });
   }
 }
 
-window.addEventListener("load", loadReport);
-setTimeout(loadReport, 1500);
-setInterval(loadReport, 5 * 60 * 1000);
+async function loadReport({ force = false } = {}) {
+  if (reportLoadInFlight || (!force && !isPageVisible())) return;
+  reportLoadInFlight = true;
+  try {
+    await loadReportInner();
+  } finally {
+    reportLoadInFlight = false;
+  }
+}
+
+window.addEventListener("load", () => loadReport({ force:true }));
+document.addEventListener("visibilitychange", () => {
+  if (isPageVisible()) loadReport({ force:true });
+});
+setTimeout(() => loadReport({ force:true }), 1500);
+setInterval(() => loadReport(), 5 * 60 * 1000);
