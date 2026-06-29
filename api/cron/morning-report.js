@@ -42,6 +42,19 @@ function safeKey(value) {
   return encodeURIComponent(String(value || "").trim());
 }
 
+function queryParam(value) {
+  if (Array.isArray(value)) return String(value[0] || "").trim();
+  return String(value || "").trim();
+}
+
+function cronAuthorization(req, secret) {
+  const auth = String(req.headers.authorization || "");
+  const querySecret = queryParam(req.query?.secret);
+  if (!secret) return { ok: false, reason: "missing_cron_secret" };
+  if (auth === `Bearer ${secret}` || querySecret === secret) return { ok: true };
+  return { ok: false, reason: "invalid_cron_secret" };
+}
+
 function maskKey(value) {
   const key = String(value || "");
   return key.length <= 4 ? "****" : `${key.slice(0, 2)}***${key.slice(-2)}`;
@@ -264,11 +277,9 @@ async function buildReport(syncKey, data, ymd) {
 
 export default async function handler(req, res) {
   try {
-    const requestedSyncKey = String(req.query?.syncKey || "").trim();
-    const requestedDataKey = String(req.query?.dataKey || req.query?.syncHash || req.query?.syncKey || "").trim();
-    const secret = process.env.CRON_SECRET;
-    const auth = req.headers.authorization || "";
-    const querySecret = req.query?.secret;
+    const requestedSyncKey = queryParam(req.query?.syncKey);
+    const requestedDataKey = queryParam(req.query?.dataKey) || queryParam(req.query?.syncHash);
+    const secret = String(process.env.CRON_SECRET || "").trim();
     if (requestedDataKey) {
       if (!applyApiSecurity(req, res, {
         methods:["GET", "OPTIONS"],
@@ -294,12 +305,14 @@ export default async function handler(req, res) {
         report: result.report
       });
     }
-    if (!requestedSyncKey && (!secret || (auth !== `Bearer ${secret}` && querySecret !== secret))) {
-      return json(res, 401, { ok: false, error: "Unauthorized" });
-    }
 
-    const ymd = marketDate();
     if (requestedSyncKey) {
+      if (!applyApiSecurity(req, res, {
+        methods:["GET", "OPTIONS"],
+        rateLimit:{ key:"morning-report-legacy", windowMs:60_000, max:10 },
+      })) return;
+
+      const ymd = marketDate();
       const user = await firebase(`users/${safeKey(requestedSyncKey)}`);
       if (!user) return json(res, 404, { ok: false, error: "동기화 키에 해당하는 사용자를 찾을 수 없습니다." });
 
@@ -312,6 +325,17 @@ export default async function handler(req, res) {
       });
     }
 
+    const cronAuth = cronAuthorization(req, secret);
+    if (!cronAuth.ok) {
+      console.warn("[morning-report] cron authorization failed", {
+        reason: cronAuth.reason,
+        schedule: req.headers["x-vercel-cron-schedule"] || "",
+        hasAuthorizationHeader: Boolean(req.headers.authorization),
+      });
+      return json(res, 401, { ok: false, error: "Unauthorized", reason: cronAuth.reason });
+    }
+
+    const ymd = marketDate();
     const users = (await firebase("users")) || {};
     const results = [];
     for (const [syncKey, data] of Object.entries(users)) {
