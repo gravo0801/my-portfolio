@@ -86,6 +86,12 @@ function injectStyles() {
       justify-content: flex-start;
       padding: 10px 12px 0;
     }
+    .pm-chart-row-label {
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 900;
+      margin-right: 2px;
+    }
     .pm-chip {
       appearance: none;
       border: 1px solid rgba(148, 163, 184, 0.22);
@@ -490,15 +496,15 @@ function toolbarHtml(ticker, market, modal = false) {
   return `
     <div class="pm-chart-head">
       <div>
-        <div class="pm-chart-title">${ticker} 기술 차트</div>
-        <div class="pm-chart-sub">${market} · 이동평균선</div>
+        <div class="pm-chart-title">이동평균선 차트</div>
+        <div class="pm-chart-sub">${ticker} · ${market} · 20일선 기준 흐름</div>
       </div>
       <div class="pm-chart-actions">
         ${rangeButtons}
         ${action}
       </div>
     </div>
-    <div class="pm-chart-row">${maButtons}</div>
+    <div class="pm-chart-row"><span class="pm-chart-row-label">이평선</span>${maButtons}</div>
   `;
 }
 
@@ -527,9 +533,20 @@ function renderContent(ticker, market, modal = false) {
 }
 
 function updateOriginalChartVisibility(card) {
+  const headerTitle = Array.from(card.querySelectorAll("div"))
+    .find((node) => node.childElementCount === 0 && node.textContent.trim() === "📈 주가 추이");
+  const header = headerTitle?.parentElement || null;
+
   Array.from(card.children).forEach((child) => {
     if (child.classList?.contains(UPGRADE_CLASS)) return;
-    if (child.tagName?.toLowerCase() === "svg") child.style.display = "none";
+    if (child === header) {
+      child.style.marginBottom = "0";
+      Array.from(child.querySelectorAll("button")).forEach((button) => {
+        button.style.display = "none";
+      });
+      return;
+    }
+    child.style.display = "none";
   });
 }
 
@@ -622,9 +639,16 @@ function closeExpandedChart() {
   document.querySelector(".pm-chart-modal")?.remove();
 }
 
+function consumeChartClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+}
+
 function onClick(event) {
   const rangeButton = event.target.closest?.(".pm-range-btn");
   if (rangeButton) {
+    consumeChartClick(event);
     const context = currentContext();
     if (!context) return;
     state.range = rangeButton.dataset.range || "1y";
@@ -636,6 +660,7 @@ function onClick(event) {
 
   const maButton = event.target.closest?.(".pm-ma-btn");
   if (maButton) {
+    consumeChartClick(event);
     const period = Number(maButton.dataset.period);
     if (state.enabledMas.has(period)) state.enabledMas.delete(period);
     else state.enabledMas.add(period);
@@ -645,11 +670,13 @@ function onClick(event) {
   }
 
   if (event.target.closest?.("[data-expand-chart]")) {
+    consumeChartClick(event);
     openExpandedChart();
     return;
   }
 
   if (event.target.closest?.("[data-close-chart]")) {
+    consumeChartClick(event);
     closeExpandedChart();
   }
 }
@@ -677,7 +704,7 @@ function scheduleScan() {
 function start() {
   injectStyles();
   restorePrefs();
-  document.addEventListener("click", onClick);
+  document.addEventListener("click", onClick, true);
   const root = document.getElementById("root");
   if (root) {
     new MutationObserver(scheduleScan).observe(root, {
