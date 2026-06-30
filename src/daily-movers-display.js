@@ -1,5 +1,6 @@
 const PRICE_CACHE_KEY = "pm_prices_cache";
 const FX_CACHE_KEY = "pm_usd_krw";
+const DAILY_ROWS_CACHE_KEY = "pm_daily_movers_rows_cache";
 
 const readJson = (key, fallback) => {
   try {
@@ -128,48 +129,94 @@ function applyDailyAmounts(rows) {
     const amountNode = button.children?.[2]?.children?.[1];
     if (!row || !amountNode) return;
 
-    amountNode.textContent = signedKRW(row.dayPnlKRW);
-    amountNode.style.color = row.dayPnlKRW >= 0 ? "#34d399" : "#f87171";
-    amountNode.title = "오늘 등락에 따른 추정 손익";
+    const nextText = signedKRW(row.dayPnlKRW);
+    const nextColor = row.dayPnlKRW >= 0 ? "#34d399" : "#f87171";
+    const nextTitle = "오늘 등락에 따른 추정 손익";
+
+    if (amountNode.textContent !== nextText) amountNode.textContent = nextText;
+    if (amountNode.style.color !== nextColor) amountNode.style.color = nextColor;
+    if (amountNode.title !== nextTitle) amountNode.title = nextTitle;
   });
 }
 
 let cachedRows = [];
 let refreshPromise = null;
 let scheduled = false;
+let refreshRequested = false;
+let observer = null;
+let observedRoot = null;
+const observerOptions = {
+  childList: true,
+  subtree: true,
+  characterData: true,
+};
+const runSoon = window.queueMicrotask
+  ? window.queueMicrotask.bind(window)
+  : (callback) => Promise.resolve().then(callback);
 
 async function refreshRows() {
   if (!refreshPromise) {
     refreshPromise = loadHoldings()
       .then(buildDailyRows)
-      .then((rows) => { cachedRows = rows; })
+      .then((rows) => {
+        cachedRows = rows;
+        try {
+          window.localStorage?.setItem(DAILY_ROWS_CACHE_KEY, JSON.stringify(rows.slice(0, 20)));
+        } catch {
+          // Cache writes are best-effort only.
+        }
+      })
       .catch(() => {})
       .finally(() => { refreshPromise = null; });
   }
   await refreshPromise;
 }
 
+function withObserverPaused(callback) {
+  const shouldResume = observer && observedRoot;
+  if (shouldResume) observer.disconnect();
+  try {
+    callback();
+  } finally {
+    if (shouldResume) observer.observe(observedRoot, observerOptions);
+  }
+}
+
+function observeRoot(root) {
+  observedRoot = root;
+  if (!observer) observer = new MutationObserver(() => schedulePatch());
+  observer.observe(observedRoot, observerOptions);
+}
+
 function schedulePatch({ refresh = false } = {}) {
+  refreshRequested = refreshRequested || refresh;
   if (scheduled) return;
   scheduled = true;
-  window.setTimeout(async () => {
-    scheduled = false;
-    if (refresh || !cachedRows.length) await refreshRows();
-    applyDailyAmounts(cachedRows);
-  }, 80);
+
+  runSoon(() => {
+    (async () => {
+      scheduled = false;
+      const shouldRefresh = refreshRequested || !cachedRows.length;
+      refreshRequested = false;
+
+      if (cachedRows.length) {
+        withObserverPaused(() => applyDailyAmounts(cachedRows));
+      }
+
+      if (shouldRefresh) {
+        await refreshRows();
+        withObserverPaused(() => applyDailyAmounts(cachedRows));
+      }
+    })().catch(() => {});
+  });
 }
 
 window.addEventListener("load", () => {
+  cachedRows = readJson(DAILY_ROWS_CACHE_KEY, []);
   schedulePatch({ refresh: true });
   window.setTimeout(() => schedulePatch({ refresh: true }), 1500);
   window.setInterval(() => schedulePatch({ refresh: true }), 60_000);
 
   const root = document.getElementById("root");
-  if (root) {
-    new MutationObserver(() => schedulePatch()).observe(root, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
+  if (root) observeRoot(root);
 });
