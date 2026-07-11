@@ -28,6 +28,14 @@
         getAuth: () => _auth,
         currentUser: () => _auth.currentUser,
         signInAnonymously: () => _auth.signInAnonymously(),
+        createGoogleProvider: () => {
+          const provider = new firebase.auth.GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: "select_account" });
+          return provider;
+        },
+        signInWithPopup: (provider) => _auth.signInWithPopup(provider),
+        linkWithPopup: (user, provider) => user.linkWithPopup(provider),
+        signOut: () => _auth.signOut(),
         onAuthStateChanged: (cb) => _auth.onAuthStateChanged(cb),
         getIdToken: (forceRefresh = false) => _auth.currentUser ? _auth.currentUser.getIdToken(forceRefresh) : Promise.resolve(null),
       };
