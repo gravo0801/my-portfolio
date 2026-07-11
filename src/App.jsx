@@ -776,7 +776,7 @@ async function fetchViaToss(tickers) {
   if (!_useTossApi) return {};
   const requested = [...new Set((tickers || []).map(t => String(t || "").trim()).filter(Boolean))];
   if (!requested.length) return {};
-  const r = await fetch(`/api/toss/prices?symbols=${encodeURIComponent(requested.join(","))}`, {
+  const r = await authFetch(`/api/toss/prices?symbols=${encodeURIComponent(requested.join(","))}`, {
     signal: AbortSignal.timeout(8000),
     cache: "no-store",
   });
