@@ -10455,9 +10455,11 @@ ${analystSummary}
           const years     = Math.max(1, Math.min(60, parseInt(simYears) || 1));
           const inflation = (parseFloat(simInflation) || 0) / 100;
 
-          // 월복리·월초 적립 FV (엑셀 FV 함수와 동일)
+          // 월초 적립 FV. 연수익률을 유효 월수익률로 변환해 계산한다.
+          // 사용자가 입력한 연수익률은 연간 유효수익률로 간주한다.
           const fv = (annualRate, yrs) => {
-            const r = annualRate / 12;
+            const safeAnnualRate = Math.max(-0.999, Number(annualRate) || 0);
+            const r = Math.pow(1 + safeAnnualRate, 1 / 12) - 1;
             const n = yrs * 12;
             if (Math.abs(r) < 1e-12) return initial + monthly * n;
             return initial * Math.pow(1+r,n) + monthly * (Math.pow(1+r,n)-1)/r * (1+r);
@@ -10469,8 +10471,8 @@ ${analystSummary}
           const customR = (parseFloat(simCustomReturn)   || 0) / 100;
           const currentR = cur.ret / 100;
 
-          // 실질가치 승수 (엑셀 화폐가치 컬럼과 동일)
-          const realMV = y => Math.pow(1 - inflation, y - 1);
+          // 실질가치 승수: 명목자산을 경과연수만큼 물가로 할인
+          const realMV = y => Math.pow(1 + inflation, -y);
 
           // 차트 데이터
           const chartData = [];
