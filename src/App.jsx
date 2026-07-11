@@ -5,6 +5,7 @@ import {
   BarChart, Bar, AreaChart, Area,
 } from "recharts";
 import { getKoreanMarketState, getKstParts, isKoreanMarketHoliday } from "./market-calendar.js";
+import { authErrorMessage, getAuthProfile, linkCurrentUserWithGoogle, signInWithGoogle } from "./auth-migration.js";
 
 const CRYPTO_IDS = {
   BTC:"bitcoin",ETH:"ethereum",BNB:"binancecoin",SOL:"solana",
@@ -3725,6 +3726,22 @@ function SecureLoginScreen({ onLogin, initialError = "" }) {
   const [key, setKey] = useState("");
   const [err, setErr] = useState(initialError);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [authProfile, setAuthProfile] = useState(() => getAuthProfile());
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    setErr("");
+    try {
+      const profile = await signInWithGoogle();
+      setAuthProfile(profile);
+    } catch (error) {
+      setErr(authErrorMessage(error));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     setLoading(true);
     setErr("");
@@ -3745,6 +3762,22 @@ function SecureLoginScreen({ onLogin, initialError = "" }) {
           <div style={{ fontSize:"40px", marginBottom:"12px" }}>📈</div>
           <h1 style={{ fontSize:"24px", fontWeight:800, color:"#f8fafc", margin:"0 0 10px", letterSpacing:"-0.04em" }}>투자 포트폴리오</h1>
           <p style={{ fontSize:"15px", color:"#64748b", margin:0, lineHeight:1.7 }}>동기화 키를 입력하면 이 기기에서<br/>같은 포트폴리오 데이터를 불러옵니다.</p>
+        </div>
+        <div style={{ marginBottom:"18px" }}>
+          {authProfile?.googleLinked ? (
+            <div style={{ background:"rgba(16,185,129,0.1)", border:"1px solid rgba(16,185,129,0.28)", borderRadius:"10px", padding:"11px 14px", color:"#6ee7b7", fontSize:"13px", lineHeight:1.6 }}>
+              ✅ Google 로그인됨{authProfile.email ? ` · ${authProfile.email}` : ""}
+            </div>
+          ) : (
+            <button onClick={handleGoogleLogin} disabled={googleLoading} style={{ ...S.btn("#ffffff"), width:"100%", color:"#334155", border:"1px solid rgba(148,163,184,0.35)", opacity:googleLoading?0.7:1 }}>
+              {googleLoading ? "Google 로그인 중..." : "G  이미 연결한 Google 계정으로 로그인"}
+            </button>
+          )}
+          <div style={{ display:"flex", alignItems:"center", gap:"10px", marginTop:"14px", color:"#475569", fontSize:"11px" }}>
+            <span style={{ flex:1, height:"1px", background:"rgba(148,163,184,0.18)" }}/>
+            <span>동기화 키로 포트폴리오 선택</span>
+            <span style={{ flex:1, height:"1px", background:"rgba(148,163,184,0.18)" }}/>
+          </div>
         </div>
         <label style={{ fontSize:"14px", color:"#94a3b8", display:"block", marginBottom:"8px", fontWeight:700 }}>동기화 키</label>
         <input placeholder="예: kim-portfolio-2026" value={key} onChange={e => { setKey(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ ...S.inp, fontSize:"16px", marginBottom:"8px" }} autoFocus />
@@ -3876,6 +3909,8 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
   const [toasts, setToasts]       = useState([]);
   const [loaded, setLoaded]       = useState(false);
   const [showForm, setShowForm]   = useState(null);
+  const [authProfile, setAuthProfile] = useState(() => getAuthProfile());
+  const [authLinking, setAuthLinking] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [quoteEngine, setQuoteEngine] = useState({
     source: "fallback",
@@ -4011,6 +4046,13 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
 
   const [hForm, setHForm] = useState({ ticker:"", name:"", market:"KR", stockType:"일반주식", quantity:"", avgPrice:"", broker:"" });
   const [editingId, setEditingId] = useState(null);
+
+  useEffect(() => {
+    if (!window.firebaseAuth?.onAuthStateChanged) return undefined;
+    return window.firebaseAuth.onAuthStateChanged((user) => {
+      setAuthProfile(getAuthProfile(user));
+    });
+  }, []);
   const [editForm, setEditForm] = useState({ ticker:"", name:"", market:"KR", quantity:"", avgPrice:"", broker:"" });
   const [tForm, setTForm] = useState({ date:appToday, ticker:"", type:"buy", quantity:"", price:"", fee:"", fxRate:"", note:"", taxAccount:"", sellReason:"" });
   const [aForm, setAForm] = useState({ ticker:"", direction:"down", threshold:"" });
@@ -4357,6 +4399,56 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
   const updateQuoteEngine = useCallback((patch) => {
     setQuoteEngine(prev => ({ ...prev, ...patch, updatedAt: Date.now() }));
   }, []);
+
+  const protectAccountWithGoogle = useCallback(async () => {
+    const before = getAuthProfile();
+    if (!before?.uid) {
+      toast("Firebase 사용자 정보를 확인할 수 없습니다.", "error");
+      return;
+    }
+    if (before.googleLinked) {
+      toast("이미 Google 계정과 연결되어 있습니다.", "success");
+      return;
+    }
+
+    const ok = window.confirm(
+      "현재 포트폴리오의 익명 Firebase 계정을 Google 계정과 연결합니다.\n\n" +
+      "연결이 완료되면 현재 UID와 데이터 경로는 그대로 유지됩니다.\n" +
+      "반드시 본인이 계속 사용할 Google 계정을 선택해주세요."
+    );
+    if (!ok) return;
+
+    setAuthLinking(true);
+    try {
+      const profile = await linkCurrentUserWithGoogle();
+      if (!profile?.uid || profile.uid !== before.uid) {
+        throw new Error("계정 연결 후 사용자 식별자가 달라져 작업을 중단했습니다.");
+      }
+
+      const upgradedAt = Date.now();
+      await Promise.all([
+        dbUpdate(`${userPath}/_meta`, {
+          authProvider: "google.com",
+          authUpgradedAt: upgradedAt,
+          ownerUid: profile.uid,
+        }),
+        dbUpdate(`keyMap/${dataKey}`, {
+          ownerUid: profile.uid,
+          authProvider: "google.com",
+          authUpgradedAt: upgradedAt,
+          [`members/${profile.uid}`]: true,
+        }),
+      ]);
+
+      setAuthProfile(profile);
+      toast("✓ Google 계정 연결 완료. 기존 데이터와 UID가 유지되었습니다.", "success");
+      setShowForm(null);
+    } catch (error) {
+      toast(authErrorMessage(error), "error");
+    } finally {
+      setAuthLinking(false);
+    }
+  }, [dataKey, userPath, toast]);
 
   // ──────────── 백업/복원 함수 ────────────
   const buildBackupObject = () => ({
@@ -6723,9 +6815,33 @@ ${analystSummary}
             <button onClick={()=>setShowForm(showForm==="theme"?null:"theme")} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.1)",color:"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="배경 테마">🎨</button>
             <button onClick={()=>setShowForm(showForm==="font"?null:"font")} style={{background:showForm==="font"?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.06)",border:showForm==="font"?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:showForm==="font"?"#c7d2fe":"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="폰트 선택">🔤</button>
             <button onClick={()=>setShowForm(showForm==="timezone"?null:"timezone")} style={{background:showForm==="timezone"?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.06)",border:showForm==="timezone"?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:showForm==="timezone"?"#c7d2fe":"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:600}} title="날짜 기준 시간대">🕒</button>
+            <button onClick={()=>setShowForm(showForm==="account"?null:"account")} style={{background:authProfile?.googleLinked?"rgba(16,185,129,0.16)":showForm==="account"?"rgba(99,102,241,0.25)":"rgba(255,255,255,0.06)",border:authProfile?.googleLinked?"1px solid rgba(16,185,129,0.35)":showForm==="account"?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.1)",color:authProfile?.googleLinked?"#6ee7b7":showForm==="account"?"#c7d2fe":"#94a3b8",padding:"5px 9px",borderRadius:"8px",cursor:"pointer",fontSize:"11px",fontWeight:700}} title="계정 보호">
+              {authProfile?.googleLinked ? "✅ Google" : "🔐 계정보호"}
+            </button>
             <button onClick={onLogout} style={S.btn("#334155", { fontSize:"11px", padding:"5px 9px" })}>로그아웃</button>
           </div>
         </div>
+        {/* Google 계정 보호 패널 */}
+        {showForm==="account" && (
+          <div style={{background:"rgba(8,12,28,0.98)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"16px",marginTop:"8px",zIndex:100}}>
+            <div style={{fontSize:"14px",fontWeight:800,color:"#e2e8f0",marginBottom:"5px"}}>🔐 포트폴리오 계정 보호</div>
+            {authProfile?.googleLinked ? (
+              <div style={{background:"rgba(16,185,129,0.09)",border:"1px solid rgba(16,185,129,0.25)",borderRadius:"10px",padding:"12px 14px"}}>
+                <div style={{fontSize:"13px",fontWeight:800,color:"#6ee7b7"}}>✅ Google 계정 연결 완료</div>
+                <div style={{fontSize:"12px",color:"#94a3b8",marginTop:"4px"}}>{authProfile.email || authProfile.displayName || "Google 계정"}</div>
+                <div style={{fontSize:"11px",color:"#475569",marginTop:"7px",lineHeight:1.6}}>기존 Firebase UID와 포트폴리오 데이터 경로가 유지됩니다. 다른 기기에서는 먼저 같은 Google 계정으로 로그인한 뒤 기존 동기화 키를 입력하세요.</div>
+              </div>
+            ) : (
+              <div>
+                <div style={{fontSize:"12px",color:"#94a3b8",lineHeight:1.7,marginBottom:"12px"}}>현재 익명 Firebase 계정을 Google 계정에 연결합니다. 연결 과정은 UID를 유지하므로 기존 보유종목·거래·배당 데이터가 이동하거나 복제되지 않습니다.</div>
+                <button onClick={protectAccountWithGoogle} disabled={authLinking} style={{...S.btn("#ffffff"),color:"#334155",width:isMobile?"100%":"auto",opacity:authLinking?0.7:1,border:"1px solid rgba(148,163,184,0.35)"}}>
+                  {authLinking ? "Google 계정 연결 중..." : "G  현재 계정을 Google에 연결"}
+                </button>
+                <div style={{fontSize:"10px",color:"#64748b",marginTop:"9px"}}>※ Firebase Console에서 Google 로그인 제공자가 활성화되어 있어야 합니다.</div>
+              </div>
+            )}
+          </div>
+        )}
         {/* 날짜 기준 시간대 패널 */}
         {showForm==="timezone" && (
           <div style={{background:"rgba(8,12,28,0.98)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"12px",padding:"16px",marginTop:"8px",zIndex:100}}>
