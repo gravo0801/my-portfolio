@@ -1,4 +1,4 @@
-import { applyApiSecurity } from "../_security.js";
+import { applyApiSecurity, verifyFirebaseIdToken } from "../_security.js";
 import { normalizeTossSymbol, sendTossError, splitSymbols, tossRequest } from "../_toss.js";
 
 function aliasesFor(symbol, requestedSymbols) {
@@ -18,6 +18,13 @@ export default async function handler(req, res) {
     methods: ["GET", "OPTIONS"],
     rateLimit: { key: "toss-prices", windowMs: 60_000, max: 180 },
   })) return;
+
+  try {
+    await verifyFirebaseIdToken(req);
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
 
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
 
