@@ -1485,6 +1485,7 @@ function InfoWidget() {
   const [weather, setWeather] = useState({ seoul:null, nyc:null, tokyo:null, custom:null });
   const [rates, setRates]     = useState({});
   const [rateSource, setRateSource] = useState("");
+  const [rateMeta, setRateMeta] = useState({ asOf:null, fetchedAt:null, granularity:"", stale:false });
   const [wLoading, setWLoading] = useState(false);
   const [rLoading, setRLoading] = useState(false);
   const [customCity, setCustomCity] = useState("london"); // 사용자 선택 도시
@@ -1566,6 +1567,12 @@ function InfoWidget() {
         if (d?.rates?.KRW > 900) {
           setRates(d.rates);
           setRateSource(d.source || "vercel");
+          setRateMeta({
+            asOf: d.asOf || d.ts || null,
+            fetchedAt: d.fetchedAt || Date.now(),
+            granularity: d.granularity || "",
+            stale: Boolean(d.stale),
+          });
           setRLoading(false);
           return;
         }
@@ -1593,6 +1600,8 @@ function InfoWidget() {
         if (built.KRW && built.KRW > 900) {
           setRates(built);
           setRateSource("yahoo-direct");
+          const quoteTimes = quotes.map(q => Number(q.regularMarketTime || 0) * 1000).filter(Boolean);
+          setRateMeta({ asOf: quoteTimes.length ? Math.max(...quoteTimes) : Date.now(), fetchedAt:Date.now(), granularity:"intraday", stale:false });
           setRLoading(false);
           return;
         }
@@ -1603,7 +1612,13 @@ function InfoWidget() {
     try {
       const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) });
       const d = await r.json();
-      if (d?.rates?.KRW > 900) { setRates(d.rates); setRateSource("er-api"); setRLoading(false); return; }
+      if (d?.rates?.KRW > 900) {
+        setRates(d.rates);
+        setRateSource("er-api");
+        setRateMeta({ asOf:Number(d.time_last_update_unix || 0) * 1000 || Date.now(), fetchedAt:Date.now(), granularity:"daily", stale:false });
+        setRLoading(false);
+        return;
+      }
     } catch {}
 
     // 3순위: Frankfurter (일일 기준, 폴백)
@@ -1611,7 +1626,13 @@ function InfoWidget() {
       const targets = ["KRW","JPY","EUR","CNY","GBP","AUD","SGD","HKD","CHF","CAD"];
       const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${targets.join(",")}`, { signal: AbortSignal.timeout(6000) });
       const d = await r.json();
-      if (d?.rates?.KRW > 900) { setRates(d.rates); setRateSource("frankfurter"); setRLoading(false); return; }
+      if (d?.rates?.KRW > 900) {
+        setRates(d.rates);
+        setRateSource("frankfurter");
+        setRateMeta({ asOf:d.date ? Date.parse(`${d.date}T16:00:00Z`) : Date.now(), fetchedAt:Date.now(), granularity:"daily", stale:false });
+        setRLoading(false);
+        return;
+      }
     } catch {}
 
     setRLoading(false);
@@ -1654,11 +1675,22 @@ function InfoWidget() {
   const rateSourceLabel = ({
     toss: "Toss FX",
     yahoo: "Yahoo FX",
+    "yahoo-chart": "Yahoo FX",
     "yahoo-direct": "Yahoo FX",
     "er-api": "ER API",
     frankfurter: "Frankfurter",
     vercel: "Vercel FX",
   })[rateSource] || rateSource || "";
+  const rateAsOfLabel = rateMeta.asOf ? new Date(rateMeta.asOf).toLocaleString("ko-KR", {
+    timeZone:"Asia/Seoul",
+    month:"2-digit",
+    day:"2-digit",
+    hour:"2-digit",
+    minute:"2-digit",
+    hour12:false,
+  }) : "";
+  const isDailyRate = rateMeta.granularity === "daily";
+  const isMixedRate = rateMeta.granularity === "mixed";
 
   const [collapsed, setCollapsed] = useState(true); // 기본 접힘
 
@@ -1697,7 +1729,8 @@ function InfoWidget() {
 
       {/* 주요 환율 (USD·JPY) */}
       {mode === "rate" && (
-        <div style={{ display:"flex", gap:"6px" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:"5px", alignItems:"flex-end" }}>
+          <div style={{ display:"flex", gap:"6px" }}>
           {rLoading ? <span style={{fontSize:"11px",color:"#475569"}}>조회중...</span> : (<>
             {rates?.KRW && (
               <div style={cardStyle}>
@@ -1715,6 +1748,12 @@ function InfoWidget() {
               </div>
             )}
           </>)}
+          </div>
+          {!rLoading && rateAsOfLabel && (
+            <div style={{fontSize:"9px",color:(rateMeta.stale||isDailyRate)?"#f59e0b":"#64748b",textAlign:"right"}}>
+              {rateAsOfLabel} 기준 · {rateSourceLabel}{isDailyRate ? " · 일일 기준환율" : ""}{isMixedRate ? " · 일부 일일 교차환율" : ""}{rateMeta.stale ? " · 지연" : ""}
+            </div>
+          )}
         </div>
       )}
 
