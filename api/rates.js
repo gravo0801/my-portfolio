@@ -159,8 +159,26 @@ async function fetchErApiRates() {
   throw new Error("open.er-api.com returned invalid KRW rate");
 }
 
+function isFxMarketExpectedOpen(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const weekday = parts.find((part) => part.type === "weekday")?.value;
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  if (weekday === "Sat") return false;
+  if (weekday === "Sun") return hour >= 17;
+  if (weekday === "Fri") return hour < 17;
+  return true;
+}
+
 function buildResponse({ rates, source, asOf, updatedAt, granularity, fallbackReason, toss }) {
   const fetchedAt = Date.now();
+  const marketOpen = isFxMarketExpectedOpen(new Date(fetchedAt));
+  const isDaily = source === "er-api";
+  const staleAfter = isDaily ? (marketOpen ? 36 : 72) * 60 * 60_000 : 2 * 60 * 60_000;
   return {
     rates,
     // ts is retained for older clients, but now represents the provider's quote time.
@@ -169,8 +187,9 @@ function buildResponse({ rates, source, asOf, updatedAt, granularity, fallbackRe
     fetchedAt,
     updatedAt,
     source,
-    granularity: granularity || (source === "er-api" ? "daily" : "intraday"),
-    stale: fetchedAt - asOf > (source === "er-api" ? 36 * 60 * 60_000 : 2 * 60 * 60_000),
+    granularity: granularity || (isDaily ? "daily" : "intraday"),
+    marketOpen,
+    stale: marketOpen && fetchedAt - asOf > staleAfter,
     fallbackReason,
     toss,
   };
