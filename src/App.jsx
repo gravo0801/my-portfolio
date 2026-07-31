@@ -1485,7 +1485,7 @@ function InfoWidget() {
   const [weather, setWeather] = useState({ seoul:null, nyc:null, tokyo:null, custom:null });
   const [rates, setRates]     = useState({});
   const [rateSource, setRateSource] = useState("");
-  const [rateMeta, setRateMeta] = useState({ asOf:null, fetchedAt:null, granularity:"", stale:false });
+  const [rateMeta, setRateMeta] = useState({ asOf:null, fetchedAt:null, granularity:"", marketOpen:null, stale:false });
   const [wLoading, setWLoading] = useState(false);
   const [rLoading, setRLoading] = useState(false);
   const [customCity, setCustomCity] = useState("london"); // 사용자 선택 도시
@@ -1571,6 +1571,7 @@ function InfoWidget() {
             asOf: d.asOf || d.ts || null,
             fetchedAt: d.fetchedAt || Date.now(),
             granularity: d.granularity || "",
+            marketOpen: d.marketOpen ?? null,
             stale: Boolean(d.stale),
           });
           setRLoading(false);
@@ -1751,7 +1752,7 @@ function InfoWidget() {
           </div>
           {!rLoading && rateAsOfLabel && (
             <div style={{fontSize:"9px",color:(rateMeta.stale||isDailyRate)?"#f59e0b":"#64748b",textAlign:"right"}}>
-              {rateAsOfLabel} 기준 · {rateSourceLabel}{isDailyRate ? " · 일일 기준환율" : ""}{isMixedRate ? " · 일부 일일 교차환율" : ""}{rateMeta.stale ? " · 지연" : ""}
+              {rateAsOfLabel} 기준 · {rateSourceLabel}{rateMeta.marketOpen === false ? " · 시장 마감" : ""}{isDailyRate ? " · 일일 기준환율" : ""}{isMixedRate ? " · 일부 일일 교차환율" : ""}{rateMeta.stale ? " · 지연" : ""}
             </div>
           )}
         </div>
