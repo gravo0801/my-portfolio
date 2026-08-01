@@ -5,6 +5,12 @@ import {
   BarChart, Bar, AreaChart, Area,
 } from "recharts";
 import { getKoreanMarketState, getKstParts, isKoreanMarketHoliday } from "./market-calendar.js";
+import {
+  TRADE_CLEANUP_BACKUP_KEY,
+  findSuspiciousTradeBatches,
+  isValidTradeRecord,
+  mergeRestoredTrades,
+} from "./trade-audit.js";
 
 const CRYPTO_IDS = {
   BTC:"bitcoin",ETH:"ethereum",BNB:"binancecoin",SOL:"solana",
@@ -1365,6 +1371,15 @@ function firebaseList(val) {
   if (Array.isArray(val)) return val.filter(Boolean);
   if (typeof val === "object") return Object.values(val).filter(Boolean);
   return [];
+}
+
+function loadTradeCleanupBackup() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TRADE_CLEANUP_BACKUP_KEY) || "null");
+    return Array.isArray(parsed?.records) && parsed.records.length ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeSnapshotsValue(val) {
@@ -3997,6 +4012,9 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
   const [editTradeForm, setEditTradeForm] = useState({});
   const [tradeFilterPeriod, setTradeFilterPeriod] = useState("all");
   const [tradePage, setTradePage] = useState(1);
+  const [tradeAuditOpen, setTradeAuditOpen] = useState(false);
+  const [tradeAuditSelectedIds, setTradeAuditSelectedIds] = useState([]);
+  const [tradeCleanupBackup, setTradeCleanupBackup] = useState(loadTradeCleanupBackup);
   const TRADE_PAGE_SIZE = 10;
   const [sparklineData, setSparklineData] = useState({});
   const [intradayData, setIntradayData] = useState({}); // {ticker: [{time, price}...]} 당일 장중
@@ -5106,6 +5124,11 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
   const marketCur = (market) => (market === "US" || market === "ETF") ? "USD" : "KRW";
   // P1: ISA 제외 (P3 탭으로 분리)
   const holdingsP1 = holdings.filter(h => h.market !== "ISA");
+  const suspiciousP1TradeBatches = findSuspiciousTradeBatches(
+    trades,
+    new Set(holdingsP1.map(h => h.ticker))
+  );
+  const suspiciousP1TradeCount = suspiciousP1TradeBatches.reduce((sum, batch) => sum + batch.records.length, 0);
   const toKRWLive = (v, cur) => cur === "KRW" ? v : v * liveUsdKrw;
   // ISA 포함 전체 포트폴리오 (전체현황용)
   const portfolioAll = holdings.map(h => {
@@ -5740,6 +5763,9 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     const record = {
       ...form,
       id: form.id || Date.now(),
+      source: form.source || "manual",
+      schemaVersion: form.schemaVersion || 2,
+      createdAt: form.createdAt || Date.now(),
       portfolio: portfolio || form.portfolio || "p1",
       ticker: tickerKey(form.ticker),
       quantity: num(form.quantity, 0),
@@ -6099,6 +6125,48 @@ ${analystSummary}
     } catch (e) {
       setRetroResults(p => ({...p, [key]: { loading: false, error: e.message, score, currentPrice, priceChgPct, daysAgo }}));
     }
+  };
+
+  const openTradeAudit = () => {
+    const ids = suspiciousP1TradeBatches.flatMap(batch => batch.records.map(record => String(record.id)));
+    setTradeAuditSelectedIds(ids);
+    setTradeAuditOpen(true);
+  };
+
+  const cleanupSelectedTrades = () => {
+    const selected = new Set(tradeAuditSelectedIds.map(String));
+    const records = trades.filter(record => selected.has(String(record.id)));
+    if (!records.length) {
+      toast("정리할 기록을 선택해 주세요", "error");
+      return;
+    }
+    const dates = [...new Set(records.map(record => record.date).filter(Boolean))].join(", ");
+    const ok = window.confirm(
+      `의심 매매 기록 ${records.length}건을 정리할까요?\n\n` +
+      `대상 날짜: ${dates}\n` +
+      `삭제 전 복구용 로컬 백업을 자동 저장합니다.\n` +
+      `정리 후에도 '직전 정리 복구'로 되돌릴 수 있습니다.`
+    );
+    if (!ok) return;
+
+    const backup = { version:1, createdAt:Date.now(), records };
+    try { localStorage.setItem(TRADE_CLEANUP_BACKUP_KEY, JSON.stringify(backup)); } catch {}
+    setTradeCleanupBackup(backup);
+    setTrades(prev => prev.filter(record => !selected.has(String(record.id))));
+    setTradeAuditSelectedIds([]);
+    setTradeAuditOpen(false);
+    setTradePage(1);
+    toast(`✓ 의심 매매 ${records.length}건 정리 완료 · 복구 백업 저장`, "success");
+  };
+
+  const restoreLastTradeCleanup = () => {
+    const records = tradeCleanupBackup?.records || [];
+    if (!records.length) return;
+    if (!window.confirm(`직전에 정리한 매매 기록 ${records.length}건을 복구할까요?`)) return;
+    setTrades(prev => mergeRestoredTrades(prev, records));
+    try { localStorage.removeItem(TRADE_CLEANUP_BACKUP_KEY); } catch {}
+    setTradeCleanupBackup(null);
+    toast(`✓ 매매 기록 ${records.length}건 복구 완료`, "success");
   };
 
   const addT = () => {
@@ -7785,12 +7853,12 @@ ${analystSummary}
                   </div>
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
                     <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
-                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,portfolio:"p3",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(appTimeZone),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",sellReason:"",_mode:tForm._mode||"select"});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
+                    <button onClick={()=>{if(!tForm.ticker||!tForm.quantity||!tForm.price)return;setTrades(p=>[...p,{id:Date.now(),...tForm,source:"manual",schemaVersion:2,createdAt:Date.now(),portfolio:"p3",quantity:+tForm.quantity,price:+tForm.price,fee:+(tForm.fee||0)}]);setTForm({date:today(appTimeZone),ticker:"",type:"buy",quantity:"",price:"",fee:"",note:"",sellReason:"",_mode:tForm._mode||"select"});setShowForm(null);}} style={S.btn("#06b6d4")}>✓ 저장</button>
                   </div>
                 </div>
               )}
               {(()=>{
-                const raw=[...trades].filter(t=>t.portfolio==="p3"||(!t.portfolio&&isaHoldings.some(h=>h.ticker===t.ticker)));
+                const raw=[...trades].filter(isValidTradeRecord).filter(t=>t.portfolio==="p3"||(!t.portfolio&&isaHoldings.some(h=>h.ticker===t.ticker)));
                 const pMs={"3d":3*864e5,"7d":7*864e5,"14d":14*864e5,"30d":30*864e5,"365d":365*864e5}[tradeFilterPeriod];
                 const p3list=raw.filter(t=>!pMs||!t.date||(Date.now()-new Date(t.date).getTime()<=pMs)).sort((a,b)=>b.date>a.date?1:-1);
                 if(!p3list.length) return <div style={{textAlign:"center",padding:"28px",color:"#475569"}}>매매 기록이 없습니다</div>;
@@ -8186,6 +8254,56 @@ ${analystSummary}
                 <button key={k} onClick={()=>{setTradeFilterPeriod(k);setTradePage(1);}} style={{background:tradeFilterPeriod===k?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.05)",border:tradeFilterPeriod===k?"1px solid rgba(99,102,241,0.5)":"1px solid rgba(255,255,255,0.08)",color:tradeFilterPeriod===k?"#a5b4fc":"#64748b",padding:"3px 9px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",fontWeight:tradeFilterPeriod===k?700:500}}>{l}</button>
               ))}
             </div>
+            {mainTab==="p1"&&(suspiciousP1TradeCount>0||tradeCleanupBackup)&&(
+              <div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:"10px",padding:"11px",marginBottom:"12px"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",flexWrap:"wrap"}}>
+                  <div>
+                    <div style={{fontSize:"13px",fontWeight:800,color:"#fbbf24"}}>
+                      {suspiciousP1TradeCount>0?`⚠️ 의심 일괄 매수 ${suspiciousP1TradeCount}건 감지`:"↩️ 직전 매매 정리 백업 있음"}
+                    </div>
+                    <div style={{fontSize:"11px",color:"#94a3b8",marginTop:"3px"}}>
+                      같은 날짜에 보유종목이 대량 등록된 기록입니다. 자동 삭제하지 않으며, 항목별 확인 후 선택 정리할 수 있습니다.
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
+                    {suspiciousP1TradeCount>0&&(
+                      <button onClick={()=>tradeAuditOpen?setTradeAuditOpen(false):openTradeAudit()} style={S.btn("#d97706",{fontSize:"11px",padding:"5px 9px"})}>
+                        {tradeAuditOpen?"검토 닫기":"기록 검토"}
+                      </button>
+                    )}
+                    {tradeCleanupBackup&&(
+                      <button onClick={restoreLastTradeCleanup} style={S.btn("#475569",{fontSize:"11px",padding:"5px 9px"})}>직전 정리 복구</button>
+                    )}
+                  </div>
+                </div>
+                {tradeAuditOpen&&suspiciousP1TradeCount>0&&(
+                  <div style={{marginTop:"10px",borderTop:"1px solid rgba(245,158,11,0.2)",paddingTop:"8px"}}>
+                    {suspiciousP1TradeBatches.map(batch=>(
+                      <div key={batch.date} style={{marginBottom:"9px"}}>
+                        <div style={{fontSize:"12px",fontWeight:800,color:"#fde68a",marginBottom:"5px"}}>{batch.date} · {batch.records.length}건</div>
+                        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,minmax(0,1fr))",gap:"4px 10px"}}>
+                          {batch.records.map(record=>{
+                            const id=String(record.id);
+                            const checked=tradeAuditSelectedIds.includes(id);
+                            const name=holdingsP1.find(h=>h.ticker===record.ticker)?.name||record.ticker;
+                            return(
+                              <label key={id} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"11px",color:"#cbd5e1",cursor:"pointer",minWidth:0}}>
+                                <input type="checkbox" checked={checked} onChange={()=>setTradeAuditSelectedIds(prev=>checked?prev.filter(value=>value!==id):[...prev,id])}/>
+                                <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name} ({record.ticker}) · {Number(record.quantity).toLocaleString()}주</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",marginTop:"8px",flexWrap:"wrap"}}>
+                      <span style={{fontSize:"11px",color:"#94a3b8"}}>선택 {tradeAuditSelectedIds.length}건 · 실행 전 복구 백업 자동 저장</span>
+                      <button onClick={cleanupSelectedTrades} disabled={!tradeAuditSelectedIds.length} style={S.btn(tradeAuditSelectedIds.length?"#dc2626":"#475569",{fontSize:"11px",padding:"5px 9px",opacity:tradeAuditSelectedIds.length?1:0.5})}>선택 기록 정리</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {/* 입력 폼 */}
             {showForm==="t"&&(()=>{
               const availH = mainTab==="p1" ? holdings.filter(h=>h.market!=="ISA") : holdings2;
@@ -8245,7 +8363,7 @@ ${analystSummary}
             {(()=>{
               const allH=[...holdings,...holdings2];
               const p1Tickers=new Set(holdingsP1.map(h=>h.ticker));
-              const raw=[...trades].filter(t=>{
+              const raw=[...trades].filter(isValidTradeRecord).filter(t=>{
                 if(mainTab==="p1") return (t.portfolio==="p1"&&p1Tickers.has(t.ticker))||((!t.portfolio||t.portfolio==="p1")&&p1Tickers.has(t.ticker));
                 return t.portfolio==="p2"||(!t.portfolio&&holdings2.some(h=>h.ticker===t.ticker));
               });
