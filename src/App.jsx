@@ -1,3 +1,5 @@
+import FxPerformanceCard from "./FxPerformanceCard.jsx";
+import { calculatePerformance, isUsdHolding, calendarSnapshot, snapshotChange } from "./fx-performance.js";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -2619,7 +2621,7 @@ function MarketCommandCenter({
         <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,minmax(0,1fr))":"repeat(5,minmax(0,1fr))",gap:"7px"}}>
           <Metric label="총 평가금액" value={moneyKRW(totalValue)} sub={`원금 ${moneyKRW(totalCost)}`} />
           <Metric label="오늘 손익" value={signedKRW(dayPnl)} sub={signedPct(dayPct)} color={dayPnl >= 0 ? "#34d399" : "#f87171"} />
-          <Metric label="총 수익률" value={signedPct(totalRet)} sub={signedKRW(totalPnl)} color={totalRet >= 0 ? "#34d399" : "#f87171"} />
+          <Metric label="주가 수익률 · 환차손익 제외" value={signedPct(totalRet)} sub={signedKRW(totalPnl)} color={totalRet >= 0 ? "#34d399" : "#f87171"} />
           {!isMobile && <Metric label="환율" value={`${Math.round(fx).toLocaleString("ko-KR")}원`} sub="USD/KRW" color="#fbbf24" />}
           {!isMobile && <Metric label="등락 종목" value={`${upCount} / ${downCount}`} sub="상승 / 하락" color="#93c5fd" />}
         </div>
@@ -3101,7 +3103,7 @@ function OverviewPanel({ portfolio, portfolio2, holdings, holdings2, prices: raw
       <div style={{background:"linear-gradient(135deg,rgba(99,102,241,0.12),rgba(16,185,129,0.08))",border:"1px solid rgba(99,102,241,0.25)",borderRadius:"16px",padding:"20px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"14px",flexWrap:"wrap",gap:"8px"}}>
           <div>
-            <div style={{fontSize:"13px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"4px"}}>전체 포트폴리오</div>
+            <div style={{fontSize:"13px",color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:"4px"}}>선택 계좌 P1~P3 · 환차손익 제외</div>
             <div style={{display:"flex",alignItems:"center",gap:"8px",marginBottom:"4px"}}>
               <div style={{fontSize:isMobile?"24px":"30px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.05em"}}>
                 <AnimatedNumber
@@ -3961,6 +3963,9 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
   const [etfDrill, setEtfDrill] = useState(null);           // ETF 카테고리 드릴다운
   const [currMode, setCurrMode] = useState("KRW");
   const [liveUsdKrw, setLiveUsdKrw] = useState(USD_KRW);
+  const [performanceFx, setPerformanceFx] = useState(null);
+  const [performanceHistory, setPerformanceHistory] = useState({});
+  const [calendarScope, setCalendarScope] = useState("all");
   const [selectedStock, setSelectedStock] = useState(null);
   const [sortBy, setSortBy]   = useState("default");
   const [compactMode, setCompactMode] = useState(false);
@@ -4278,13 +4283,16 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     // 캐시된 환율 즉시 적용
     try {
       const cached = localStorage.getItem("pm_usd_krw");
-      if (cached) setLiveUsdKrw(parseInt(cached));
+      if (cached && Number(cached)>0) setLiveUsdKrw(Number(cached));
+      const meta = JSON.parse(localStorage.getItem("pm_performance_fx_v2") || "null");
+      if (meta?.rate>0 && meta?.fetchedAt) setPerformanceFx({...meta,stale:true});
     } catch {}
 
     const fetchRate = async () => {
       if (!isPageVisible()) return;
+      let providerMeta = null;
       const apis = [
-        async () => { const r = await fetch("/api/rates", { signal: AbortSignal.timeout(6000), cache:"no-store" }); const d = await r.json(); return d?.rates?.KRW; },
+        async () => { const r = await fetch("/api/rates", { signal: AbortSignal.timeout(6000), cache:"no-store" }); const d = await r.json(); providerMeta = d; return d?.rates?.KRW; },
         async () => { const r = await fetch("https://open.er-api.com/v6/latest/USD", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
         async () => { const r = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW", { signal: AbortSignal.timeout(6000) }); return (await r.json()).rates?.KRW; },
         async () => {
@@ -4293,11 +4301,16 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
           return (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice;
         },
       ];
-      for (const apiFn of apis) {
+      for (const [apiIndex,apiFn] of apis.entries()) {
         try {
           const rate = await apiFn();
           if (rate && rate > 900 && rate < 2000) {
-            const rounded = Math.round(rate);
+            const rounded = Math.round(rate*100)/100;
+            const fxMeta = {rate:rounded,source:apiIndex===0 ? (providerMeta?.source || "rates-api") : ["", "er-api(일별)", "frankfurter(일별)", "yahoo"][apiIndex],
+              fetchedAt:Date.now(),asOf:apiIndex===0 ? (providerMeta?.asOf || providerMeta?.ts || null) : null,
+              stale:apiIndex===0 ? !!providerMeta?.stale : true};
+            setPerformanceFx(fxMeta);
+            try { localStorage.setItem("pm_performance_fx_v2",JSON.stringify(fxMeta)); } catch {}
             setLiveUsdKrw(rounded);
             try { localStorage.setItem("pm_usd_krw", String(rounded)); } catch {}
             return;
@@ -5216,6 +5229,37 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     value: Math.round(portfolio.filter(h => h.market === k).reduce((s, h) => s + toKRWLive(h.value, h.cur), 0)),
   })).filter(d => d.value > 0);
 
+  const performanceHoldings = useMemo(() => [
+    ...holdings.map(h=>({...h,portfolio:h.market==="ISA"?"p3":"p1"})),
+    ...holdings2.map(h=>({...h,portfolio:"p2"})),
+    ...holdings4.map(h=>({...h,portfolio:"p4"})),
+  ], [holdings,holdings2,holdings4]);
+  const performanceDates = useMemo(() => [...new Set(trades.filter(t=>t.type==="buy" &&
+    performanceHoldings.some(h=>isUsdHolding(h) && h.ticker===t.ticker && h.portfolio===(t.portfolio||"p1") && !(Number(h.avgFxRate)>0 || Number(h.fxRate)>0)))
+    .map(t=>String(t.date||"").slice(0,10)).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().join(","),[trades,performanceHoldings]);
+  useEffect(()=>{
+    if(!loaded || !performanceDates) return;
+    let cancelled=false;
+    (async()=>{
+      const dates=performanceDates.split(",");
+      for(let i=0;i<dates.length;i+=100){
+        const rates=await fetchUsdKrwHistory(dates.slice(i,i+100));
+        if(cancelled) return;
+        setPerformanceHistory(prev=>({...prev,...rates}));
+      }
+    })().catch(()=>{});
+    return ()=>{cancelled=true;};
+  },[loaded,performanceDates]);
+  const fxMetrics = useMemo(()=>Object.fromEntries(["all","p1","p2","p3","p4"].map(scope=>[
+    scope,calculatePerformance(scope==="all"?performanceHoldings:performanceHoldings.filter(h=>h.portfolio===scope),prices,performanceFx,trades,performanceHistory)
+  ])),[performanceHoldings,prices,performanceFx,trades,performanceHistory]);
+  const fxSnapshotMetrics = Object.fromEntries(Object.entries(fxMetrics).map(([key,{rows,...metric}])=>[key,metric]));
+  const fxSnapshotSignature = JSON.stringify(fxSnapshotMetrics);
+  const savePerformanceFx = (row,rate) => {
+    const setter=row.portfolio==="p2"?setHoldings2:row.portfolio==="p4"?setHoldings4:setHoldings;
+    setter(list=>list.map(h=>h.id===row.id?{...h,fxRate:rate,avgFxRate:rate}:h));
+  };
+
   const makeSnapshotMetric = (value, cost, pnl, ret) => ({
     returnRate: Math.round((Number.isFinite(ret) ? ret : 0) * 100) / 100,
     totalValue: Math.round(Number.isFinite(value) ? value : 0),
@@ -5252,22 +5296,27 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
 
   useEffect(() => {
     const hasPortfolioValue = Object.values(portfolioSnapshotMetrics).some(m => m.totalValue > 0);
-    if (!loaded || !hasPortfolioValue) return;
+    if (!loaded || (!hasPortfolioValue && !(fxSnapshotMetrics.all.totalValue>0))) return;
     const now2 = Date.now();
     const lastSnap = snapshotsRef.current.length
       ? snapshotsRef.current.reduce((mx,s)=>(s.id||0)>mx?(s.id||0):mx, 0) : 0;
-    if (now2 - lastSnap < 30000) return; // 30초 이내 중복 방지
+    const prior = snapshotsRef.current.find(s=>s.id===lastSnap);
+    const basisChanged = prior?.fxPerformance?.all?.totalCost !== fxSnapshotMetrics.all.totalCost;
+    if (now2 - lastSnap < 30000 && prior?.fxPerformance && !basisChanged && Number.isFinite(prior?.fxPerformance?.all?.totalValue)) return;
     const snap = {
       id: now2,
       label: new Date(now2+9*3600000).toISOString().slice(5,16).replace('T',' '),
       ...portfolioSnapshotMetrics.p1,
       portfolios: portfolioSnapshotMetrics,
+      fxPerformance: fxSnapshotMetrics,
+      fxQuote: performanceFx,
+      performanceVersion: 2,
     };
     const newSnaps = compactSnapshotsForCalendar([...snapshotsRef.current, snap]);
     setSnapshots(newSnaps);
     dbPush(`${userPath}/snapshots`, snap)
       .catch(err => console.error("[Firebase snapshot append fail]", err));
-  }, [priceAge, loaded, compactSnapshotsForCalendar, userPath, totalVal, totalCost, totalPnL, totalRet, total2Val, total2Cost, total2PnL, total2Ret, total3Val, total3Cost, total3PnL, total3Ret]); // priceAge가 바뀔때마다(=가격갱신마다) 체크
+  }, [fxSnapshotSignature, performanceFx, priceAge, loaded, compactSnapshotsForCalendar, userPath, totalVal, totalCost, totalPnL, totalRet, total2Val, total2Cost, total2PnL, total2Ret, total3Val, total3Cost, total3PnL, total3Ret]); // priceAge가 바뀔때마다(=가격갱신마다) 체크
 
   useEffect(() => {
     if (!loaded || (!holdings.length && !holdings2.length && !holdings4.length && !watchlist.length)) return;
@@ -6974,6 +7023,7 @@ ${analystSummary}
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:mainTab==="overview"?"1360px":"1200px", margin:"0 auto" }}>
 
         {/* ── OVERVIEW ── */}
+        {(mainTab==="overview" || mainTab==="calendar") && <div style={{marginBottom:14}}><FxPerformanceCard metric={fxMetrics[calendarScope]} fx={performanceFx} scope={calendarScope} onScope={setCalendarScope} onSave={savePerformanceFx}/></div>}
         {mainTab === "overview" && (
           <div>
           {/* ── 계좌 표시 토글 바 ── */}
@@ -7029,7 +7079,7 @@ ${analystSummary}
             <summary style={{cursor:"pointer",listStyle:"none",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px"}}>
               <div>
                 <div style={{fontSize:"13px",fontWeight:900,color:"#e2e8f0"}}>계좌별 요약 보기</div>
-                <div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>기존 전체 현황, 계좌/증권사/지역별 카드와 수익률 순위를 확인합니다.</div>
+                <div style={{fontSize:"10px",color:"#64748b",marginTop:"1px"}}>P1~P3 주가 기준 요약입니다. 환차손익 포함 전체 수익률은 상단에서 확인하세요.</div>
               </div>
               <span style={{fontSize:"11px",color:"#64748b",whiteSpace:"nowrap"}}>펼치기</span>
             </summary>
@@ -9615,8 +9665,9 @@ ${analystSummary}
         {mainTab === "calendar" && (()=>{
           const allH = [...holdings, ...holdings2];
           const snapByDate = {};
-          snapshots.forEach(s => {
-            if (!s.id) return;
+          snapshots.forEach(raw => {
+            const s=calendarSnapshot(raw,calendarScope);
+            if (!s || !s.id) return;
             const dt = new Date(s.id+9*3600000).toISOString().slice(0,10);
             if (!snapByDate[dt]) snapByDate[dt] = [];
             snapByDate[dt].push(s);
@@ -9632,17 +9683,13 @@ ${analystSummary}
           const calM = parseInt(calDateRef.slice(5,7))-1;
           const firstDay = new Date(calY, calM, 1).getDay();
           const daysInMonth = new Date(calY, calM+1, 0).getDate();
-          const calcDayChg = (snap, prev) => {
-            if (!snap || !prev) return null;
-            const chg = snap.totalValue - prev.totalValue;
-            const pct = prev.totalValue > 0 ? (chg/prev.totalValue)*100 : 0;
-            return { chg, pct };
-          };
+          const calcDayChg = snapshotChange;
           const selSnap = calSelectedDate && calSelectedDate.length===10 ? dailySnap[calSelectedDate] : null;
           const selIdx = calSelectedDate ? dates.indexOf(calSelectedDate) : -1;
           const prevDateSnap = selIdx > 0 ? dailySnap[dates[selIdx-1]] : null;
           return (
             <div style={{display:"flex",flexDirection:"column",gap:"14px",paddingBottom:"20px"}}>
+              <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.7}}>전체 계좌 기록은 업데이트 이후부터 저장됩니다. 이전 기록은 P1~P3 선택 시 구방식 표시로 확인할 수 있습니다. 날짜별 마지막 저장값 기준이며, 평가액 변동에는 매수·매도가 포함됩니다.</div>
               {/* 캘린더 */}
               <div style={S.card}>
                 <div style={{display:"flex",flexDirection:"column",gap:"8px",marginBottom:"14px"}}>
@@ -9735,10 +9782,10 @@ ${analystSummary}
                         <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px",color:"#a5b4fc"}}>📊 {calSelectedDate} 포트폴리오</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
                           {[
-                            ["총 평가금액", Math.round(selSnap.totalValue).toLocaleString()+"₩", "#f1f5f9"],
+                            ["총 평가금액", Number.isFinite(selSnap.totalValue)?Math.round(selSnap.totalValue).toLocaleString()+"₩":"환율 확인 필요", "#f1f5f9"],
                             dayChg
-                              ? ["일일 수익률", (dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"% ("+(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩)", dayChg.pct>=0?"#34d399":"#f87171"]
-                              : ["일일 수익률", "데이터 없음", "#475569"]
+                              ? ["이전 기록 대비 평가액 변동", (dayChg.pct>=0?"+":"")+dayChg.pct.toFixed(2)+"% ("+(dayChg.chg>=0?"+":"")+Math.round(dayChg.chg).toLocaleString()+"₩)", dayChg.pct>=0?"#34d399":"#f87171"]
+                              : ["이전 기록 대비 평가액 변동", "데이터 없음", "#475569"]
                           ].map(([l,v,c])=>(
                             <div key={l} style={{background:"rgba(0,0,0,0.2)",borderRadius:"9px",padding:"10px 12px"}}>
                               <div style={{fontSize:"10px",color:"#64748b",marginBottom:"3px",fontWeight:700}}>{l}</div>
@@ -9951,21 +9998,22 @@ ${analystSummary}
               </div>
 
               {/* 전체 일별 히스토리 테이블 */}
-              {dates.length>1&&(
+              {dates.length>0&&(
                 <div style={S.card}>
-                  <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 포트폴리오 일별 기록</div>
+                  <div style={{fontSize:"14px",fontWeight:800,marginBottom:"10px"}}>📋 포트폴리오 일별 기록 · {calendarScope==="all"?"전체 P1~P4":calendarScope.toUpperCase()}</div>
                   <div style={{overflowX:"auto",maxHeight:"300px",overflowY:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse"}}>
                       <thead style={{position:"sticky",top:0,background:"rgba(15,23,42,0.96)"}}>
-                        <tr>{["날짜","총 평가금액","누적 수익금","전일 변동","누적 수익률"].map(c=><th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>)}</tr>
+                        <tr>{["날짜","총 평가금액","평가수익금","이전 기록 대비 평가액 변동","원화 평가수익률","적용 환율·기준"].map(c=><th key={c} style={{...S.TH,textAlign:c==="날짜"?"left":"right",padding:"7px 10px",fontSize:"11px"}}>{c}</th>)}</tr>
                       </thead>
                       <tbody>
                         {dates.map((dt,i)=>{
                           const s=dailySnap[dt];
                           const prevDt=i>0?dates[i-1]:null;
                           const ps=prevDt?dailySnap[prevDt]:null;
-                          const chg=ps?s.totalValue-ps.totalValue:null;
-                          const chgP=ps&&ps.totalValue>0?(chg/ps.totalValue)*100:null;
+                          const delta=snapshotChange(s,ps);
+                          const chg=delta?.chg??null;
+                          const chgP=delta?.pct??null;
                           const up=chg>=0;
                           const totalPnl=Number.isFinite(s.totalPnl)?s.totalPnl:null;
                           const isSel=dt===calSelectedDate;
@@ -9975,10 +10023,11 @@ ${analystSummary}
                               onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
                               onMouseLeave={e=>e.currentTarget.style.background=isSel?"rgba(99,102,241,0.1)":"transparent"}>
                               <td style={{...S.TD,fontSize:"12px",color:isSel?"#a5b4fc":"#94a3b8",fontWeight:isSel?700:400}}>{dt}</td>
-                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:"#e2e8f0",fontSize:"12px"}}>{Math.round(s.totalValue).toLocaleString()}₩</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:"#e2e8f0",fontSize:"12px"}}>{Number.isFinite(s.totalValue)?Math.round(s.totalValue).toLocaleString()+"₩":"환율 확인 필요"}</td>
                               <td style={{...S.TD,textAlign:"right",fontWeight:700,color:totalPnl===null?"#475569":totalPnl>=0?"#34d399":"#f87171",fontSize:"12px"}}>{totalPnl===null?"-":(totalPnl>=0?"+":"")+Math.round(totalPnl).toLocaleString()+"₩"}</td>
-                              <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chg===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chg===null?"첫 기록":(up?"+":"")+Math.round(Math.abs(chg)).toLocaleString()+"₩ ("+(up?"+":"")+chgP.toFixed(2)+"%)"}</td>
-                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:s.returnRate>=0?"#34d399":"#f87171",fontSize:"12px"}}>{s.returnRate>=0?"+":""}{s.returnRate.toFixed(2)}%</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:600,color:chg===null?"#475569":up?"#34d399":"#f87171",fontSize:"12px"}}>{chg===null?"비교 없음":(up?"+":"−")+Math.round(Math.abs(chg)).toLocaleString()+"₩ ("+(chgP>=0?"+":"")+chgP.toFixed(2)+"%)"}</td>
+                              <td style={{...S.TD,textAlign:"right",fontWeight:700,color:s.returnRate>=0?"#34d399":"#f87171",fontSize:"12px"}}>{Number.isFinite(s.returnRate)?(s.returnRate>=0?"+":"")+s.returnRate.toFixed(2)+"%":"매수환율 확인 필요"}</td>
+                              <td style={{...S.TD,fontSize:11,color:s.basisVersion===1?"#fbbf24":"#94a3b8"}}>{s.basisVersion===1?"구방식 · 환차손익 미반영":`${s.fxQuote?.rate || "—"}원 · ${s.fxQuote?.source || "환율 대기"}${s.fxQuote?.stale?" · 지연":""}${s.estimated?" · 원가 추정":""}${s.missingBasis?" · 원가 미확인":""}${s.missingPrices?" · 시세 미확인":""}`}</td>
                             </tr>
                           );
                         })}
