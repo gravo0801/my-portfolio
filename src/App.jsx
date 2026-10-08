@@ -7003,13 +7003,13 @@ ${analystSummary}
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px", overflowX:isMobile?"auto":"visible", flexWrap:isMobile?"nowrap":"wrap", paddingBottom:isMobile?"2px":0 }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["sectors","🧱 히트맵/섹터"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["sectors","🧱 히트맵/섹터"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"],["fx-settings","⚙️ 환율 설정"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT, flexShrink:0 }}>
-              {isMobile?(id==="overview"?"전광판":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="sectors"?"히트맵":id==="tax"?"양도세":id==="calendar"?"캘린더":"시뮬"):label}
+              {isMobile?(id==="overview"?"전광판":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="sectors"?"히트맵":id==="tax"?"양도세":id==="calendar"?"캘린더":id==="fx-settings"?"환율 설정":"시뮬"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator" && mainTab !== "sectors") && (
+        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator" && mainTab !== "sectors" && mainTab !== "fx-settings") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -7023,7 +7023,12 @@ ${analystSummary}
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:mainTab==="overview"?"1360px":"1200px", margin:"0 auto" }}>
 
         {/* ── OVERVIEW ── */}
-        {(mainTab==="overview" || mainTab==="calendar") && <div style={{marginBottom:14}}><FxPerformanceCard metric={fxMetrics[calendarScope]} fx={performanceFx} scope={calendarScope} onScope={setCalendarScope} onSave={savePerformanceFx}/></div>}
+        {mainTab === "fx-settings" && <div style={{marginBottom:14}}>
+          <h2 style={{fontSize:20,margin:"0 0 10px"}}>환율 설정</h2>
+          <p style={{fontSize:13,color:"#94a3b8",lineHeight:1.7}}>환율 정보는 필요한 경우 이 화면에서 입력하실 수 있습니다. 전체현황은 기존 방식의 수익률을 표시하며, 과거 매수환율을 입력하지 않아도 이용할 수 있습니다.</p>
+          <FxPerformanceCard key={`settings-${calendarScope}`} metric={fxMetrics[calendarScope]} fx={performanceFx} scope={calendarScope} onScope={setCalendarScope} onSave={savePerformanceFx}/>
+        </div>}
+        {mainTab === "calendar" && <div style={{marginBottom:14}}><FxPerformanceCard allowInputs={false} metric={fxMetrics[calendarScope]} fx={performanceFx} scope={calendarScope} onScope={setCalendarScope}/></div>}
         {mainTab === "overview" && (
           <div>
           {/* ── 계좌 표시 토글 바 ── */}
