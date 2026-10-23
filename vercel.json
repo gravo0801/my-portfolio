@@ -4,5 +4,10 @@
       "path": "/api/cron/morning-report",
       "schedule": "30 22 * * 1-5"
     }
-  ]
+  ],
+  "functions": {
+    "api/cron/morning-report.js": {
+      "maxDuration": 60
+    }
+  }
 }

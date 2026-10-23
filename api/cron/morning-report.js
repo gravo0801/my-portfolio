@@ -1,41 +1,24 @@
 import { applyApiSecurity, secureFirebaseUrl, verifyFirebaseIdToken } from "../_security.js";
 
 const FIREBASE_DB_URL = process.env.FIREBASE_DB_URL || "https://stockmanagehw-default-rtdb.firebaseio.com";
-const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || "";
-
 const json = (res, status, body) => {
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
   res.end(JSON.stringify(body));
 };
-
-const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
+const money = value => Math.round(value * 100) / 100;
 const isoKstDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
 
-function etDateParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return { year: Number(map.year), month: Number(map.month), day: Number(map.day) };
-}
-
-function isoDate(year, month, day) {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function marketDate(date = new Date()) {
-  const p = etDateParts(date);
-  return isoDate(p.year, p.month, p.day);
-}
-
-function isWeekend(ymd) {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  const day = d.getUTCDay();
-  return day === 0 || day === 6;
+// A conservative 15-minute finalization buffer also handles early-close days safely.
+export function marketDate(date = new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date).map(p => [p.type, p.value]));
+  const day = new Date(`${parts.year}-${parts.month}-${parts.day}T12:00:00Z`);
+  if (Number(parts.hour) * 60 + Number(parts.minute) < 16 * 60 + 15) day.setUTCDate(day.getUTCDate() - 1);
+  return day.toISOString().slice(0, 10);
 }
 
 function safeKey(value) {
@@ -68,7 +51,7 @@ function normalizeList(value) {
 function normalizeHolding(h) {
   const symbol = String(h?.ticker || h?.symbol || "").trim().toUpperCase();
   const quantity = Number(h?.quantity || 0);
-  if (!symbol || quantity <= 0) return null;
+  if (!symbol || !Number.isFinite(quantity) || quantity <= 0) return null;
 
   const market = String(h?.market || "").toUpperCase();
   const isUs = market === "US" || (market === "ETF" && !/^\d/.test(symbol));
@@ -82,140 +65,44 @@ function normalizeHolding(h) {
   };
 }
 
-function regularBarsOnly(values, ymd) {
-  return values
-    .filter((v) => typeof v.datetime === "string" && v.datetime.startsWith(ymd))
-    .filter((v) => {
-      const t = v.datetime.slice(11, 19);
-      return t >= "09:30:00" && t <= "16:00:00";
-    })
-    .map((v) => ({
-      time: v.datetime.replace(" ", "T"),
-      open: Number(v.open),
-      high: Number(v.high),
-      low: Number(v.low),
-      close: Number(v.close),
-      volume: Number(v.volume || 0)
-    }))
-    .filter((bar) => bar.open > 0 && bar.close > 0)
-    .sort((a, b) => a.time.localeCompare(b.time));
+export function dailyRows(result) {
+  const quote = result?.indicators?.quote?.[0];
+  return (result?.timestamp || []).map((ts, i) => ({
+    date: new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(ts * 1000)),
+    open: Number(quote?.open?.[i]), close: Number(quote?.close?.[i])
+  })).filter(r => Number.isFinite(r.close) && r.close > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function etDateTimeFromUnix(seconds) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).formatToParts(new Date(seconds * 1000));
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return {
-    ymd: `${map.year}-${map.month}-${map.day}`,
-    time: `${map.hour}:${map.minute}:${map.second}`
-  };
-}
-
-function yahooSymbol(symbol) {
-  return symbol.replace(".", "-");
-}
-
-async function fetchYahooBars(holding, ymd) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol(holding.symbol))}?interval=5m&range=5d&includePrePost=false`;
-  const response = await fetch(url, {
-    headers: { "user-agent": "Mozilla/5.0 MorningReport/1.0" }
+async function fetchDaily(symbol) {
+  const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol.replaceAll(".", "-"))}?interval=1d&range=1mo&includePrePost=false`, {
+    headers: { "user-agent": "Mozilla/5.0 MorningReport/2.0" }, signal: AbortSignal.timeout(8000)
   });
   const data = await response.json();
   const result = data?.chart?.result?.[0];
-  const quote = result?.indicators?.quote?.[0];
-  const timestamps = result?.timestamp || [];
-  if (!response.ok || !result || !quote || !timestamps.length) {
-    const message = data?.chart?.error?.description || `${holding.symbol} Yahoo 데이터 없음`;
-    return { provider: "yahoo", ok: false, bars: [], message };
-  }
-
-  const bars = timestamps
-    .map((ts, index) => {
-      const et = etDateTimeFromUnix(ts);
-      return {
-        et,
-        time: `${et.ymd}T${et.time}`,
-        open: Number(quote.open?.[index]),
-        high: Number(quote.high?.[index]),
-        low: Number(quote.low?.[index]),
-        close: Number(quote.close?.[index]),
-        volume: Number(quote.volume?.[index] || 0)
-      };
-    })
-    .filter((bar) => bar.et.ymd === ymd && bar.et.time >= "09:30:00" && bar.et.time <= "16:00:00")
-    .filter((bar) => bar.open > 0 && bar.close > 0 && bar.high > 0 && bar.low > 0)
-    .map(({ et, ...bar }) => bar)
-    .sort((a, b) => a.time.localeCompare(b.time));
-
-  return { provider: "yahoo", ok: bars.length > 0, bars, message: bars.length ? "" : `${holding.symbol} Yahoo 정규장 데이터 없음` };
+  if (!response.ok || !result) throw new Error("시세 제공처 응답 오류");
+  return dailyRows(result);
 }
 
-async function fetchBars(holding, ymd) {
-  if (!TWELVE_DATA_API_KEY) {
-    return fetchYahooBars(holding, ymd);
-  }
-
-  const params = new URLSearchParams({
-    symbol: holding.symbol,
-    interval: "5min",
-    start_date: `${ymd} 09:30:00`,
-    end_date: `${ymd} 16:00:00`,
-    timezone: "America/New_York",
-    outputsize: "500",
-    apikey: TWELVE_DATA_API_KEY
-  });
-  const response = await fetch(`https://api.twelvedata.com/time_series?${params}`);
-  const data = await response.json();
-
-  if (!response.ok || data.status === "error" || !Array.isArray(data.values)) {
-    return fetchYahooBars(holding, ymd);
-  }
-  const bars = regularBarsOnly(data.values, ymd);
-  return bars.length
-    ? { provider: "twelve-data", ok: true, bars, message: "" }
-    : fetchYahooBars(holding, ymd);
-}
-
-function summarize(holding, result) {
-  const bars = result.bars;
-  if (!bars.length) {
-    return { symbol: holding.symbol, name: holding.name, quantity: holding.quantity, status: "no_data", message: result.message, chartBars: [] };
-  }
-
-  const open = bars[0].open;
-  const close = bars[bars.length - 1].close;
-  const high = Math.max(...bars.map((b) => b.high));
-  const low = Math.min(...bars.map((b) => b.low));
-  const volume = bars.reduce((sum, b) => sum + b.volume, 0);
+export function summarize(holding, rows, ymd) {
+  const index = rows.findIndex(r => r.date === ymd);
+  const previous = rows[index - 1];
+  const current = rows[index];
+  if (!current || !previous || !(previous.close > 0)) return {
+    ...holding, status: "no_data", message: "해당 거래일 종가 또는 이전 종가를 확인할 수 없습니다.", chartBars: []
+  };
   return {
-    symbol: holding.symbol,
-    name: holding.name,
-    quantity: holding.quantity,
-    status: "ok",
-    open: money(open),
-    close: money(close),
-    high: money(high),
-    low: money(low),
-    volume: Math.round(volume),
-    change: money(close - open),
-    changePct: money(((close - open) / open) * 100),
-    positionImpact: money((close - open) * holding.quantity),
-    positionValueAtOpen: money(open * holding.quantity),
-    positionValueAtClose: money(close * holding.quantity),
-    chartBars: bars.map((b) => ({ ...b, open: money(b.open), high: money(b.high), low: money(b.low), close: money(b.close), volume: Math.round(b.volume) }))
+    ...holding, status: "ok", previousClose: previous.close, close: current.close,
+    change: money(current.close - previous.close),
+    changePct: money((current.close / previous.close - 1) * 100),
+    positionImpact: money((current.close - previous.close) * holding.quantity),
+    positionValueAtPreviousClose: previous.close * holding.quantity,
+    positionValueAtClose: current.close * holding.quantity,
+    chartBars: rows.slice(Math.max(0, index - 9), index + 1).map(r => ({ time: r.date, close: r.close }))
   };
 }
 
 async function firebase(path, init) {
-  const response = await fetch(secureFirebaseUrl(FIREBASE_DB_URL, path), init);
+  const response = await fetch(secureFirebaseUrl(FIREBASE_DB_URL, path), { ...init, signal: AbortSignal.timeout(8000) });
   if (!response.ok) throw new Error(`Firebase ${path} HTTP ${response.status}`);
   return response.json();
 }
@@ -227,52 +114,47 @@ async function writeReport(syncKey, report) {
   });
 }
 
-async function buildReport(syncKey, data, ymd) {
-  const holdings = [...normalizeList(data?.holdings), ...normalizeList(data?.holdings2), ...normalizeList(data?.holdings4)]
-    .map(normalizeHolding)
-    .filter(Boolean);
-
-  if (!holdings.length || isWeekend(ymd)) {
-    const report = {
-      report_date: isoKstDate(),
-      market_session_date: ymd,
-      generated_at: new Date().toISOString(),
-      holdings_snapshot: holdings,
-      per_symbol_metrics: holdings.map((h) => ({ symbol: h.symbol, name: h.name, quantity: h.quantity, status: "no_data", chartBars: [] })),
-      total_change: 0,
-      total_change_pct: 0,
-      provider_status: { provider: "market-calendar", ok: false, message: isWeekend(ymd) ? "미국 주말이라 새 정규장 데이터가 없습니다." : "미국 보유 종목이 없습니다." }
-    };
-    await writeReport(syncKey, report);
-    return { ok: false, symbols: holdings.length, report };
+export async function buildReport(syncKey, data, cutoff, dependencies = {}) {
+  const readDaily = dependencies.fetchDaily || fetchDaily;
+  const save = dependencies.writeReport || writeReport;
+  const combined = new Map();
+  for (const h of [...normalizeList(data?.holdings), ...normalizeList(data?.holdings2), ...normalizeList(data?.holdings4)].map(normalizeHolding).filter(Boolean)) {
+    const prior = combined.get(h.symbol);
+    combined.set(h.symbol, { ...h, quantity: h.quantity + (prior?.quantity || 0) });
   }
-
+  const holdings = [...combined.values()];
+  // The benchmark's actual daily bars resolve weekends and exchange holidays without a hard-coded calendar.
+  const sessions = holdings.length ? (await readDaily("SPY")).filter(r => r.date <= cutoff) : [];
+  const ymd = sessions.at(-1)?.date || cutoff;
+  if (holdings.length && !sessions.length) throw new Error("최근 거래일을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  const cached = data?.morningReport?.latest;
+  if (cached?.schema_version === 2 && cached.market_session_date === ymd && cached.provider_status?.ok &&
+      JSON.stringify(cached.holdings_snapshot) === JSON.stringify(holdings)) return { ok: true, symbols: holdings.length, report: cached };
   const symbolReports = [];
-  for (const holding of holdings) {
-    const bars = await fetchBars(holding, ymd);
-    symbolReports.push(summarize(holding, bars));
+  const deadline = Date.now() + 40_000;
+  for (let start = 0; start < holdings.length; start += 4) {
+    symbolReports.push(...await Promise.all(holdings.slice(start, start + 4).map(async holding => {
+      try { if (Date.now() > deadline) throw new Error("deadline"); return summarize(holding, await readDaily(holding.symbol), ymd); }
+      catch { return { ...holding, status: "no_data", message: "시세 조회 실패 · 새로고침으로 재시도", chartBars: [] }; }
+    })));
   }
-
-  const openValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtOpen || 0), 0);
-  const closeValue = symbolReports.reduce((sum, s) => sum + (s.positionValueAtClose || 0), 0);
-  const sortedByImpact = symbolReports.filter((s) => typeof s.positionImpact === "number").sort((a, b) => b.positionImpact - a.positionImpact);
+  const valid = symbolReports.filter(s => s.status === "ok");
+  // Never erase a previous useful report when the provider is unavailable.
+  if (holdings.length && !valid.length) throw new Error("모든 종목의 시세 조회에 실패했습니다. 기존 리포트를 유지합니다.");
+  const previousValue = valid.reduce((sum, s) => sum + s.positionValueAtPreviousClose, 0);
+  const closeValue = valid.reduce((sum, s) => sum + s.positionValueAtClose, 0);
+  const complete = valid.length === holdings.length;
   const report = {
-    report_date: isoKstDate(),
-    market_session_date: ymd,
-    generated_at: new Date().toISOString(),
-    holdings_snapshot: holdings,
-    per_symbol_metrics: symbolReports,
-    chart_bars: Object.fromEntries(symbolReports.map((s) => [s.symbol, s.chartBars || []])),
-    total_open_value: money(openValue),
-    total_close_value: money(closeValue),
-    total_change: money(closeValue - openValue),
-    total_change_pct: openValue ? money(((closeValue - openValue) / openValue) * 100) : 0,
-    best_contributor: sortedByImpact[0] || null,
-    worst_contributor: sortedByImpact[sortedByImpact.length - 1] || null,
-    provider_status: { provider: TWELVE_DATA_API_KEY ? "twelve-data/yahoo" : "yahoo", ok: true }
+    schema_version: 2, report_date: isoKstDate(), market_session_date: ymd,
+    generated_at: new Date().toISOString(), holdings_snapshot: holdings, per_symbol_metrics: symbolReports,
+    total_previous_close_value: money(previousValue), total_close_value: money(closeValue),
+    total_change: valid.length ? money(closeValue - previousValue) : null,
+    total_change_pct: previousValue ? money((closeValue / previousValue - 1) * 100) : null,
+    provider_status: { provider: "yahoo", ok: complete, partial: !complete, available: valid.length, total: holdings.length,
+      message: !holdings.length ? "미국 보유 종목이 없습니다." : complete ? "" : `시세 확인 ${valid.length}/${holdings.length}종목 · 합계는 확인된 종목만 반영` }
   };
-  await writeReport(syncKey, report);
-  return { ok: true, symbols: holdings.length, report };
+  await save(syncKey, report);
+  return { ok: complete, symbols: holdings.length, report };
 }
 
 export default async function handler(req, res) {
@@ -288,8 +170,8 @@ export default async function handler(req, res) {
 
       const token = await verifyFirebaseIdToken(req);
       const uid = token.user_id || token.sub;
-      const access = await firebase(`keyMap/${safeKey(requestedDataKey)}`).catch(() => null);
-      if (access && access.ownerUid !== uid && !access.members?.[uid]) {
+      const access = await firebase(`keyMap/${safeKey(requestedDataKey)}`);
+      if (!access || (access.ownerUid !== uid && !access.members?.[uid])) {
         return json(res, 403, { ok: false, error: "Forbidden" });
       }
 

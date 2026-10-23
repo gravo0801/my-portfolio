@@ -3,6 +3,10 @@ let latestReport = null;
 let isGenerating = false;
 let statusMessage = "";
 let reportLoadInFlight = false;
+let sessionVersion = 0;
+let lastAttempt = 0;
+let currentIdentity = "";
+const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function readStorage(key, fallback = "") {
   try {
@@ -40,22 +44,22 @@ const css = `
 .mr-metric{text-align:right;font-size:12px;font-weight:800}.mr-metric small{display:block;margin-top:3px;color:#64748b;font-weight:700;overflow-wrap:anywhere}
 .mr-empty{font-size:12px;color:#94a3b8;line-height:1.6;padding:16px}
 @media(max-width:760px){.mr-fab{left:calc(env(safe-area-inset-left,0px) + 10px);bottom:calc(env(safe-area-inset-bottom,0px) + 12px);min-height:34px;padding:7px 9px;gap:6px}.mr-fab strong{font-size:11px}.mr-fab span{font-size:11px}.mr-overlay{padding:0;align-items:end;justify-items:stretch;background:rgba(2,6,23,.34)}.mr-panel{width:100%;max-height:min(82vh,680px);border-right:0;border-left:0;border-bottom:0;border-radius:16px 16px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}.mr-head{padding:14px 14px 11px}.mr-summary{grid-template-columns:1fr;padding:12px 14px}.mr-total{text-align:left}.mr-grid{padding:12px 14px}.mr-row{grid-template-columns:72px 1fr;padding:9px}.mr-metric{grid-column:1 / 3;text-align:left;display:flex;align-items:center;gap:10px}.mr-metric small{margin-top:0}}
-@media(max-width:420px){.mr-fab{width:42px;height:42px;min-height:42px;justify-content:center;padding:0;border-radius:50%}.mr-fab strong,.mr-fab span:not(.mr-dot){display:none}.mr-dot{width:10px;height:10px}}
+@media(max-width:420px){.mr-fab{min-height:44px}.mr-fab span:not(.mr-dot){display:none}}
 `;
 
 function fmtUsd(v) {
-  if (typeof v !== "number") return "-";
+  if (!Number.isFinite(v)) return "-";
   const sign = v > 0 ? "+" : "";
   return sign + new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v);
 }
 
 function fmtPct(v) {
-  if (typeof v !== "number") return "-";
+  if (!Number.isFinite(v)) return "-";
   return `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
 function fmtPrice(v) {
-  if (typeof v !== "number") return "-";
+  if (!Number.isFinite(v)) return "-";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v);
 }
 
@@ -64,6 +68,7 @@ function chartPath(bars) {
   const width = 180;
   const height = 44;
   const closes = bars.map((b) => Number(b.close)).filter((v) => Number.isFinite(v));
+  if (closes.length < 2) return "";
   const min = Math.min(...closes);
   const max = Math.max(...closes);
   const range = max - min || 1;
@@ -81,6 +86,8 @@ function ensureStyle() {
 function setOpen(next) {
   isOpen = next;
   render(latestReport);
+  if (next) { document.getElementById("mr-close")?.focus(); loadReport({ force:true }); }
+  else document.getElementById("mr-fab")?.focus();
 }
 
 function attachEvents() {
@@ -89,12 +96,19 @@ function attachEvents() {
   document.getElementById("mr-overlay")?.addEventListener("click", (event) => {
     if (event.target?.id === "mr-overlay") setOpen(false);
   });
+  document.getElementById("mr-refresh")?.addEventListener("click", () => loadReport({ force:true, retry:true }));
   document.removeEventListener("keydown", handleEscape);
   document.addEventListener("keydown", handleEscape);
 }
 
 function handleEscape(event) {
   if (event.key === "Escape" && isOpen) setOpen(false);
+  if (event.key === "Tab" && isOpen) {
+    const buttons = [...document.querySelectorAll(".mr-panel button:not(:disabled)")];
+    const first = buttons[0], last = buttons.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
 }
 
 function panelHtml(report, rows) {
@@ -102,28 +116,28 @@ function panelHtml(report, rows) {
   if (!report) {
     return `
       <div id="mr-overlay" class="mr-overlay">
-        <section class="mr-panel" role="dialog" aria-modal="true" aria-label="오늘 아침 리포트">
+        <section class="mr-panel" role="dialog" aria-modal="true" aria-label="미국장 마감 리포트">
           <div class="mr-head">
-            <div class="mr-title"><strong>오늘 아침 리포트</strong><span>보유 미국 주식 기준 리포트를 기다리는 중</span></div>
+            <div class="mr-title"><strong>미국장 마감 리포트</strong><span>보유 미국 주식 기준 리포트를 기다리는 중</span></div>
             <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
           </div>
-          <div class="mr-empty">${statusMessage || "보통 한국시간 화-토 07:30 전후에 생성됩니다. 지금 리포트가 없으면 자동으로 생성 요청을 보냅니다."}</div>
+          <div class="mr-empty">${escapeHtml(statusMessage || "최근 완료된 미국 거래일을 확인하고 있습니다.")}</div>
         </section>
       </div>`;
   }
 
   return `
     <div id="mr-overlay" class="mr-overlay">
-      <section class="mr-panel" role="dialog" aria-modal="true" aria-label="오늘 아침 리포트">
+      <section class="mr-panel" role="dialog" aria-modal="true" aria-label="미국장 마감 리포트">
         <div class="mr-head">
           <div class="mr-title">
-            <strong>오늘 아침 리포트</strong>
-            <span>${report.market_session_date || ""} 미국 정규장 09:30-16:00 ET · 보유 미국 주식 기준</span>
+            <strong>미국장 마감 리포트</strong>
+            <span>${escapeHtml(report.market_session_date)} 미국 거래일 · 전일 종가 대비</span>
           </div>
           <button id="mr-close" class="mr-close" type="button" aria-label="닫기">×</button>
         </div>
         <div class="mr-summary">
-          <div class="mr-meta">밤사이 포트폴리오 움직임입니다. 보유 미국 종목 전체를 표시합니다.</div>
+          <div class="mr-meta">현재 보유수량 기준 예상 변동액(USD) · 환율·배당·거래 내역 제외<br>차트: 최근 10거래일 종가</div>
           <div class="mr-total">
             <strong class="${(report.total_change || 0) >= 0 ? "mr-pos" : "mr-neg"}">${fmtUsd(report.total_change)}</strong>
             <span class="${(report.total_change_pct || 0) >= 0 ? "mr-pos" : "mr-neg"}">${fmtPct(report.total_change_pct)}</span>
@@ -136,15 +150,15 @@ function panelHtml(report, rows) {
                   const hasData = symbol.status === "ok";
                   const positive = (symbol.changePct || 0) >= 0;
                   return `<article class="mr-row">
-                    <div class="mr-symbol"><strong>${symbol.symbol}</strong><span>${symbol.name || ""}</span></div>
-                    <svg class="mr-chart" viewBox="0 0 180 44" role="img" aria-label="${symbol.symbol} intraday chart">
+                    <div class="mr-symbol"><strong>${escapeHtml(symbol.symbol)}</strong><span>${escapeHtml(symbol.name)}</span></div>
+                    <svg class="mr-chart" viewBox="0 0 180 44" role="img" aria-label="${escapeHtml(symbol.symbol)} 최근 종가 추이">
                       ${hasData ? `<polyline points="${chartPath(symbol.chartBars)}" stroke="${positive ? "#34d399" : "#f87171"}"></polyline>` : ""}
                     </svg>
-                    <div class="mr-metric ${hasData ? (positive ? "mr-pos" : "mr-neg") : ""}">${hasData ? fmtPct(symbol.changePct) : "데이터 없음"}<small>${hasData ? `${fmtUsd(symbol.positionImpact)} · ${fmtPrice(symbol.open)}→${fmtPrice(symbol.close)}` : symbol.message || "정규장 데이터 없음"}</small></div>
+                    <div class="mr-metric ${hasData ? (positive ? "mr-pos" : "mr-neg") : ""}">${hasData ? fmtPct(symbol.changePct) : "데이터 없음"}<small>${hasData ? `${fmtUsd(symbol.positionImpact)} · ${fmtPrice(symbol.previousClose)}→${fmtPrice(symbol.close)}` : escapeHtml(symbol.message || "정규장 데이터 없음")}</small></div>
                   </article>`;
                 })
                 .join("")}</div>`
-            : `<div class="mr-empty">${report.provider_status?.message || "표시할 정규장 데이터가 없습니다."}</div>`
+            : `<div class="mr-empty">${escapeHtml(report.provider_status?.message || "표시할 정규장 데이터가 없습니다.")}</div>`
         }
       </section>
     </div>`;
@@ -156,7 +170,7 @@ function render(report) {
   if (!root) return;
   ensureStyle();
 
-  const rows = (report?.per_symbol_metrics || [])
+  const rows = [...(report?.per_symbol_metrics || [])]
     .sort((a, b) => {
       if (a.status === "ok" && b.status !== "ok") return -1;
       if (a.status !== "ok" && b.status === "ok") return 1;
@@ -164,6 +178,8 @@ function render(report) {
     });
   const tone = (report?.total_change || 0) >= 0 ? "mr-pos" : "mr-neg";
 
+  const focusId = root.contains(document.activeElement) ? document.activeElement.id : null;
+  const oldScroll = root.querySelector(".mr-panel")?.scrollTop || 0;
   root.innerHTML = `
     <button id="mr-fab" class="mr-fab" type="button" aria-label="아침 리포트 열기" aria-expanded="${isOpen ? "true" : "false"}">
       <span class="mr-dot"></span>
@@ -171,7 +187,16 @@ function render(report) {
       <span class="${tone}">${report ? fmtPct(report.total_change_pct) : isGenerating ? "생성중" : "대기"}</span>
     </button>
     ${panelHtml(report, rows)}`;
+  const panel = root.querySelector(".mr-panel");
+  if (panel) {
+    const footer = document.createElement("div");
+    footer.className = "mr-empty";
+    footer.innerHTML = `<div role="status">${escapeHtml(statusMessage || report?.provider_status?.message || "")}</div><button id="mr-refresh" type="button" ${isGenerating ? "disabled" : ""}>${isGenerating ? "갱신 중…" : "새로고침"}</button>`;
+    panel.appendChild(footer);
+  }
   attachEvents();
+  if (panel) panel.scrollTop = oldScroll;
+  if (focusId) document.getElementById(focusId)?.focus();
 }
 
 async function getFirebaseIdToken() {
@@ -184,96 +209,90 @@ async function getFirebaseIdToken() {
   }
 }
 
-async function requestReportGeneration(sessionKey, { legacy = false } = {}) {
-  if (isGenerating) return;
+function identity() {
+  return [readStorage("pm_synckey"), readStorage("pm_sync_hash"), readStorage("pm_data_path"), readStorage("pm_auth_mode")].join("|");
+}
+
+async function loadReport({ force = false, retry = false } = {}) {
+  const nextIdentity = identity();
+  if (nextIdentity !== currentIdentity) {
+    currentIdentity = nextIdentity;
+    sessionVersion++;
+    latestReport = null;
+    isOpen = false;
+    statusMessage = "";
+    lastAttempt = 0;
+    reportLoadInFlight = false;
+    isGenerating = false;
+  }
+  const syncKey = readStorage("pm_synckey");
+  const root = document.getElementById("morning-report-root");
+  if (!syncKey) { if (root) root.innerHTML = ""; return; }
+  if (reportLoadInFlight || (!force && !isPageVisible())) return;
+  if (!retry && Date.now() - lastAttempt < 60_000) return;
+  lastAttempt = Date.now();
+  reportLoadInFlight = true;
+  const version = sessionVersion;
+  const active = () => version === sessionVersion && nextIdentity === identity();
+  const dataKey = readStorage("pm_sync_hash", syncKey) || syncKey;
+  const dataPath = readStorage("pm_data_path", `users/${dataKey}`);
+  const legacy = readStorage("pm_auth_mode") === "legacy-key" || (dataKey === syncKey && dataPath === `users/${syncKey}`);
   isGenerating = true;
-  statusMessage = "리포트를 생성하는 중입니다. 보유 종목 수에 따라 잠시 걸릴 수 있습니다.";
+  statusMessage = "최근 완료된 거래일의 종가를 확인하는 중입니다…";
   render(latestReport);
   try {
-    const token = legacy ? null : await getFirebaseIdToken();
-    const queryKey = legacy ? "syncKey" : "dataKey";
-    const res = await fetch(`/api/cron/morning-report?${queryKey}=${encodeURIComponent(sessionKey)}`, {
-      cache: "no-store",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    statusMessage = "";
-    render(data.report || null);
-  } catch (error) {
-    statusMessage = `리포트 생성 실패: ${error?.message || "알 수 없는 오류"}`;
-    render(null);
-  } finally {
-    isGenerating = false;
-    render(latestReport);
-  }
-}
-
-function shouldRegenerate(report) {
-  if (!report || report.provider_status?.provider === "demo") return true;
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(now);
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const kstToday = `${map.year}-${map.month}-${map.day}`;
-  const afterMorningRun = Number(map.hour) > 7 || (Number(map.hour) === 7 && Number(map.minute) >= 30);
-  return afterMorningRun && report.report_date !== kstToday;
-}
-
-async function loadReportInner() {
-  const syncKey = readStorage("pm_synckey");
-  const dataKey = readStorage("pm_sync_hash", syncKey) || syncKey;
-  const dataPath = readStorage("pm_data_path", dataKey ? `users/${dataKey}` : "");
-  const authMode = readStorage("pm_auth_mode");
-  const legacyMode = authMode === "legacy-key" || (syncKey && dataKey === syncKey && dataPath === `users/${syncKey}`);
-  const reportKey = legacyMode ? syncKey : dataKey;
-  if (!dataKey || !dataPath) {
-    render(null);
-    return;
-  }
-  try {
-    if (window.firebaseDB) {
-      const db = window.firebaseDB.getDatabase();
-      const snap = await window.firebaseDB.get(window.firebaseDB.ref(db, `${dataPath}/morningReport/latest`));
-      const report = snap.val();
-      if (report) statusMessage = "";
-      render(report);
-      if (shouldRegenerate(report)) requestReportGeneration(reportKey, { legacy: legacyMode });
-      return;
+    // Restore a useful report while refreshing; never display the old intraday calculation as daily change.
+    if (!latestReport && window.firebaseDB) {
+      try {
+        const db = window.firebaseDB.getDatabase();
+        const cached = await Promise.race([
+          window.firebaseDB.get(window.firebaseDB.ref(db, `${dataPath}/morningReport/latest`)).then(s => s.val()),
+          new Promise(resolve => setTimeout(() => resolve(null), 3000))
+        ]);
+        if (!active()) return;
+        if (cached?.schema_version === 2) render(cached);
+      } catch { /* The authenticated API below is the source of truth. */ }
     }
-  } catch {}
-  try {
-    const res = await fetch(`https://stockmanagehw-default-rtdb.firebaseio.com/${dataPath}/morningReport/latest.json`, { cache: "no-store" });
-    const report = await res.json();
-    if (report) statusMessage = "";
-    render(report);
-    if (shouldRegenerate(report)) requestReportGeneration(reportKey, { legacy: legacyMode });
-  } catch {
-    render(null);
-    requestReportGeneration(reportKey, { legacy: legacyMode });
-  }
-}
-
-async function loadReport({ force = false } = {}) {
-  if (reportLoadInFlight || (!force && !isPageVisible())) return;
-  reportLoadInFlight = true;
-  try {
-    await loadReportInner();
+    const token = legacy ? null : await getFirebaseIdToken();
+    if (!active()) return;
+    if (!legacy && !token) throw new Error("로그인 연결을 확인한 후 다시 시도해 주세요.");
+    const response = await fetch(`/api/cron/morning-report?${legacy ? "syncKey" : "dataKey"}=${encodeURIComponent(legacy ? syncKey : dataKey)}`, {
+      cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(60_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!active()) return;
+    if (!response.ok || !data.ok || data.report?.schema_version !== 2) throw new Error(data.error || "리포트를 불러오지 못했습니다.");
+    statusMessage = "";
+    const seenKey = `pm_morning_seen:${dataKey}`;
+    const hour = Number(new Intl.DateTimeFormat("en", {timeZone:"Asia/Seoul", hour:"numeric", hourCycle:"h23"}).format(new Date()));
+    const today = new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Seoul"}).format(new Date());
+    const ageDays = (new Date(`${today}T12:00:00Z`) - new Date(`${data.report.market_session_date}T12:00:00Z`)) / 86400000;
+    const autoOpen = isPageVisible() && hour >= 7 && hour < 12 && ageDays <= 1 && data.report.per_symbol_metrics?.some(s => s.status === "ok") && readStorage(seenKey) !== data.report.market_session_date;
+    if (autoOpen) {
+      isOpen = true;
+      try { window.localStorage.setItem(seenKey, data.report.market_session_date); } catch {}
+    }
+    render(data.report);
+    if (autoOpen) document.getElementById("mr-close")?.focus();
+  } catch (error) {
+    if (!active()) return;
+    statusMessage = `${latestReport ? "이전 리포트 표시 중 · " : ""}${error?.name === "TimeoutError" ? "응답이 지연되고 있습니다. 새로고침해 주세요." : error?.message || "조회 실패"}`;
   } finally {
-    reportLoadInFlight = false;
+    if (active()) {
+      reportLoadInFlight = false;
+      isGenerating = false;
+      render(latestReport);
+    }
   }
 }
 
 window.addEventListener("load", () => loadReport({ force:true }));
-document.addEventListener("visibilitychange", () => {
-  if (isPageVisible()) loadReport({ force:true });
-});
+window.addEventListener("portfolio-session-change", () => loadReport({ force:true, retry:true }));
+window.addEventListener("storage", () => loadReport({ force:true }));
+window.addEventListener("online", () => loadReport({ force:true, retry:true }));
+document.addEventListener("visibilitychange", () => { if (isPageVisible()) loadReport({ force:true }); });
 setTimeout(() => loadReport({ force:true }), 1500);
 setInterval(() => loadReport(), 5 * 60 * 1000);
+
+// localStorage events do not fire in the tab that changes the session.
+setInterval(() => { if (identity() !== currentIdentity) loadReport({ force:true }); }, 1000);
