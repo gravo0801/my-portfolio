@@ -1,3 +1,5 @@
+import DepositManager from "./DepositManager.jsx";
+import useDeposits from "./useDeposits.js";
 import FxPerformanceCard from "./FxPerformanceCard.jsx";
 import { calculatePerformance, isUsdHolding, calendarSnapshot, snapshotChange } from "./fx-performance.js";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -3942,6 +3944,7 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     lastTossAt: 0,
     updatedAt: 0,
   });
+  const depositLedger = useDeposits(userPath);
   const [mainTab, setMainTab]   = useState("overview"); // "overview" | "p1" | "p2" | "p3" | "p4" | "tax" | "calendar" | "simulator"
   const [overviewTab, setOverviewTab] = useState("all"); // "all"|"account"|"broker"|"market"
   // ── 자산 시뮬레이터 ──
@@ -4441,6 +4444,7 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
       holdings, holdings2, holdings4, closedHoldings, trades,
       divInfo, divRecords, alerts, watchlist,
       contribLimits, contribAmounts,
+      ...(depositLedger.ready ? {deposits:depositLedger.records} : {}),
     },
   });
 
@@ -4461,7 +4465,7 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     }
   };
 
-  const restoreFromBackup = (backupData) => {
+  const restoreFromBackup = async (backupData) => {
     if (!backupData || typeof backupData !== "object") {
       toast("올바르지 않은 백업 데이터", "error"); return;
     }
@@ -4471,6 +4475,7 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     }
     const summary = [
       `종목: P1 ${(d.holdings?.length||0)}, P2 ${(d.holdings2?.length||0)}, RIA ${(d.holdings4?.length||0)}개`,
+      `입금: ${d.deposits?.length||0}건 (기존 기록과 병합)`,
       `매매: ${d.trades?.length||0}건`,
       `배당: ${d.divRecords?.length||0}건`,
       `알람: ${d.alerts?.length||0}건`,
@@ -4484,6 +4489,7 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     );
     if (!ok) return;
     try {
+      if (d.deposits !== undefined) await depositLedger.restore(d.deposits);
       // 빈 배열로 덮어쓰는 실수 방지: 명시적으로 있는 키만 적용
       if (Array.isArray(d.holdings))       setHoldings(d.holdings);
       if (Array.isArray(d.holdings2))      setHoldings2(d.holdings2);
@@ -7003,13 +7009,13 @@ ${analystSummary}
         )}
         {/* 포트폴리오 선택 탭 */}
         <div style={{ display:"flex", gap:"4px", marginTop:isMobile?"3px":"6px", marginBottom:isMobile?"2px":"4px", overflowX:isMobile?"auto":"visible", flexWrap:isMobile?"nowrap":"wrap", paddingBottom:isMobile?"2px":0 }}>
-          {[["overview","🏠 전체현황"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["sectors","🧱 히트맵/섹터"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"],["fx-settings","⚙️ 환율 설정"]].map(([id,label])=>(
+          {[["overview","🏠 전체현황"],["deposits","💸 입금 관리"],["p1","📊 포트폴리오1"],["p2","🏦 포트폴리오2"],["p3","💧 포트폴리오3"],["p4","🇰🇷 RIA"],["sectors","🧱 히트맵/섹터"],["tax","💰 양도세"],["calendar","📅 캘린더"],["simulator","🧮 시뮬레이터"],["fx-settings","⚙️ 환율 설정"]].map(([id,label])=>(
             <button key={id} onClick={()=>{setMainTab(id);setTab("portfolio");}} style={{ background:mainTab===id?"rgba(99,102,241,0.3)":"rgba(255,255,255,0.04)", border:mainTab===id?"1px solid rgba(99,102,241,0.55)":"1px solid rgba(255,255,255,0.08)", color:mainTab===id?"#c7d2fe":"#64748b", padding:isMobile?"5px 10px":"6px 16px", borderRadius:"8px", cursor:"pointer", fontSize:isMobile?"11px":"13px", fontWeight:mainTab===id?800:500, letterSpacing:"-0.01em", fontFamily:FONT, flexShrink:0 }}>
-              {isMobile?(id==="overview"?"전광판":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="sectors"?"히트맵":id==="tax"?"양도세":id==="calendar"?"캘린더":id==="fx-settings"?"환율 설정":"시뮬"):label}
+              {isMobile?(id==="deposits"?"입금 관리":id==="overview"?"전광판":id==="p1"?"P1":id==="p2"?"P2":id==="p3"?"P3":id==="p4"?"RIA":id==="sectors"?"히트맵":id==="tax"?"양도세":id==="calendar"?"캘린더":id==="fx-settings"?"환율 설정":"시뮬"):label}
             </button>
           ))}
         </div>
-        {(mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator" && mainTab !== "sectors" && mainTab !== "fx-settings") && (
+        {(mainTab !== "deposits" && mainTab !== "overview" && mainTab !== "tax" && mainTab !== "calendar" && mainTab !== "p4" && mainTab !== "simulator" && mainTab !== "sectors" && mainTab !== "fx-settings") && (
           <div style={{ display:"flex", gap:"3px", flexWrap:"wrap" }}>
             {tabs.map(([id, label]) => (
               <button key={id} onClick={() => setTab(id)} style={{ background:tab===id?"rgba(99,102,241,0.2)":"transparent", border:tab===id?"1px solid rgba(99,102,241,0.4)":"1px solid transparent", color:tab===id?"#a5b4fc":"#475569", padding:isMobile?"4px 9px":"5px 12px", borderRadius:"7px", cursor:"pointer", fontSize:isMobile?"11px":"12px", fontWeight:tab===id?700:500, letterSpacing:"-0.01em", fontFamily:FONT }}>
@@ -7022,6 +7028,7 @@ ${analystSummary}
 
       <div style={{ padding:isMobile?"6px 10px":"14px 20px", maxWidth:mainTab==="overview"?"1360px":"1200px", margin:"0 auto" }}>
 
+        {mainTab === "deposits" && <DepositManager key={userPath} ledger={depositLedger} today={appToday} suggestions={[...TAX_ACCOUNTS,"ISA",...holdings.map(h=>h.market==="ISA"?"ISA":h.broker).filter(Boolean),...holdings4.map(h=>`${h.broker || ""} RIA`.trim())]}/>}
         {/* ── OVERVIEW ── */}
         {mainTab === "fx-settings" && <div style={{marginBottom:14}}>
           <h2 style={{fontSize:20,margin:"0 0 10px"}}>환율 설정</h2>
