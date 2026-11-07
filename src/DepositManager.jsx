@@ -12,7 +12,7 @@ export default function DepositManager({ledger, suggestions, today}) {
   const [busy,setBusy] = useState(false);
   const [message,setMessage] = useState('');
   const fileInput = useRef(null);
-  const accounts = useMemo(()=>[...new Set([...suggestions,...records.map(r=>r.account)])].filter(Boolean).sort(),[suggestions,records]);
+  const accounts = useMemo(()=>[...new Set(["케이뱅크",...suggestions,...records.map(r=>r.account)])].filter(Boolean).sort(),[suggestions,records]);
   const stats = useMemo(()=>depositStats(records,year,account),[records,year,account]);
   const years = [...new Set([today.slice(0,4),year,...records.map(r=>r.date.slice(0,4))])].sort().reverse();
   const rows = records.filter(r=>r.date.startsWith(month || year) && (!account || r.account===account)).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
@@ -56,14 +56,14 @@ export default function DepositManager({ledger, suggestions, today}) {
     <div className="dep-card">
       <h3>{editing?'입금 수정':'입금 기록하기'}</h3>
       <form onSubmit={submit}>
-        <fieldset disabled={!ready||!connected||busy}>
+        <fieldset disabled={busy}>
           <div className="dep-form">
-            <label>입금 날짜<input type="date" required value={form.date} onChange={e=>change('date',e.target.value)}/></label>
+            <label>입금 날짜<span style={{display:'flex',gap:6}}><input type="date" aria-label="입금 날짜" required value={form.date} onChange={e=>change('date',e.target.value)} style={{colorScheme:'dark'}}/><button type="button" onClick={e=>{const input=e.currentTarget.previousElementSibling;try{input.showPicker();}catch{input.focus();}}}>달력</button></span><span style={{display:'flex',gap:6}}><input aria-label="입금 날짜 직접 입력" type="text" placeholder="YYYY-MM-DD" value={form.date} onChange={e=>change('date',e.target.value)} maxLength={10}/><button type="button" onClick={()=>change('date',today)}>오늘</button></span></label>
             <label>입금 계좌<input list="deposit-accounts" required maxLength={100} placeholder="계좌 선택 또는 직접 입력" value={form.account} onChange={e=>change('account',e.target.value)}/><datalist id="deposit-accounts">{accounts.map(a=><option key={a} value={a}/>)}</datalist></label>
             <label>입금액 (원)<input inputMode="numeric" required placeholder="예: 1,000,000" value={form.amount} onChange={e=>change('amount',e.target.value)}/></label>
             <label>메모 (선택)<input maxLength={500} placeholder="예: 11월 정기 납입" value={form.note} onChange={e=>change('note',e.target.value)}/></label>
           </div>
-          <div className="dep-actions"><button className="dep-primary" type="submit">{busy?'처리 중…':editing?'수정 저장':'입금 저장'}</button>{editing && <button type="button" onClick={reset}>수정 취소</button>}</div>
+          <div className="dep-actions"><button className="dep-primary" type="submit" disabled={!ready||!connected}>{busy?'처리 중…':editing?'수정 저장':'입금 저장'}</button>{editing && <button type="button" onClick={reset}>수정 취소</button>}</div>
         </fieldset>
       </form>
       <p className="dep-hint">계좌가 여러 개라면 ‘신한 일반’, ‘신한 ISA’처럼 구분해 주세요. 계좌 간 이체도 입력하면 총 입금액에 포함됩니다. 투자수익·순입금·세액공제 납입액과는 별도 집계입니다.</p>
