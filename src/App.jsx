@@ -8451,7 +8451,36 @@ ${analystSummary}
               const totalPg=Math.ceil(filtered.length/TRADE_PAGE_SIZE),curPg=Math.min(tradePage,totalPg);
               const paged=filtered.slice((curPg-1)*TRADE_PAGE_SIZE,curPg*TRADE_PAGE_SIZE);
               let lastDate2="";
+              // 매도 기록별 실현손익 (보유 여부와 무관하게 거래 기록만으로 계산)
+              const sellPnl=(t)=>{
+                if(t.type!=="sell") return null;
+                const qty=num(t.quantity,0), fee=num(t.fee,0);
+                if(isTradeUSCandidate(t)){
+                  const r=calculateUSRealizedTax(t,trades);
+                  if(r&&!r.needsAvgPrice&&r.profitUSD!=null&&r.acquisitionUSD>0){
+                    return {cur:"USD",profit:r.profitUSD,pct:r.profitUSD/r.acquisitionUSD*100,profitKRW:r.profitKRW,costKRW:r.acquisitionKRW};
+                  }
+                }
+                const basis=positiveNum(t.avgPriceAtSell,positiveNum(t.basisPrice,positiveNum(t.avgPriceSnapshot,0)));
+                if(!(basis>0)||!(qty>0)) return {missing:true};
+                const profit=(num(t.price,0)-basis)*qty-fee;
+                const isUS=isTradeUSCandidate(t);
+                const fx=isUS?getTradeFxRate(t,"sell"):1;
+                return {cur:isUS?"USD":"KRW",profit,pct:profit/(basis*qty)*100,profitKRW:profit*fx,costKRW:basis*qty*fx};
+              };
+              const sellList=filtered.filter(t=>t.type==="sell").map(sellPnl).filter(x=>x&&!x.missing);
+              const sumProfitKRW=sellList.reduce((a,x)=>a+x.profitKRW,0);
+              const sumCostKRW=sellList.reduce((a,x)=>a+x.costKRW,0);
+              const sumPct=sumCostKRW>0?sumProfitKRW/sumCostKRW*100:0;
               return(<>
+                {sellList.length>0&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px",flexWrap:"wrap",background:"rgba(239,68,68,0.07)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:"10px",padding:"9px 12px",marginBottom:"8px"}}>
+                    <span style={{fontSize:"12px",color:"#fca5a5",fontWeight:700}}>매도 {sellList.length}건 실현손익 합계</span>
+                    <span style={{fontSize:"14px",fontWeight:800,color:sumProfitKRW>=0?"#34d399":"#f87171"}}>
+                      {sumProfitKRW>=0?"+":"-"}{Math.round(Math.abs(sumProfitKRW)).toLocaleString()}₩ ({sumPct>=0?"+":""}{sumPct.toFixed(2)}%)
+                    </span>
+                  </div>
+                )}
                 {paged.map(t=>{
                   const hName=allH.find(x=>x.ticker===t.ticker)?.name||t.ticker;
                   const px=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
@@ -8503,6 +8532,21 @@ ${analystSummary}
                             </div>
                           );
                         })()}
+                        {/* 매도 실현손익 */}
+                        {t.type==="sell"&&(()=>{
+                          const r=sellPnl(t);
+                          if(!r) return null;
+                          if(r.missing) return <div style={{flexShrink:0,textAlign:"right",fontSize:"11px",color:"#94a3b8",minWidth:"70px"}}>매입가 정보 없음<br/>(수정에서 입력)</div>;
+                          const up=r.profit>=0, col=up?"#34d399":"#f87171";
+                          const amt=r.cur==="USD"?"$"+Math.abs(r.profit).toLocaleString(undefined,{maximumFractionDigits:2,minimumFractionDigits:2}):Math.round(Math.abs(r.profit)).toLocaleString()+"₩";
+                          return(
+                            <div style={{flexShrink:0,textAlign:"right",minWidth:"96px",background:up?"rgba(52,211,153,0.08)":"rgba(248,113,113,0.08)",border:`1px solid ${up?"rgba(52,211,153,0.3)":"rgba(248,113,113,0.3)"}`,borderRadius:"8px",padding:"3px 7px"}}>
+                              <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:700}}>실현손익</div>
+                              <div style={{fontSize:"13px",fontWeight:800,color:col,whiteSpace:"nowrap"}}>{up?"+":"-"}{amt} ({up?"+":""}{r.pct.toFixed(2)}%)</div>
+                              {r.cur==="USD"&&<div style={{fontSize:"10px",color:"#94a3b8",whiteSpace:"nowrap"}}>≈ {up?"+":"-"}{Math.round(Math.abs(r.profitKRW)).toLocaleString()}₩</div>}
+                            </div>
+                          );
+                        })()}
                         {/* 현재가 대비 등락 */}
                         {chgD!==null&&(
                           <div style={{flex:"0 0 auto",flexShrink:0,textAlign:"right",minWidth:"60px"}}>
@@ -8516,7 +8560,7 @@ ${analystSummary}
                             <button onClick={()=>runRetroAnalysis(t)} title="AI 매도 회고"
                               style={{background:"rgba(251,191,36,0.15)",border:"1px solid rgba(251,191,36,0.35)",color:"#fbbf24",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>🔍</button>
                           )}
-                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),fxRate:String(t.fxRate||t.sellFxRate||t.buyFxRate||""),note:t.note||"",taxAccount:t.taxAccount||"",portfolio:t.portfolio||""});}}
+                          <button onClick={()=>{setEditingTradeId(editingTradeId===t.id?null:t.id);setEditTradeForm({date:t.date||"",ticker:t.ticker||"",type:t.type||"buy",quantity:String(t.quantity||""),price:String(t.price||""),fee:String(t.fee||""),fxRate:String(t.fxRate||t.sellFxRate||t.buyFxRate||""),note:t.note||"",taxAccount:t.taxAccount||"",portfolio:t.portfolio||"",avgPriceAtSell:t.avgPriceAtSell?String(t.avgPriceAtSell):""});}}
                             style={{background:"none",border:"1px solid rgba(99,102,241,0.4)",color:"#a5b4fc",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✏️</button>
                           <button onClick={()=>{if(window.confirm("삭제?"))setTrades(p=>p.filter(x=>x.id!==t.id));}}
                             style={{background:"none",border:"1px solid rgba(239,68,68,0.3)",color:"#f87171",cursor:"pointer",fontSize:"12px",padding:"3px 5px",borderRadius:"5px",lineHeight:1}}>✕</button>
@@ -8541,13 +8585,16 @@ ${analystSummary}
                             <input placeholder="수량" type="number" value={editTradeForm.quantity} onChange={e=>setEditTradeForm(p=>({...p,quantity:e.target.value}))} style={S.inp}/>
                             <input placeholder="체결가" type="number" value={editTradeForm.price} onChange={e=>setEditTradeForm(p=>({...p,price:e.target.value}))} style={S.inp}/>
                             <input placeholder="수수료" type="number" value={editTradeForm.fee} onChange={e=>setEditTradeForm(p=>({...p,fee:e.target.value}))} style={S.inp}/>
+                            {editTradeForm.type==="sell"&&(
+                              <input placeholder="매입 평단가 (실현손익 계산용, 선택)" type="number" step="any" value={editTradeForm.avgPriceAtSell||""} onChange={e=>setEditTradeForm(p=>({...p,avgPriceAtSell:e.target.value}))} style={{...S.inp,borderColor:"rgba(251,191,36,0.45)"}}/>
+                            )}
                             <input placeholder="메모" value={editTradeForm.note} onChange={e=>setEditTradeForm(p=>({...p,note:e.target.value}))} style={{...S.inp,gridColumn:"1/-1"}}/>
                           </div>
                           <div style={{display:"flex",gap:"8px",marginTop:"8px"}}>
                             <button onClick={()=>setEditingTradeId(null)} style={S.btn("#475569",{fontSize:"12px"})}>취소</button>
                             <button onClick={()=>{
                               if(!editTradeForm.ticker||!editTradeForm.quantity||!editTradeForm.price) return;
-                              setTrades(p=>p.map(x=>x.id===t.id?buildTradeRecord({...x,...editTradeForm,id:x.id},editTradeForm.portfolio||x.portfolio||(mainTab==="p1"?"p1":"p2"),p):x));
+                              setTrades(p=>p.map(x=>x.id===t.id?buildTradeRecord({...x,...(+editTradeForm.avgPriceAtSell>0&&+editTradeForm.avgPriceAtSell!==+x.avgPriceAtSell?{taxAcquisitionUSD:undefined,taxAcquisitionKRW:undefined,taxSaleKRW:undefined,taxSellFeeKRW:undefined,taxProfitUSD:undefined,taxProfitKRW:undefined,taxRealizedLots:undefined,basisPrice:undefined,avgPriceSnapshot:undefined}:{}),...editTradeForm,id:x.id},editTradeForm.portfolio||x.portfolio||(mainTab==="p1"?"p1":"p2"),p):x));
                               setEditingTradeId(null);
                             }} style={S.btn("#6366f1",{fontSize:"12px"})}>✓ 저장</button>
                           </div>
