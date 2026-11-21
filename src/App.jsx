@@ -5830,6 +5830,10 @@ function PortfolioApp({ syncKey, dataKey, dataPath, authUid, onLogout }) {
     const h = findHoldingForTrade(record, record.portfolio);
     const archivedAtSell = record.type === "sell" ? findClosedHoldingForTrade(record, { requireDeletedAfterTrade:true }) : null;
     const basisSource = record.type === "sell" ? (archivedAtSell || h) : h;
+    if (!record.name && !basisSource) {
+      const closedName = (closedHoldings || []).filter(c => tickerKey(c?.ticker) === record.ticker && c?.name).slice(-1)[0]?.name;
+      if (closedName) record.name = closedName;
+    }
     if (basisSource) {
       record.name = record.name || basisSource.name || "";
       record.market = record.market || basisSource.market;
@@ -7928,7 +7932,7 @@ ${analystSummary}
                 const pagedP3=p3list.slice((curP3-1)*TRADE_PAGE_SIZE,curP3*TRADE_PAGE_SIZE); let lastD3="";
                 return(<>
                   {pagedP3.map(t=>{
-                    const hName=isaHoldings.find(x=>x.ticker===t.ticker)?.name||t.ticker;
+                    const hName=isaHoldings.find(x=>x.ticker===t.ticker)?.name||t.name||t.nameAtSell||t.ticker;
                     const px=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
                     const chgD=px&&t.price?px.price-t.price:null,chgP=chgD!==null&&t.price?chgD/t.price*100:null;
                     const tHp3=isaHoldings.find(x=>x.ticker===t.ticker);
@@ -8482,7 +8486,7 @@ ${analystSummary}
                   </div>
                 )}
                 {paged.map(t=>{
-                  const hName=allH.find(x=>x.ticker===t.ticker)?.name||t.ticker;
+                  const hName=allH.find(x=>x.ticker===t.ticker)?.name||t.name||t.nameAtSell||(closedHoldings||[]).filter(c=>tickerKey(c?.ticker)===tickerKey(t.ticker)&&c?.name).slice(-1)[0]?.name||t.ticker;
                   const px=prices[t.ticker]||prices[t.ticker+".KS"]||prices[t.ticker+".KQ"];
                   const chgD=px&&t.price?px.price-t.price:null;
                   const chgP=chgD!==null&&t.price?(chgD/t.price)*100:null;
