@@ -8368,7 +8368,17 @@ ${analystSummary}
             )}
             {/* 입력 폼 */}
             {showForm==="t"&&(()=>{
-              const availH = mainTab==="p1" ? holdings.filter(h=>h.market!=="ISA") : holdings2;
+              const baseH = mainTab==="p1" ? holdings.filter(h=>h.market!=="ISA") : holdings2;
+              const baseKeys = new Set(baseH.map(h=>tickerKey(h.ticker)));
+              const closedOpts = [];
+              (closedHoldings||[]).forEach(h=>{
+                const k = tickerKey(h?.ticker);
+                const port = h?.portfolio || "p1";
+                if (!k || baseKeys.has(k) || port !== (mainTab==="p1"?"p1":"p2")) return;
+                baseKeys.add(k);
+                closedOpts.push({ id:`closed-${h.holdingId||k}`, ticker:h.ticker, name:h.name, _closed:true });
+              });
+              const availH = [...baseH, ...closedOpts];
               const [inputMode, setInputMode] = [tForm._mode||"select", (m)=>setTForm(p=>({...p,_mode:m,ticker:""}))];
               return(
                 <div style={{background:"rgba(0,0,0,0.35)",borderRadius:"12px",padding:"14px",marginBottom:"12px",border:"1px solid rgba(99,102,241,0.35)"}}>
@@ -8382,7 +8392,7 @@ ${analystSummary}
                     {inputMode==="select"?(
                       <select value={tForm.ticker} onChange={e=>setTForm(p=>({...p,ticker:e.target.value}))} style={{...S.inp,appearance:"none"}}>
                         <option value="">보유종목 선택</option>
-                        {availH.map(h=><option key={h.id||h.ticker} value={h.ticker}>{h.name||h.ticker} ({h.ticker})</option>)}
+                        {availH.map(h=><option key={h.id||h.ticker} value={h.ticker}>{h.name||h.ticker} ({h.ticker}){h._closed?" · 청산":""}</option>)}
                       </select>
                     ):(
                       <input placeholder="티커 직접 입력 (예: AAPL, 005930)" value={tForm.ticker} onChange={e=>setTForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} style={{...S.inp,borderColor:"rgba(16,185,129,0.4)"}}/>
@@ -8412,8 +8422,13 @@ ${analystSummary}
                   <div style={{display:"flex",gap:"8px",marginTop:"10px"}}>
                     <button onClick={()=>setShowForm(null)} style={S.btn("#475569")}>취소</button>
                     <button onClick={()=>{
-                      if(!tForm.ticker||!tForm.quantity||!tForm.price) return;
-                      setTrades(p=>[...p,buildTradeRecord(tForm,mainTab==="p1"?"p1":"p2",p)]);
+                      const missing=[!tForm.ticker&&"종목",!(+tForm.quantity>0)&&"수량",!(+tForm.price>0)&&"체결가"].filter(Boolean);
+                      if(missing.length){ toast(`${missing.join("·")}을(를) 입력해 주세요`, "error"); return; }
+                      try{
+                        const rec=buildTradeRecord(tForm,mainTab==="p1"?"p1":"p2",trades);
+                        setTrades(p=>[...p,rec]);
+                        toast(`✓ ${rec.ticker} ${rec.type==="sell"?"매도":"매수"} ${rec.quantity}주 기록됨`, "success");
+                      }catch(err){ console.error("[trade save fail]", err); toast("매매 기록 저장 중 오류가 발생했습니다", "error"); return; }
                       setTForm({date:today(appTimeZone),ticker:"",type:"buy",quantity:"",price:"",fee:"",fxRate:"",note:"",taxAccount:"",sellReason:"",_mode:tForm._mode||"select"});
                       setShowForm(null);
                     }} style={S.btn(mainTab==="p2"?"#f59e0b":"#10b981")}>✓ 저장</button>
@@ -8424,8 +8439,9 @@ ${analystSummary}
             {/* 목록 */}
             {(()=>{
               const allH=[...holdings,...holdings2];
-              const p1Tickers=new Set(holdingsP1.map(h=>h.ticker));
+              const p1Tickers=new Set([...holdingsP1.map(h=>h.ticker),...(closedHoldings||[]).filter(h=>!h?.portfolio||h.portfolio==="p1").map(h=>h.ticker)]);
               const raw=[...trades].filter(isValidTradeRecord).filter(t=>{
+                if(t.source==="manual"&&(t.portfolio||"p1")===(mainTab==="p1"?"p1":"p2")) return true;
                 if(mainTab==="p1") return (t.portfolio==="p1"&&p1Tickers.has(t.ticker))||((!t.portfolio||t.portfolio==="p1")&&p1Tickers.has(t.ticker));
                 return t.portfolio==="p2"||(!t.portfolio&&holdings2.some(h=>h.ticker===t.ticker));
               });
